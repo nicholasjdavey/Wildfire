@@ -6,7 +6,7 @@ Created on Sun Dec 10 23:35:25 2017
 """
 
 import numpy
-import Station
+from Station import Station
 
 class AirStrip(Station):
     # Class for defining air strips

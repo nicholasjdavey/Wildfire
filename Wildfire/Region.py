@@ -6,6 +6,7 @@ Created on Sun Dec 10 23:10:43 2017
 """
 
 import numpy
+from Process import Process
 
 class Region():
     # Class for defining a study region
@@ -14,14 +15,19 @@ class Region():
         # Constructs an instance
         self.patches = []
         self.stations = []
-        self.fireSeverity = numpy.empty([0,0])
-        self.dangerIndex = numpy.empty([0,0])
-        self.rain = numpy.empty([0,0])
-        self.humidity = numpy.empty([0,0])
-        self.wind = numpy.empty([0,0])
-        self.temperature = numpy.empty([0,0])
+        self.fireSeverity_0 = numpy.empty([0,0])
+        self.dangerIndex_0 = numpy.empty([0,0])
+        self.rain_0 = numpy.empty([0,0])
+        self.humidity_0 = numpy.empty([0,0])
+        self.wind_0 = numpy.empty([0,0])
+        self.temperature_0 = numpy.empty([0,0])
+        self.vegetation = []
         self.stationDistances = numpy.empty([0,0])
-        self.simulations = []
+        self.stationPatchDistances = numpy.empty([0,0])
+        self.weatherGenerator = None
+        self.endArea = None
+        self.attackSuccess = None
+        self.fires = []
         self.name = ""
         
     

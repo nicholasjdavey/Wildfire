@@ -6,7 +6,7 @@ Created on Sun Dec 10 23:35:45 2017
 """
 
 import numpy
-import Resource
+from Resource import Resource
 from datetime import timedelta
 
 class Heli(Resource):

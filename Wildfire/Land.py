@@ -6,7 +6,7 @@ Created on Sun Dec 10 23:35:51 2017
 """
 
 import numpy
-import Resource
+from Resource import Resource
 
 class Land(Resource):
     # Class for defining fire trucks

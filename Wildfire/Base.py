@@ -6,7 +6,7 @@ Created on Sun Dec 10 23:35:32 2017
 """
 
 import numpy
-import Station
+from Station import Station
 
 class Base(Station):
     # Class for managing land bases for fire trucks
