@@ -12,7 +12,9 @@ from Patch import Patch
 from pathlib import Path
 from Region import Region
 from AirStrip import AirStrip
-from Bases import Bases
+from Tanker import Tanker
+from Heli import Heli
+from Base import Base
 from Simulation import Simulation
 from VariableParameters import VariableParameters
 from ExperimentalScenario import ExperimentalScenario
@@ -123,7 +125,7 @@ class Model():
 
         regionConfig = Path(root + "/Region_Configuration.csv")
         if regionConfig.is_file():
-            # If exists, just call the data
+            # If exists, just call the pre-created data
             regionConfigFile = open(root + "/Region_Configuration.csv")
             print(regionConfigFile.readline())
 
@@ -146,7 +148,7 @@ class Model():
                     patch.setAvDanger([float(rows[iterator][3])])
                     patch.setAvSeverity([float(rows[iterator][4])])
                     patch.setArea(float(rows[iterator][6]))
-                    patch.setIndices([int(rows[iterator][7+ii]) for ii in range(len(rows[iterator])-7)])
+                    patch.setIndices([int(rows[iterator][7].split(" ")[ii]) for ii in range(len(rows[iterator][7].split(" ")))])
                     patches.append(patch)
                     iterator = iterator + 1
 
@@ -155,13 +157,42 @@ class Model():
             # Store all the air strips
             test = True
             while test:
-                if all('' == s or s.isspace() for s in rows[iterator][1:4]):
+                if (all('' == s or s.isspace() for s in rows[iterator][1:4]) or (len(rows[iterator]) < 8)):
                     test = False
                     iterator = iterator + 2
                 else:
+                    airStrip = AirStrip()
+                    airStrip.setLocation(numpy.array([float(rows[iterator][1]),float(rows[iterator][2])]))
+                    noAircraft = int(rows[iterator][3])
+                    aircraftList = []
+                    for ii in range(noAircraft):
+                        aircraft = Tanker()
+                        aircraftList.append(aircraft)
+                    noHelicopters = int(rows[iterator][4])
+                    heliList = []
+                    for ii in range(noHelicopters):
+                        heli = Heli()
+                        heliList.append(heli)
+                    airStrip.setHelicopters(heliList)
+                    airStrip.setCapacity(float(rows[iterator][5]))
+                    airStrips.append(airStrip)
+                    iterator = iterator + 1
 
+            # Store all the bases
+            test = True
+            while test:
+                if (all('' == s or s.isspace() for s in rows[iterator][1:4]) or (len(rows[iterator]) < 8)):
+                    test = False
+                    iterator = iterator + 2
+                else:
                     bases.append([float(ii) for ii in rows[iterator][1:4]])
                     iterator = iterator + 1
+
+            # Raw patch data
+
+            self.region.setPatches(patches)
+            self.region.setBases(bases)
+            self.region.setAirStrips(airStrips)
 
             regionConfigFile.close()
         else:
@@ -181,6 +212,10 @@ class Model():
             weatherConfigFile = open(root + "/Weather_Configuration.csv","w+")
 
             weatherConfigFile.close()
+
+        # Attack success probabilities
+
+        # Resource Data
 
     def computeWeatherParameters(self):
         pass

@@ -16,3 +16,15 @@ class AirStrip(Station):
         Station.__init__(self)
         self.airTankers = []
         self.helicopters = []
+
+    def getAirTankers(self):
+        return self.airTankers
+
+    def setAirTankers(self,at):
+        self.airTankers = at
+
+    def getHelicopters(self):
+        return self.helicopters
+
+    def setHelicopters(self,h):
+        self.helicopters = h
