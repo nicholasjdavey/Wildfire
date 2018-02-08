@@ -34,6 +34,13 @@ Aircraft 1                : Experiments/Input_Data/Aircraft/Tanker
 Aircraft 2                : Experiments/Input_Data/Aircraft/Helicopter
 
 ###############################################################################
+## FIRETRUCK DATA
+###############################################################################
+# Add as many lines as needed for each firetruck type. Provide the source file.
+Number of Aircraft Used   : 1
+Firetruck 1               : Experiments/Input_Data/Land/Truck
+
+###############################################################################
 ## OCCURRENCE DATA
 ###############################################################################
 ## VEGETATION AND WEATHER JOINT FIRE PROBABILITY

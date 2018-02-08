@@ -18,3 +18,15 @@ class Heli(Resource):
         self.flyingHOurs = timedelta(hours = 0)
         self.maxDailyHours = timedelta(hours = 0)
         
+    def getFlyingHours(self):
+        return self.flyingHours
+        
+    def setFlyingHours(self,h):
+        self.flyingHours = h
+        
+    def getMaxDailyHours(self):
+        return self.maxDailyHours
+        
+    def setMaxDailyHours(self,d):
+        self.maxDailyHours = d
+        

@@ -14,6 +14,7 @@ from Region import Region
 from AirStrip import AirStrip
 from Tanker import Tanker
 from Heli import Heli
+from Land import Land
 from Base import Base
 from Simulation import Simulation
 from VariableParameters import VariableParameters
@@ -35,6 +36,7 @@ class Model():
         self.occurrenceDataFile = ""
         self.exDamageDataFile = ""
         self.aircraftDataFiles = []
+        self.landcraftDataFiles = []
         self.simulations = []
         self.variableParameters = None
         self.controls = []
@@ -59,16 +61,24 @@ class Model():
         for ii in range(noAircraft):
             aircraftData.append(contents[32+ii].split(":")[1].strip())
 
-        self.aircraftDataFile = aircraftData
+        self.aircraftDataFiles = aircraftData
+        
+        noLandcraft = int(contents[37+noAircraft].split(":")[1].strip())
+        landcraftData = []
+        
+        for ii in range(noLandcraft):
+            landcraftData.append(contents[38+noAircraft+ii].split(":")[1].strip())
 
-        occurrenceData = contents[39].split(":")[1].strip()
-        exDamageData = contents[45].split(":")[1].strip()
+        self.landcraftDataFiles = landcraftData
 
-        noControls = int(contents[62].split(":")[1].strip())
+        occurrenceData = contents[43+noAircraft+noLandcraft].split(":")[1].strip()
+        exDamageData = contents[49+noAircraft+noLandcraft].split(":")[1].strip()
+
+        noControls = int(contents[66+noAircraft+noLandcraft].split(":")[1].strip())
 
         for ii in range(noControls):
             control = Control()
-            varsStr = contents[64+ii].split(":")[1]
+            varsStr = contents[68+noAircraft+noLandcraft+ii].split(":")[1]
             lambda1 = float(varsStr.split()[0].strip())
             lambda2 = float(varsStr.split()[1].strip())
             control.setLambda1(lambda1)
@@ -77,22 +87,22 @@ class Model():
 
         varParams = VariableParameters()
 
-        varsStr = contents[67+noControls].split(":")[1].strip()
+        varsStr = contents[71+noAircraft+noLandcraft+noControls].split(":")[1].strip()
         varsStrs = varsStr.split(",")
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setSpeedMultipliers(varsFloat)
 
-        varsStr = contents[68+noControls].split(":")[1].strip()
+        varsStr = contents[72+noAircraft+noLandcraft+noControls].split(":")[1].strip()
         varsStrs = varsStr.split(",")
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setOccurrenceProbMultipliers(varsFloat)
 
-        varsStr = contents[69+noControls].split(":")[1].strip()
+        varsStr = contents[73+noAircraft+noLandcraft+noControls].split(":")[1].strip()
         varsStrs = varsStr.split(",")
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setDamageIntensityMultipliers(varsFloat)
 
-        varsStr = contents[70+noControls].split(":")[1].strip()
+        varsStr = contents[74+noAircraft+noLandcraft+noControls].split(":")[1].strip()
         varsStrs = varsStr.split(",")
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setWeatherUncertMultipliers(varsFloat)
@@ -122,12 +132,31 @@ class Model():
 
         # Check if configuration files already exist
         root = "../Experiments/Experiments/" + self.inputfile.split("../Experiments/Experiments/")[1].split("/")[0]
-
+                
+        # Get resource details
+        # Aircraft are first, then Helicopters
+        # At the moment we only have one of each
+        # Tankers
+        aircraftDetails = []
+        with open("../"+self.aircraftDataFiles[0]) as tf:
+            reader = csv.reader(tf)
+            aircraftDetails = [r[0] for r in reader]
+        # Helicopters
+        helicopterDetails = []
+        with open("../"+self.aircraftDataFiles[1]) as hf:
+            reader = csv.reader(hf)
+            helicopterDetails = [r[0] for r in reader]
+        
+        # Firetrucks
+        truckDetails = []
+        with open("../"+self.landcraftDataFiles[0]) as hf:
+            reader = csv.reader(hf)
+            truckDetails = [r for r in reader]
+        
         regionConfig = Path(root + "/Region_Configuration.csv")
         if regionConfig.is_file():
             # If exists, just call the pre-created data
             regionConfigFile = open(root + "/Region_Configuration.csv")
-            print(regionConfigFile.readline())
 
             with open(root + "/Region_Configuration.csv") as fd:
                 reader = csv.reader(fd)
@@ -167,11 +196,19 @@ class Model():
                     aircraftList = []
                     for ii in range(noAircraft):
                         aircraft = Tanker()
+                        aircraft.setFlyingHours(float(aircraftDetails[4].split(":")[1]))
+                        aircraft.setMaxDailyHours(float(aircraftDetails[5].split(":")[1]))
+                        aircraft.setCapacity(float(aircraftDetails[6].split(":")[1]))
+                        aircraft.setSpeed(float(aircraftDetails[7].split(":")[1]))
                         aircraftList.append(aircraft)
                     noHelicopters = int(rows[iterator][4])
                     heliList = []
                     for ii in range(noHelicopters):
                         heli = Heli()
+                        heli.setFlyingHours(float(helicopterDetails[4].split(":")[1]))
+                        heli.setMaxDailyHours(float(helicopterDetails[5].split(":")[1]))
+                        heli.setCapacity(float(helicopterDetails[6].split(":")[1]))
+                        heli.setSpeed(float(helicopterDetails[7].split(":")[1]))
                         heliList.append(heli)
                     airStrip.setHelicopters(heliList)
                     airStrip.setCapacity(float(rows[iterator][5]))
@@ -185,14 +222,29 @@ class Model():
                     test = False
                     iterator = iterator + 2
                 else:
+                    base = Base()
+                    base.setLocation(numpy.array([float(rows[iterator][1]),float(rows[iterator][2])]))
+                    noVehicles = int(rows[iterator][3])
+                    vehiclesList = []
+                    for ii in range(noVehicles):
+                        vehicle = Land()
+                        vehiclesList.append(vehicle)
                     bases.append([float(ii) for ii in rows[iterator][1:4]])
                     iterator = iterator + 1
 
             # Raw patch data
+            test = True
+            while test:
+                if (all('' == s or s.isspace() for s in rows[iterator][1:4]) or (len(rows[iterator]) < 8)):
+                    test = False
+                    iterator = iterator + 2
+                else:
+                    bases.append([float(ii) for ii in rows[iterator][1:4]])
+                    iterator = iterator + 1
 
+            # Save values to the region object
             self.region.setPatches(patches)
-            self.region.setBases(bases)
-            self.region.setAirStrips(airStrips)
+            self.region.setStations([airStrips,bases])
 
             regionConfigFile.close()
         else:
