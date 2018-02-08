@@ -16,9 +16,11 @@ from Tanker import Tanker
 from Heli import Heli
 from Land import Land
 from Base import Base
+from Fire import Fire
 from Simulation import Simulation
 from VariableParameters import VariableParameters
 from ExperimentalScenario import ExperimentalScenario
+from datetime import datetime, date, time, timedelta
 
 class Model():
     # Class for defining a model region
@@ -234,21 +236,66 @@ class Model():
 
             # Raw patch data
             test = True
+            x = numpy.empty([len(rows)-iterator])
+            y = numpy.empty([len(rows)-iterator])
+            z = numpy.empty([len(rows)-iterator])
+            veg = numpy.empty([len(rows)-iterator])
+            north = numpy.empty([len(rows)-iterator])
+            south = numpy.empty([len(rows)-iterator])
+            east = numpy.empty([len(rows)-iterator])
+            west = numpy.empty([len(rows)-iterator])
+            precip = numpy.empty([len(rows)-iterator])
+            temp = numpy.empty([len(rows)-iterator])
+            fires = numpy.empty([len(rows)-iterator])
+            fireAges = numpy.empty([len(rows)-iterator])
+            ii = 0
+
+            fireObjects = []
             while test:
-                if (all('' == s or s.isspace() for s in rows[iterator][1:4]) or (len(rows[iterator]) < 8)):
+                if (iterator == len(rows)):
                     test = False
-                    iterator = iterator + 2
                 else:
-                    bases.append([float(ii) for ii in rows[iterator][1:4]])
-                    iterator = iterator + 1
+                    if (all('' == s or s.isspace() for s in rows[iterator][1:4]) or (len(rows[iterator]) < 8)):
+                        test = False
+                        iterator = iterator + 2
+                    else:
+                        x[ii] = float(rows[iterator][1])
+                        y[ii] = float(rows[iterator][2])
+                        z[ii] = float(rows[iterator][3])
+                        veg[ii] = int(rows[iterator][4])
+                        north[ii] = int(rows[iterator][5])
+                        south[ii] = int(rows[iterator][6])
+                        east[ii] = int(rows[iterator][7])
+                        west[ii] = int(rows[iterator][8])
+                        precip[ii] = float(rows[iterator][9])
+                        temp[ii] = float(rows[iterator][10])
+                        fires[ii] = float(rows[iterator][11])
+                        fireAges[ii] = float(rows[iterator][12])
+                        ii = ii + 1
+                        iterator = iterator + 1
 
             # Save values to the region object
+            self.region.setX(x)
+            self.region.setY(y)
+            self.region.setZ(z)
+            self.region.setVegetation(veg)
+            self.region.setNorth(north)
+            self.region.setSouth(south)
+            self.region.setEast(east)
+            self.region.setWest(west)
+            self.region.setHumidity(precip)
+            self.region.setTemperature(temp)
             self.region.setPatches(patches)
             self.region.setStations([airStrips,bases])
+            self.region.setFireSeverity(fires)
+            self.region.setFireAge(fireAges)
 
             regionConfigFile.close()
         else:
             # If not, build the data
+            self.computeRegionParameters()
+
+            # Now save it
             regionConfigFile = open(root + "/Region_Configuration.csv","w+")
 
             regionConfigFile.close()
@@ -261,13 +308,14 @@ class Model():
             weatherConfigFile.close()
         else:
             # If not, build the data
+            self.computeWeatherParameters()
+
+            # Now save it
             weatherConfigFile = open(root + "/Weather_Configuration.csv","w+")
 
             weatherConfigFile.close()
 
         # Attack success probabilities
-
-        # Resource Data
 
     def computeWeatherParameters(self):
         pass
@@ -275,5 +323,40 @@ class Model():
     def computeRegionParameters(self):
         pass
 
-    def saveConfigurationData(self):
+    def configureRegion(self):
+        # Compute distances between nodes and patches, etc.
+        stationDists = numpy.empty([len(self.region.getStations()),len(self.region.getStations())])
+        stationNodeDists = numpy.empty([len(self.region.getPatches()),len(self.region.getStations())])
+
+        # Stations
+        # Air Bases
+        airBases = self.region.getStations()[0]
+        X = [airBase.getLocation()[0] for airBase in airBases]
+        Y = [airBase.getLocation()[1] for airBase in airBases]
+        X = numpy.array(X)
+        Y = numpy.array(Y)
+
+        X = numpy.transpose(numpy.tile(X,(X.shape[0],1)))
+        Y = numpy.transpose(numpy.tile(Y,(Y.shape[0],1)))
+        airBaseDistances = numpy.sqrt((X-X.transpose())**2+(Y-Y.transpose())**2)
+
+        # Fire Stations
+        fireStations = self.region.getStations()[1]
+        X = [fireStation.getLocation()[0] for fireStation in fireStations]
+        Y = [fireStation.getLocation()[1] for fireStation in fireStations]
+        X = numpy.array(X)
+        Y = numpy.array(Y)
+
+        X = numpy.transpose(numpy.tile(X,(X.shape[0],1)))
+        Y = numpy.transpose(numpy.tile(Y,(Y.shape[0],1)))
+        landBaseDistances = numpy.sqrt((X-X.transpose())**2+(Y-Y.transpose())**2)
+
+        self.region.setStationDistances([airBaseDistances,landBaseDistances])
+
+        # Stations to Nodes
+
+        # Initialise the fires to resources and stations
+        # We don't allocate fires to resources just yet
+
+        # Compute danger index
         pass
