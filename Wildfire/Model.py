@@ -325,16 +325,12 @@ class Model():
 
     def configureRegion(self):
         # Compute distances between nodes and patches, etc.
-        stationDists = numpy.empty([len(self.region.getStations()),len(self.region.getStations())])
-        stationNodeDists = numpy.empty([len(self.region.getPatches()),len(self.region.getStations())])
 
         # Stations
         # Air Bases
         airBases = self.region.getStations()[0]
-        X = [airBase.getLocation()[0] for airBase in airBases]
-        Y = [airBase.getLocation()[1] for airBase in airBases]
-        X = numpy.array(X)
-        Y = numpy.array(Y)
+        X = numpy.array([airBase.getLocation()[0] for airBase in airBases])
+        Y = numpy.array([airBase.getLocation()[1] for airBase in airBases])
 
         X = numpy.transpose(numpy.tile(X,(X.shape[0],1)))
         Y = numpy.transpose(numpy.tile(Y,(Y.shape[0],1)))
@@ -354,9 +350,43 @@ class Model():
         self.region.setStationDistances([airBaseDistances,landBaseDistances])
 
         # Stations to Nodes
+        nodes = self.region.getPatches()
+        # Air Bases
+        X1 = numpy.array([airBase.getLocation()[0] for airBase in airBases])
+        Y1 = numpy.array([airBase.getLocation()[1] for airBase in airBases])
+        X2 = numpy.array([node.getCentroid()[0] for node in nodes])
+        Y2 = numpy.array([node.getCentroid()[1] for node in nodes])
+
+        noBases = X1.shape
+        noNodes = X2.shape
+
+        X1 = numpy.tile(X1.transpose(),(noNodes[0],1))
+        X2 = numpy.tile(X2,(noBases[0],1)).transpose()
+        Y1 = numpy.tile(Y1.transpose(),(noNodes[0],1))
+        Y2 = numpy.tile(Y2,(noBases[0],1)).transpose()
+
+        airBaseNodeDistances = numpy.sqrt((X1-X2)**2+(Y1-Y2)**2)
+
+        # Fire Stations
+        X1 = numpy.array([fireStation.getLocation()[0] for fireStation in fireStations])
+        Y1 = numpy.array([fireStation.getLocation()[1] for fireStation in fireStations])
+        X2 = numpy.array([node.getCentroid()[0] for node in nodes])
+        Y2 = numpy.array([node.getCentroid()[1] for node in nodes])
+
+        noBases = X1.shape
+        noNodes = X2.shape
+
+        X1 = numpy.tile(X1.transpose(),(noNodes[0],1))
+        X2 = numpy.tile(X2,(noBases[0],1)).transpose()
+        Y1 = numpy.tile(Y1.transpose(),(noNodes[0],1))
+        Y2 = numpy.tile(Y2,(noBases[0],1)).transpose()
+
+        landBaseNodeDistances = numpy.sqrt((X1-X2)**2+(Y1-Y2)**2)
+
+        self.region.setStationPatchDistances([airBaseNodeDistances,landBaseNodeDistances])
 
         # Initialise the fires to resources and stations
         # We don't allocate fires to resources just yet
 
         # Compute danger index
-        pass
+        Simulation.computeFFDI

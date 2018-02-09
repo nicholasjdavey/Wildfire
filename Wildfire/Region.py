@@ -27,7 +27,7 @@ class Region():
         self.dangerIndex_0 = numpy.empty([0,0])
         self.rain_0 = numpy.empty([0,0])
         self.humidity_0 = numpy.empty([0,0])
-        self.wind_0 = numpy.empty([0,0])
+        self.wind_0 = [numpy.empty([0,0]),numpy.empty([0,0])]
         self.temperature_0 = numpy.empty([0,0])
         self.vegetation = numpy.empty([0,0])
         self.stationDistances = numpy.empty([0,0])
