@@ -6,6 +6,7 @@ Created on Sun Dec 10 23:32:32 2017
 """
 
 import numpy
+import math
 
 class Simulation():
     # Class for defining a simulation run
@@ -71,5 +72,5 @@ class Simulation():
 
     @staticmethod
     def computeFFDI(temp,rh,wind,df):
-        return 2*exp(-0.45+0.987*ln(df)-0.0345*rh+0.0338*temp+0.0234*v)
+        return 2*numpy.exp(-0.45+0.987*numpy.log(df)-0.0345*rh+0.0338*temp+0.0234*wind)
 

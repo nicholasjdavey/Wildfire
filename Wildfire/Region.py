@@ -30,12 +30,15 @@ class Region():
         self.wind_0 = [numpy.empty([0,0]),numpy.empty([0,0])]
         self.temperature_0 = numpy.empty([0,0])
         self.vegetation = numpy.empty([0,0])
+        self.windN = numpy.empty([0,0])
+        self.windE = numpy.empty([0,0])
         self.stationDistances = numpy.empty([0,0])
         self.stationPatchDistances = numpy.empty([0,0])
         self.weatherGenerator = None
         self.endArea = None
         self.attackSuccess = None
         self.fires = []
+        self.vegetations = []
         self.name = ""
         
     def getPatches(self):
@@ -176,9 +179,26 @@ class Region():
     def setFires(self,f):
         self.fires = f
         
+    def getVegetations(self):
+        return self.vegetations
+        
+    def setVegetations(self,v):
+        self.vegetations = v
+        
     def getName(self):
         return self.name
         
     def setName(self,n):
         self.name = n
         
+    def getWindN(self):
+        return self.windN
+    
+    def setWindN(self,w):
+        self.windN = w
+    
+    def getWindE(self):
+        return self.windE
+    
+    def setWindE(self,w):
+        self.windE = w

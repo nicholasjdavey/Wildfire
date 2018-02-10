@@ -6,6 +6,7 @@ Created on Sun Dec 10 23:10:43 2017
 """
 
 import numpy
+import math
 import csv
 from Control import Control
 from Patch import Patch
@@ -246,6 +247,8 @@ class Model():
             west = numpy.empty([len(rows)-iterator])
             precip = numpy.empty([len(rows)-iterator])
             temp = numpy.empty([len(rows)-iterator])
+            windN = numpy.empty([len(rows)-iterator])
+            windE = numpy.empty([len(rows)-iterator])
             fires = numpy.empty([len(rows)-iterator])
             fireAges = numpy.empty([len(rows)-iterator])
             ii = 0
@@ -271,6 +274,8 @@ class Model():
                         temp[ii] = float(rows[iterator][10])
                         fires[ii] = float(rows[iterator][11])
                         fireAges[ii] = float(rows[iterator][12])
+                        windN[ii] = float(rows[iterator][13])
+                        windE[ii] = float(rows[iterator][14])
                         ii = ii + 1
                         iterator = iterator + 1
 
@@ -289,6 +294,8 @@ class Model():
             self.region.setStations([airStrips,bases])
             self.region.setFireSeverity(fires)
             self.region.setFireAge(fireAges)
+            self.region.setWindN(windN)
+            self.region.setWindE(windE)
 
             regionConfigFile.close()
         else:
@@ -389,4 +396,7 @@ class Model():
         # We don't allocate fires to resources just yet
 
         # Compute danger index
-        Simulation.computeFFDI
+        # We set the drought factor to 10
+        wind = numpy.sqrt(self.region.getWindN()**2+self.region.getWindE()**2)
+        self.region.setDangerIndex(Simulation.computeFFDI(self.region.getTemperature(),self.region.getHumidity(),wind,10))
+        
