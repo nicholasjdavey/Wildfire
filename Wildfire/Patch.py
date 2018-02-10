@@ -13,7 +13,7 @@ class Patch():
     def __init__(self):
         # Constructs an instance
         self.vertices = numpy.empty([0,0])
-        self.centriod = numpy.empty([0,0])
+        self.centroid = numpy.empty([0,0])
         self.area = numpy.empty([0,0])
         self.vegetation = numpy.array([0,0])
         self.averageDanger = []

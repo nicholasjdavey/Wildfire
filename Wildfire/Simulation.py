@@ -68,3 +68,8 @@ class Simulation():
 
     def setControls(self,c):
         self.controls = c
+
+    @staticmethod
+    def computeFFDI(temp,rh,wind,df):
+        return 2*exp(-0.45+0.987*ln(df)-0.0345*rh+0.0338*temp+0.0234*v)
+

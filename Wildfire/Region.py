@@ -15,13 +15,21 @@ class Region():
         # Constructs an instance
         self.patches = []
         self.stations = []
+        self.x = numpy.empty([0,0])
+        self.y = numpy.empty([0,0])
+        self.z = numpy.empty([0,0])
+        self.north = numpy.empty([0,0])
+        self.south = numpy.empty([0,0])
+        self.east = numpy.empty([0,0])
+        self.west = numpy.empty([0,0])
         self.fireSeverity_0 = numpy.empty([0,0])
+        self.fireAge_0 = numpy.empty([0,0])
         self.dangerIndex_0 = numpy.empty([0,0])
         self.rain_0 = numpy.empty([0,0])
         self.humidity_0 = numpy.empty([0,0])
-        self.wind_0 = numpy.empty([0,0])
+        self.wind_0 = [numpy.empty([0,0]),numpy.empty([0,0])]
         self.temperature_0 = numpy.empty([0,0])
-        self.vegetation = []
+        self.vegetation = numpy.empty([0,0])
         self.stationDistances = numpy.empty([0,0])
         self.stationPatchDistances = numpy.empty([0,0])
         self.weatherGenerator = None
@@ -41,12 +49,60 @@ class Region():
         
     def setStations(self,s):
         self.stations = s
-        
+
+    def getX(self):
+        return self.x
+
+    def setX(self,x):
+        self.x = x
+
+    def getY(self):
+        return self.y
+
+    def setY(self,y):
+        self.y = y
+
+    def getZ(self):
+        return self.z
+
+    def setZ(self,z):
+        self.z = z
+
+    def getNorth(self):
+        return self.north
+
+    def setNorth(self,n):
+        self.north = n
+
+    def getSouth(self):
+        return self.south
+
+    def setSouth(self,s):
+        self.south = s
+
+    def getEast(self):
+        return self.east
+
+    def setEast(self,e):
+        self.east = e
+
+    def getWest(self):
+        return self.west
+
+    def setWest(self,w):
+        self.west = w
+
     def getFireSeverity(self):
         return self.fireSeverity
         
     def setFireSeverity(self,s):
         self.fireSeverity = s
+
+    def getFireAge(self):
+        return self.fireAge
+
+    def setFireAge(self,a):
+        self.fireAge = a
         
     def getDangerIndex(self):
         return self.dangerIndex_0

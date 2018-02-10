@@ -29,6 +29,7 @@ def main():
     # Input file is the first argument after the program name
     model.readInSourceData(sys.argv[1])
     model.populateParameters()
+    model.configureRegion()
 
     # Perform experiments
 
