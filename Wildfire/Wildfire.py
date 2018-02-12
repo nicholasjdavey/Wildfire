@@ -32,6 +32,8 @@ def main():
     model.configureRegion()
 
     # Perform experiments
+    for simulation in model.getSimulations():
+        pass
 
     # Save results
 

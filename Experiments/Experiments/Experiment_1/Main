@@ -47,7 +47,7 @@ Firetruck 1               : Experiments/Input_Data/Land/Truck
 Source File               : Experiments/Input_Data/Regions/Region_1/Probabilities/Occurrence.csv
 
 ###############################################################################
-## EXPECTED DAMAGE DATA
+## EXPECTED DAMAGE DATA - (NOT USED FOR NOW)
 ###############################################################################
 ## CONFIGURATION, TIMELINESS, VEGETATION JOINT PROBABILITY
 Source File                : Experiments/Input_Data/Regions/Region_1/Probabilities/Expected_Damage.csv

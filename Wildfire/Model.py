@@ -17,6 +17,7 @@ from Tanker import Tanker
 from Heli import Heli
 from Land import Land
 from Base import Base
+from Vegetation import Vegetation
 from Fire import Fire
 from Simulation import Simulation
 from VariableParameters import VariableParameters
@@ -74,8 +75,8 @@ class Model():
 
         self.landcraftDataFiles = landcraftData
 
-        occurrenceData = contents[43+noAircraft+noLandcraft].split(":")[1].strip()
-        exDamageData = contents[49+noAircraft+noLandcraft].split(":")[1].strip()
+        self.occurrenceDataFile = contents[43+noAircraft+noLandcraft].split(":")[1].strip()
+        self.exDamageDataFile = contents[49+noAircraft+noLandcraft].split(":")[1].strip()
 
         noControls = int(contents[66+noAircraft+noLandcraft].split(":")[1].strip())
 
@@ -155,6 +156,43 @@ class Model():
         with open("../"+self.landcraftDataFiles[0]) as hf:
             reader = csv.reader(hf)
             truckDetails = [r for r in reader]
+            
+        # Vegetation details
+        vegetations = []
+        print("../"+self.occurrenceDataFile)
+        with open("../"+self.occurrenceDataFile) as vp:
+            reader = csv.reader(vp)
+            rows = [r for r in reader]
+            
+            iterator = 2
+            while iterator < len(rows):
+                vegetation = Vegetation()
+                vegetationNo = rows[iterator][0].strip("VEGETATION_")
+                iterator = iterator + 1
+                vegetation.setName(rows[iterator][2])
+                iterator = iterator + 1
+                vegetation.setFlammability(rows[iterator][2])
+                iterator = iterator + 1
+                vegetation.setFFDIRange(numpy.array([float(col) for col in rows[iterator][3:(len(rows[iterator])-3)]]))
+                iterator = iterator + 1
+                vegetation.setOccurrence(numpy.array([float(col) for col in rows[iterator][3:(len(rows[iterator])-3)]]))
+                iterator = iterator + 1
+                rocMean = numpy.array([float(col) for col in rows[iterator][3:(len(rows[iterator])-3)]])
+                iterator = iterator + 1
+                rocSD = numpy.array([float(col) for col in rows[iterator][3:(len(rows[iterator])-3)]])
+                vegetation.setROCA2PerHour(numpy.array([rocMean,rocSD]))
+                iterator = iterator + 2
+                test = True
+                successes = []
+                while test:
+                    if iterator >= len(rows):
+                        break
+                    else:
+                        if (all('' == s or s.isspace() for s in rows[iterator][3:len(rows[iterator])-3])):
+                            test = False
+                        else:
+                            successes.append([float(col) for col in rows[iterator][3:(len(rows[iterator])-3)]])
+                        iterator = iterator + 1
         
         regionConfig = Path(root + "/Region_Configuration.csv")
         if regionConfig.is_file():
@@ -322,8 +360,6 @@ class Model():
 
             weatherConfigFile.close()
 
-        # Attack success probabilities
-
     def computeWeatherParameters(self):
         pass
 
@@ -393,7 +429,8 @@ class Model():
         self.region.setStationPatchDistances([airBaseNodeDistances,landBaseNodeDistances])
 
         # Initialise the fires to resources and stations
-        # We don't allocate fires to resources just yet
+        # We don't allocate fires to resources just yet because we do not need
+        # this for our simulations at this stage
 
         # Compute danger index
         # We set the drought factor to 10

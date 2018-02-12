@@ -35,8 +35,6 @@ class Region():
         self.stationDistances = numpy.empty([0,0])
         self.stationPatchDistances = numpy.empty([0,0])
         self.weatherGenerator = None
-        self.endArea = None
-        self.attackSuccess = None
         self.fires = []
         self.vegetations = []
         self.name = ""
@@ -160,18 +158,6 @@ class Region():
 
     def setWeatherGenerator(self,wg):
         self.weatherGenerator = wg
-        
-    def getEndAreaProbDist(self):
-        return self.endArea
-        
-    def setEndAreaProbDist(self,ea):
-        self.endArea = ea
-        
-    def getAttackSuccessProbDist(self):
-        return self.attackSuccess
-        
-    def setAttackSuccessProbDist(self,succ):
-        self.attackSuccess = succ
         
     def getFires(self):
         return self.fires
