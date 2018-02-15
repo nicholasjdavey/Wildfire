@@ -74,9 +74,13 @@ Control 2       :              1                       1
 Control 3       :              0                       0
 Control 4       :              0.5                     0.5
 
-## MULTIPLIERS
+## EXPERIMENTAL CONTROLS (MULTIPLIERS AND PARAMETERS)
 # Separate different multipliers by comma (',')
 Aircraft Speed             : 1
 Occurrence Probability     : 1
 Damage Intensity           : 1
 Wealther Uncertainty       : 1
+Time Steps (Total Hours)   : 15
+Step Size (Hours)          : 1
+Daylight Hours Per Day     : 15
+ROV Paths                  : 100000

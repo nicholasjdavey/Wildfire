@@ -34,7 +34,6 @@ class Model():
         self.yDataFile = ""
         self.zDataFile = ""
         self.vegetationDatafile = ""
-        self.valeDataFile = ""
         self.weatherDataFile = ""
         self.basesDataFile = ""
         self.occurrenceDataFile = ""
@@ -45,6 +44,124 @@ class Model():
         self.variableParameters = None
         self.controls = []
         self.region = None
+        self.stepSize = 0
+        self.totalSteps = 0
+        self.hoursPerDay = 0
+        self.rovPaths = 0
+
+    def getROVPaths(self):
+        return self.rovPaths
+
+    def setROVPaths(self,r):
+        self.rovPaths = r
+
+    def getStepSize(self):
+        return self.stepSize
+
+    def setStepSize(self,s):
+        self.stepSize = s
+
+    def getTotalSteps(self):
+        return self.totalSteps
+
+    def setTotalSteps(self,s):
+        self.totalSteps = s
+
+    def getHoursPerDay(self):
+        return self.hoursPerDay
+
+    def setHoursPerDay(self,h):
+        self.hoursPerDay = h
+
+    def getInputFile(self):
+        return self.inputfile
+
+    def setInputFile(self,i):
+        self.inputfile = i
+
+    def getXDataFile(self):
+        return self.xDataFile
+
+    def setXDataFile(self,x):
+        self.xDataFile = x
+
+    def getYDataFile(self):
+        return self.yDataFile
+
+    def setYDataFile(self,y):
+        self.xDataFile = y
+
+    def getZDataFile(self):
+        return self.zDataFile
+
+    def setZDataFile(self,z):
+        self.zDataFile = z
+
+    def getVegetationDataFile(self):
+        return self.vegetationDataFile
+
+    def setVegetationDataFile(self,v):
+        self.vegetationDataFile
+
+    def getWeatherDataFile(self):
+        return self.weatherDataFile
+
+    def setWeatherDataFile(self,w):
+        self.weatherDataFile = w
+
+    def getBasesDataFile(self):
+        return self.basesDataFile
+
+    def setBasesDataFile(self,b):
+        self.basesDataFile = b
+
+    def getOccurrenceDataFile(self):
+        return self.occurrenceDataFile
+
+    def setOccurrenceDataFile(self,o):
+        self.occurrenceDataFile = o
+
+    def getExDamageDataFile(self):
+        return self.exDamageDataFile
+
+    def setExDamageDataFile(self,e):
+        self.exDamageDataFile = e
+
+    def getAircraftDataFiles(self):
+        return self.aircraftDataFiles
+
+    def setAircraftDataFiles(self,a):
+        self.aircraftDataFiles = a
+
+    def getLandcraftDataFiles(self):
+        return self.landcraftDataFiles
+
+    def setLandcraftDataFiles(self,l):
+        self.landcraftDataFiles = l
+
+    def getSimulations(self):
+        return self.simulations
+
+    def setSimulations(self,s):
+        self.simulations = s
+
+    def getVariableParameters(self):
+        return self.variableParameters
+
+    def setVariableParameters(self,v):
+        self.variableParameters = v
+
+    def getControls(self):
+        return self.controls
+
+    def setControls(self,c):
+        self.controls = c
+
+    def getRegion(self):
+        return self.region
+
+    def setRegion(self,r):
+        self.region = r
 
     def readInSourceData(self,filename):
         # First read the raw source files
@@ -111,6 +228,11 @@ class Model():
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setWeatherUncertMultipliers(varsFloat)
 
+        self.totalSteps = int(contents[75+noAircraft+noLandcraft+noControls].split(":")[1].strip())
+        self.stepSize = float(contents[76+noAircraft+noLandcraft+noControls].split(":")[1].strip())
+        self.hoursPerDay = float(contents[77+noAircraft+noLandcraft+noControls].split(":")[1].strip())
+        self.rovPaths = int(contents[78+noAircraft+noLandcraft+noControls].split(":")[1].strip())
+
         self.variableParameters = varParams
 
         # Initialise the simulations
@@ -126,6 +248,7 @@ class Model():
                         es.setWeatherUncertMultIdx(varParams.getWeatherUncertMultipliers()[ll])
                         sim.setExperimentalScenario(es)
                         sim.setControls(self.controls)
+                        sim.setModel(self)
                         self.simulations.append(sim)
 
         inputfile.close()
