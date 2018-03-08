@@ -424,62 +424,62 @@ class Model():
             ii = 0
 
             while test:
+                if (all('' == s or s.isspace() for s in rows[iterator][1:4]) or (len(rows[iterator]) < 8)):
+                    test = False
+                    iterator = iterator + 2
+                else:
+                    x[ii] = float(rows[iterator][1])
+                    y[ii] = float(rows[iterator][2])
+                    z[ii] = float(rows[iterator][3])
+                    veg[ii] = int(rows[iterator][4])
+                    north[ii] = int(rows[iterator][5])
+                    south[ii] = int(rows[iterator][6])
+                    east[ii] = int(rows[iterator][7])
+                    west[ii] = int(rows[iterator][8])
+                    precip[ii] = float(rows[iterator][9])
+                    temp[ii] = float(rows[iterator][10])
+                    fireSeverity[ii] = float(rows[iterator][12])
+                    fireAges[ii] = float(rows[iterator][13])
+                    windN[ii] = float(rows[iterator][14])
+                    windE[ii] = float(rows[iterator][15])
+                    ii = ii + 1
+                    iterator = iterator + 1
+            
+            fires = []
+            test = True
+            while test:
                 if (iterator == len(rows)):
                     test = False
                 else:
                     if (all('' == s or s.isspace() for s in rows[iterator][1:4]) or (len(rows[iterator]) < 8)):
                         test = False
-                        iterator = iterator + 2
                     else:
-                        x[ii] = float(rows[iterator][1])
-                        y[ii] = float(rows[iterator][2])
-                        z[ii] = float(rows[iterator][3])
-                        veg[ii] = int(rows[iterator][4])
-                        north[ii] = int(rows[iterator][5])
-                        south[ii] = int(rows[iterator][6])
-                        east[ii] = int(rows[iterator][7])
-                        west[ii] = int(rows[iterator][8])
-                        precip[ii] = float(rows[iterator][9])
-                        temp[ii] = float(rows[iterator][10])
-                        fireSeverity[ii] = float(rows[iterator][12])
-                        fireAges[ii] = float(rows[iterator][13])
-                        windN[ii] = float(rows[iterator][14])
-                        windE[ii] = float(rows[iterator][15])
-                        ii = ii + 1
+                        fire = Fire()
+                        fire.setLocation(numpy.array([float(rows[iterator][1]),float(rows[iterator][2])]))
+                        fire.setSize(float(rows[iterator][3]))
+                        fire.setStart(float(rows[iterator][4]))
+                        fire.setInitialSize(float(rows[iterator][5]))
+                        fires.append(fire)
                         iterator = iterator + 1
-            
-            fires = []
-            test = True
-            while test:
-                if (all('' == s or s.isspace() for s in rows[iterator][1:4]) or (len(rows[iterator]) < 8)):
-                    test = False
-                    iterator = iterator + 2
-                else:
-                    fire = Fire()
-                    fire.setLocation(numpy.array([float(rows[iterator][1]),float(rows[iterator][2])]))
-                    fire.setArea(float(rows[iterator][3]))
-                    fire.setStart(float(rows[iterator][4]))
-                    fire.setInitialSize(float(rows[iterator][5]))
-                fires.append(fire)
 
             # Save values to the region object
-            self.region.setX(x)
-            self.region.setY(y)
-            self.region.setZ(z)
-            self.region.setVegetation(veg)
-            self.region.setNorth(north)
-            self.region.setSouth(south)
-            self.region.setEast(east)
-            self.region.setWest(west)
-            self.region.setHumidity(precip)
-            self.region.setTemperature(temp)
-            self.region.setPatches(patches)
+            self.region.setX(x[0:ii])
+            self.region.setY(y[0:ii])
+            self.region.setZ(z[0:ii])
+            self.region.setVegetation(veg[0:ii])
+            self.region.setNorth(north[0:ii])
+            self.region.setSouth(south[0:ii])
+            self.region.setEast(east[0:ii])
+            self.region.setWest(west[0:ii])
+            self.region.setHumidity(precip[0:ii])
+            self.region.setTemperature(temp[0:ii])
+            self.region.setPatches(patches[0:ii])
             self.region.setStations([airStrips,bases])
-            self.region.setFireSeverity(fireSeverity)
-            self.region.setFireAge(fireAges)
+            self.region.setFireSeverity(fireSeverity[0:ii])
+            self.region.setFireAge(fireAges[0:ii])
             self.region.setFires(fires)
-            self.region.setWindN(windN)
-            self.region.setWindE(windE)                
+            self.region.setWindN(windN[0:ii])
+            self.region.setWindE(windE[0:ii])                
             self.region.setVegetations(vegetations)
 
             regionConfigFile.close()
