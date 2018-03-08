@@ -37,6 +37,9 @@ class Region():
         self.weatherGenerator = None
         self.fires = []
         self.vegetations = []
+        self.airTankers = []
+        self.helicopters = []
+        self.firetrucks = []
         self.name = ""
         
     def getPatches(self):
@@ -170,6 +173,24 @@ class Region():
         
     def setVegetations(self,v):
         self.vegetations = v
+        
+    def getAirTankers(self):
+        return self.airTankers
+        
+    def setAirTankers(self,t):
+        self.airTankers = t
+        
+    def getHelicopters(self):
+        return self.helicopters
+        
+    def setHelicopters(self,h):
+        self.helicopters = h
+        
+    def getFiretrucks(self):
+        return self.firetrucks
+        
+    def setFiretrucks(self,f):
+        self.firetrucks = f
         
     def getName(self):
         return self.name

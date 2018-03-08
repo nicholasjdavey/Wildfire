@@ -15,3 +15,9 @@ class Base(Station):
         # Constructs an instance
         Station.__init__(self)
         self.landResources = []
+
+    def getLandResources(self):
+        return self.landResources
+        
+    def setLandResources(self,l):
+        self.landResources = l

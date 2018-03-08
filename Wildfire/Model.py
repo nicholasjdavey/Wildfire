@@ -264,6 +264,9 @@ class Model():
         # Aircraft are first, then Helicopters
         # At the moment we only have one of each
         # Tankers
+        # Indices for vehicles at future calls refer to the order created here.
+        # Order is A1...AI,H1...HJ,T1...TK
+        # We only have one of each type for now
         aircraftDetails = []
         with open("../"+self.aircraftDataFiles[0]) as tf:
             reader = csv.reader(tf)
@@ -273,7 +276,6 @@ class Model():
         with open("../"+self.aircraftDataFiles[1]) as hf:
             reader = csv.reader(hf)
             helicopterDetails = [r[0] for r in reader]
-        
         # Firetrucks
         truckDetails = []
         with open("../"+self.landcraftDataFiles[0]) as hf:
@@ -316,7 +318,10 @@ class Model():
                         else:
                             successes.append([float(col) for col in rows[iterator][3:(len(rows[iterator])-3)]])
                         iterator = iterator + 1
+                vegetation.setExtinguishingSuccess(successes)
+                vegetations.append(vegetation)
         
+        # REGION CONFIGURATION ################################################
         regionConfig = Path(root + "/Region_Configuration.csv")
         if regionConfig.is_file():
             # If exists, just call the pre-created data
@@ -392,8 +397,12 @@ class Model():
                     vehiclesList = []
                     for ii in range(noVehicles):
                         vehicle = Land()
+                        vehicle.setCrewSize(float(truckDetails[4].split(":")[1]))
+                        vehicle.setCapacity(float(truckDetails[5].split(":")[1]))
+                        vehicle.setSpeed(float(truckDetails[6].split(":")[1]))
                         vehiclesList.append(vehicle)
-                    bases.append([float(ii) for ii in rows[iterator][1:4]])
+                    base.setLandResources(vehiclesList)
+                    bases.append(base)
                     iterator = iterator + 1
 
             # Raw patch data
@@ -410,11 +419,10 @@ class Model():
             temp = numpy.empty([len(rows)-iterator])
             windN = numpy.empty([len(rows)-iterator])
             windE = numpy.empty([len(rows)-iterator])
-            fires = numpy.empty([len(rows)-iterator])
+            fireSeverity = numpy.empty([len(rows)-iterator])
             fireAges = numpy.empty([len(rows)-iterator])
             ii = 0
 
-            fireObjects = []
             while test:
                 if (iterator == len(rows)):
                     test = False
@@ -433,12 +441,26 @@ class Model():
                         west[ii] = int(rows[iterator][8])
                         precip[ii] = float(rows[iterator][9])
                         temp[ii] = float(rows[iterator][10])
-                        fires[ii] = float(rows[iterator][11])
-                        fireAges[ii] = float(rows[iterator][12])
-                        windN[ii] = float(rows[iterator][13])
-                        windE[ii] = float(rows[iterator][14])
+                        fireSeverity[ii] = float(rows[iterator][12])
+                        fireAges[ii] = float(rows[iterator][13])
+                        windN[ii] = float(rows[iterator][14])
+                        windE[ii] = float(rows[iterator][15])
                         ii = ii + 1
                         iterator = iterator + 1
+            
+            fires = []
+            test = True
+            while test:
+                if (all('' == s or s.isspace() for s in rows[iterator][1:4]) or (len(rows[iterator]) < 8)):
+                    test = False
+                    iterator = iterator + 2
+                else:
+                    fire = Fire()
+                    fire.setLocation(numpy.array([float(rows[iterator][1]),float(rows[iterator][2])]))
+                    fire.setArea(float(rows[iterator][3]))
+                    fire.setStart(float(rows[iterator][4]))
+                    fire.setInitialSize(float(rows[iterator][5]))
+                fires.append(fire)
 
             # Save values to the region object
             self.region.setX(x)
@@ -453,10 +475,12 @@ class Model():
             self.region.setTemperature(temp)
             self.region.setPatches(patches)
             self.region.setStations([airStrips,bases])
-            self.region.setFireSeverity(fires)
+            self.region.setFireSeverity(fireSeverity)
             self.region.setFireAge(fireAges)
+            self.region.setFires(fires)
             self.region.setWindN(windN)
-            self.region.setWindE(windE)
+            self.region.setWindE(windE)                
+            self.region.setVegetations(vegetations)
 
             regionConfigFile.close()
         else:
@@ -466,8 +490,10 @@ class Model():
             # Now save it
             regionConfigFile = open(root + "/Region_Configuration.csv","w+")
 
-            regionConfigFile.close()
-
+            regionConfigFile.close()            
+        #######################################################################
+            
+        # WEATHER CONFIGURATION ###############################################
         weatherConfig = Path(root + "/Weather_Configuration.csv")
         if weatherConfig.is_file():
             # If exists, just call the data
@@ -481,7 +507,8 @@ class Model():
             # Now save it
             weatherConfigFile = open(root + "/Weather_Configuration.csv","w+")
 
-            weatherConfigFile.close()
+            weatherConfigFile.close()        
+        #######################################################################
 
     def computeWeatherParameters(self):
         pass
