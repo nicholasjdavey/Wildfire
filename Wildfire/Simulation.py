@@ -116,9 +116,6 @@ class Simulation():
         wind = numpy.empty([stepSize,regionSize[0],regionSize[1]])
         FFDI = self.model.getWeatherGenerator().generateFFDI()
 
-
-        pass
-
     def pathRecomputation(self,t,state_t,maps):
         # Return recomputed VALUES as a vector across the paths
         return 0
