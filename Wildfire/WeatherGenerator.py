@@ -19,7 +19,7 @@ class WeatherGenerator():
         self.wetProbT0Wet = numpy.empty([0,0])
         self.wetProbT0Dry = numpy.empty([0,0])
         self.wetOccurrenceCovarianceMatrix = numpy.empty([0,0])
-        self.precipAmountCovarianceMatrix = numpy.empyt([0,0])
+        self.precipAmountCovarianceMatrix = numpy.empty([0,0])
         self.precipAlpha = numpy.empty([0,0])
         # One matrix for each time period
         self.precipBetas = []
@@ -27,10 +27,16 @@ class WeatherGenerator():
         # multivariate auto-regression (Wilks 2009) conditional upon wet and
         # dry days => T_t = [A]T_(t-1) + [B]e_t. [A] is block diagonal.
         # One matrix for each time period
-        self.tempAwet = []
-        self.tempAdry = []
-        self.tempBwet = []
-        self.tempBdry = []
+        # The means and standard deviations for wet and dry temperatures at
+        # different times of day are required for 'de-standardising' the
+        # generated next period temperatures, consistent with whether a location
+        # is wet or dry at the next period.
+        self.tempMeanWet = numpy.empty([0,0])
+        self.tempMeanDry = numpy.empty([0,0])
+        self.tempSDWet = numpy.empty([0,0])
+        self.tempSDDry = numpy.empty([0,0])
+        self.tempA = []
+        self.tempB = []
         # One for each time period. We assume precipitation occurrence has no
         # impact on the regressions.
         self.windNSA = []
@@ -74,29 +80,41 @@ class WeatherGenerator():
     def setPrecipBetas(self,b):
         self.precipBetas = b
         
-    def getTempAWet(self):
-        return self.tempAWet
+    def getTempMeanWet(self):
+        return self.tempMeanWet
         
-    def setTempAWet(self,a):
-        self.tempAWet = a
+    def setTempMeanWet(self,t):
+        self.tempMean = t
         
-    def getTempADry(self):
-        return self.tempADry
+    def getTempMeanDry(self):
+        return self.tempMeanDry
         
-    def setTempADry(self,a):
-        self.tempADry = a
+    def setTempMeanDry(self,a):
+        self.tempMeanDry = a
         
-    def getTempBWet(self):
-        return self.tempBWet
+    def getTempSDWet(self):
+        return self.tempSDWet
         
-    def setTempBWet(self,b):
-        self.tempBWet = b
+    def setTempSDWet(self,sd):
+        self.tempSDWet = sd
         
-    def getTempBDry(self):
-        return self.tempBDry
+    def getTempSDDry(self):
+        return self.tempSDDry
         
-    def setTempBDry(self,b):
-        self.tempBDry = b
+    def setTempSDDry(self,sd):
+        self.tempSDDry = sd
+        
+    def getTempA(self):
+        return self.tempA
+        
+    def setTempA(self,a):
+        self.tempA = a
+        
+    def getTempB(self):
+        return self.tempB
+        
+    def setTempB(self,b):
+        self.tempB = b
         
     def getWindNSA(self):
         return self.windNSA
