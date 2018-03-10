@@ -33,7 +33,7 @@ def main():
 
     # Perform experiments
     for simulation in model.getSimulations():
-        pass
+        simulation.simulate()
 
     # Save results
 

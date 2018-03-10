@@ -415,6 +415,7 @@ class Model():
             south = numpy.empty([len(rows)-iterator])
             east = numpy.empty([len(rows)-iterator])
             west = numpy.empty([len(rows)-iterator])
+            rain = numpy.empty([len(rows)-iterator])
             precip = numpy.empty([len(rows)-iterator])
             temp = numpy.empty([len(rows)-iterator])
             windN = numpy.empty([len(rows)-iterator])
@@ -438,6 +439,7 @@ class Model():
                     west[ii] = int(rows[iterator][8])
                     precip[ii] = float(rows[iterator][9])
                     temp[ii] = float(rows[iterator][10])
+                    rain[ii] = float(rows[iterator][11])
                     fireSeverity[ii] = float(rows[iterator][12])
                     fireAges[ii] = float(rows[iterator][13])
                     windN[ii] = float(rows[iterator][14])
@@ -472,6 +474,7 @@ class Model():
             self.region.setEast(east[0:ii])
             self.region.setWest(west[0:ii])
             self.region.setHumidity(precip[0:ii])
+            self.region.setRain(rain[0:ii])
             self.region.setTemperature(temp[0:ii])
             self.region.setPatches(patches[0:ii])
             self.region.setStations([airStrips,bases])
@@ -616,68 +619,52 @@ class Model():
                 
             wg.setTempB(tempBetas)
             
-            iterator = iterator + 4
+            iterator = iterator + 3
             
             # Wind parameters
             # NS
-            windAlphas = []
-            for ii in range(self.totalSteps):
-                wa = numpy.empty([2*len(self.region.getX()),2*len(self.region.getX())])
-                windAlphas.append(wa)
+            windAlphas = numpy.empty([2*len(self.region.getX()),2*len(self.region.getX())])
 
             for ii in range(len(self.region.getX())):
-                for jj in range(self.totalSteps):
-                    windAlphas[jj][2*ii][ii*2] = float(rows[iterator+ii][jj*4+1])
-                    windAlphas[jj][2*ii][ii*2+1] = float(rows[iterator+ii][jj*4+2])
-                    windAlphas[jj][2*ii+1][ii*2] = float(rows[iterator+ii][jj*4+3])
-                    windAlphas[jj][2*ii+1][ii*2+1] = float(rows[iterator+ii][jj*4+4])
+                windAlphas[2*ii][ii*2] = float(rows[iterator+ii][1])
+                windAlphas[2*ii][ii*2+1] = float(rows[iterator+ii][2])
+                windAlphas[2*ii+1][ii*2] = float(rows[iterator+ii][3])
+                windAlphas[2*ii+1][ii*2+1] = float(rows[iterator+ii][4])
             
-            wg.setwindNSA(windAlphas)
+            wg.setWindNSA(windAlphas)
             
             iterator = iterator + 3 + len(self.region.getX())
             
-            windBetas = []
-            for ii in range(self.totalSteps):
-                wb = numpy.empty([len(self.region.getX()),len(self.region.getX())])
+            windBetas = numpy.empty([len(self.region.getX()),len(self.region.getX())])
+            for ii in range(len(self.region.getX())):                
+                for jj in range(len(self.region.getX())):
+                    windBetas[ii][jj] = float(rows[iterator+ii][jj+1])
                 
-                for jj in range(self.region.getX()):
-                    for kk in range(self.region.getX()):                
-                        wb[jj][kk] = float(rows[iterator+jj][kk+2])
-                
-                windBetas.append(wb)
-                iterator = iterator + len(self.region.getX())
+            iterator = iterator + len(self.region.getX())
                 
             wg.setWindNSB(windBetas)
             
-            iterator = iterator + 4
+            iterator = iterator + 3
             
             # EW
-            windAlphas = []
-            for ii in range(self.totalSteps):
-                wa = numpy.empty([2*len(self.region.getX()),2*len(self.region.getX())])
-                windAlphas.append(wa)
+            windAlphas = numpy.empty([2*len(self.region.getX()),2*len(self.region.getX())])
 
             for ii in range(len(self.region.getX())):
-                for jj in range(self.totalSteps):
-                    windAlphas[jj][2*ii][ii*2] = float(rows[iterator+ii][jj*4+1])
-                    windAlphas[jj][2*ii][ii*2+1] = float(rows[iterator+ii][jj*4+2])
-                    windAlphas[jj][2*ii+1][ii*2] = float(rows[iterator+ii][jj*4+3])
-                    windAlphas[jj][2*ii+1][ii*2+1] = float(rows[iterator+ii][jj*4+4])
+                windAlphas[2*ii][ii*2] = float(rows[iterator+ii][1])
+                windAlphas[2*ii][ii*2+1] = float(rows[iterator+ii][2])
+                windAlphas[2*ii+1][ii*2] = float(rows[iterator+ii][3])
+                windAlphas[2*ii+1][ii*2+1] = float(rows[iterator+ii][4])
             
-            wg.setwindEWA(windAlphas)
+            wg.setWindEWA(windAlphas)
             
             iterator = iterator + 3 + len(self.region.getX())
             
-            windBetas = []
-            for ii in range(self.totalSteps):
-                wb = numpy.empty([len(self.region.getX()),len(self.region.getX())])
+            windBetas = numpy.empty([len(self.region.getX()),len(self.region.getX())])
+            for ii in range(len(self.region.getX())):                
+                for jj in range(len(self.region.getX())):
+                    windBetas[ii][jj] = float(rows[iterator+ii][jj])
                 
-                for jj in range(self.region.getX()):
-                    for kk in range(self.region.getX()):                
-                        wb[jj][kk] = float(rows[iterator+jj][kk+2])
-                
-                windBetas.append(wb)
-                iterator = iterator + len(self.region.getX())
+            iterator = iterator + len(self.region.getX())
                 
             wg.setWindEWB(windBetas)
             

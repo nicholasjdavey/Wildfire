@@ -78,7 +78,7 @@ class Simulation():
         self.controls = c
 
     def simulate(self):
-        # Generate exogenous forward paths for weather and fires and save
+        # Generate exogenous forward paths for weather and fire starts and save
         exogenousPaths = self.forwardPaths()
 
         # Generate random control paths and store
@@ -86,15 +86,23 @@ class Simulation():
 
         # Generate endogenous fire growth paths given the above and store
         endogenousPaths = self.endogenousPaths(exogenousPaths,randCont)
+        
+        # Use the Monte Carlo paths to compute the policy maps
+        rovMaps = self.rov(exogenousPaths,randCont,endogenousPaths)
 
     def forwardPaths(self):
         # We don't need to store the precipitation, wind, and temperature matrices
         # over time. We only need the resulting danger index
 
-        for path in range(self.model.getROVPaths):
-            initialForwardPath()
+        paths = [[] for ii in range(self.model.getROVPaths())]
+        
+        for path in range(self.model.getROVPaths()):
+            paths[path] =self.initialForwardPath()
 
         return 0
+        
+    def rov(self,exogenousPaths,randCont,endogenousPaths):
+        pass
 
     def randomControls(self):
         return 0
@@ -107,14 +115,39 @@ class Simulation():
         pass
 
     def initialForwardPath(self):
-        regionSize = self.model.getRegion().getX().size
-        timeSteps = self.model.getTimeSteps()
+        region = self.model.getRegion()
+        regionSize = region.getX().size
+        timeSteps = self.model.getTotalSteps()
         stepSize = self.model.getStepSize()
 
-        precipitation = numpy.empty([stepSize,regionSize[0],regionSize[1]])
-        temperature = numpy.empty([stepSize,regionSize[0],regionSize[1]])
-        wind = numpy.empty([stepSize,regionSize[0],regionSize[1]])
-        FFDI = self.model.getWeatherGenerator().generateFFDI()
+        precipitation = numpy.empty([timeSteps,regionSize])
+        precipitation[0] = region.getRain()
+        temperature = numpy.empty([timeSteps,regionSize])
+        temperature[0] = region.getTemperature()
+        windNS = numpy.empty([timeSteps,regionSize])
+        windNS[0] = region.getWindN()
+        windEW = numpy.empty([timeSteps,regionSize])
+        windEW[0] = region.getWindE()
+        FFDI = numpy.empty([timeSteps,regionSize])
+        FFDI[0] = region.getDangerIndex()
+        
+        wg = region.getWeatherGenerator()
+        
+        # Simulate the path forward from time zero to the end
+        for ii in range(timeSteps):
+            # 1. Determine wet locations
+            # Initial draws of random variable
+            w = numpy.random.normal(0,1,regionSize)
+            # Now, correlate them using the Cholesky decomposition of the
+            # occurrence covariance matrix
+            C = numpy.linalg.cholesky(wg.getWetOccurrenceCovariance())
+            # Final random vector
+            w = numpy.matmul(C,w)
+            # Compare to probabilities
+            p = numpy.multiply(wg.getWetProbT0Wet(),precipitation[ii]) + numpy.multiply(wg.getWetProbT0Dry(),1-precipitation[ii])
+            precipitation[ii+1] = bool(w < scipy.stats.norm.isf(q=p,loc=0,scale=1))
+            
+            
 
     def pathRecomputation(self,t,state_t,maps):
         # Return recomputed VALUES as a vector across the paths
