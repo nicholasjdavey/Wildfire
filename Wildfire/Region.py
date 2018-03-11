@@ -28,7 +28,8 @@ class Region():
         self.rain_0 = numpy.empty([0,0])
         self.humidity_0 = numpy.empty([0,0])
         self.wind_0 = [numpy.empty([0,0]),numpy.empty([0,0])]
-        self.temperature_0 = numpy.empty([0,0])
+        self.temperature_0_min = numpy.empty([0,0])
+        self.temperature_0_max = numpy.empty([0,0])
         self.vegetation = numpy.empty([0,0])
         self.windN = numpy.empty([0,0])
         self.windE = numpy.empty([0,0])
@@ -132,11 +133,17 @@ class Region():
     def setWind(self,w):
         self.wind_0 = w
         
-    def getTemperature(self):
-        return self.temperature_0
+    def getTemperatureMin(self):
+        return self.temperature_0_min
         
-    def setTemperature(self,t):
-        self.temperature_0 = t
+    def setTemperatureMin(self,t):
+        self.temperature_0_min = t
+        
+    def getTemperatureMax(self):
+        return self.temperature_0_max
+        
+    def setTemperatureMax(self,t):
+        self.temperature_0_max = t
         
     def getVegetation(self):
         return self.vegetation

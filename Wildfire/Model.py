@@ -417,7 +417,8 @@ class Model():
             west = numpy.empty([len(rows)-iterator])
             rain = numpy.empty([len(rows)-iterator])
             precip = numpy.empty([len(rows)-iterator])
-            temp = numpy.empty([len(rows)-iterator])
+            tempMin = numpy.empty([len(rows)-iterator])
+            tempMax = numpy.empty([len(rows)-iterator])
             windN = numpy.empty([len(rows)-iterator])
             windE = numpy.empty([len(rows)-iterator])
             fireSeverity = numpy.empty([len(rows)-iterator])
@@ -438,12 +439,13 @@ class Model():
                     east[ii] = int(rows[iterator][7])
                     west[ii] = int(rows[iterator][8])
                     precip[ii] = float(rows[iterator][9])
-                    temp[ii] = float(rows[iterator][10])
-                    rain[ii] = float(rows[iterator][11])
-                    fireSeverity[ii] = float(rows[iterator][12])
-                    fireAges[ii] = float(rows[iterator][13])
-                    windN[ii] = float(rows[iterator][14])
-                    windE[ii] = float(rows[iterator][15])
+                    tempMin[ii] = float(rows[iterator][10])
+                    tempMax[ii] = float(rows[iterator][11])
+                    rain[ii] = float(rows[iterator][12])
+                    fireSeverity[ii] = float(rows[iterator][13])
+                    fireAges[ii] = float(rows[iterator][14])
+                    windN[ii] = float(rows[iterator][15])
+                    windE[ii] = float(rows[iterator][16])
                     ii = ii + 1
                     iterator = iterator + 1
             
@@ -475,7 +477,8 @@ class Model():
             self.region.setWest(west[0:ii])
             self.region.setHumidity(precip[0:ii])
             self.region.setRain(rain[0:ii])
-            self.region.setTemperature(temp[0:ii])
+            self.region.setTemperatureMin(tempMin[0:ii])
+            self.region.setTemperatureMax(tempMax[0:ii])
             self.region.setPatches(patches[0:ii])
             self.region.setStations([airStrips,bases])
             self.region.setFireSeverity(fireSeverity[0:ii])
@@ -517,8 +520,8 @@ class Model():
             
             for ii in range(len(self.region.getX())):
                 for jj in range(self.totalSteps):
-                    occW2W[ii,jj] = float(rows[ii+iterator][2*(jj+1)-1])
-                    occD2W[ii,jj] = float(rows[ii+iterator][2*(jj+1)])
+                    occD2W[ii,jj] = float(rows[ii+iterator][2*(jj+1)-1])
+                    occW2W[ii,jj] = float(rows[ii+iterator][2*(jj+1)])
             
             wg.setWetProbT0Wet(occW2W)
             wg.setWetProbT0Dry(occD2W)         
@@ -570,6 +573,29 @@ class Model():
             
             iterator = iterator + 3 + len(self.region.getX())
 
+            remainingMean = numpy.empty(self.totalSteps)
+            remainingSD = numpy.empty(self.totalSteps)
+            precipCont = numpy.empty(self.totalSteps)
+            
+            for ii in range(self.totalSteps):
+                remainingMean[ii] = float(rows[iterator][ii+1])
+                remainingSD[ii] = float(rows[iterator+1][ii+1])
+                precipCont[ii] = float(rows[iterator+2][ii+1])
+            
+            wg.setHumidityReductionMean(remainingMean)
+            wg.setHumidityReductionSD(remainingSD)
+            wg.setPrecipitationContributionMultiplier(precipCont)
+            
+            iterator = iterator + 6
+
+            humidityCorrelations = numpy.empty([len(self.region.getX()),len(self.region.getX())])
+            
+            for ii in range(len(self.region.getX())):
+                for jj in range(len(self.region.getX())):
+                    humidityCorrelations[ii][jj] = float(rows[iterator+ii][jj+1])
+
+            iterator = iterator + 3 + len(self.region.getX())
+            
             # Temperature parameters
             # Means and Standard Deviations
             meanTempWet = numpy.empty([self.totalSteps])
@@ -608,11 +634,14 @@ class Model():
             
             tempBetas = []
             for ii in range(self.totalSteps):
-                tb = numpy.empty([len(self.region.getX()),len(self.region.getX())])
+                tb = numpy.empty([2*len(self.region.getX()),2*len(self.region.getX())])
                 
                 for jj in range(len(self.region.getX())):
                     for kk in range(len(self.region.getX())):
-                        tb[jj][kk] = float(rows[iterator+jj][kk+2])
+                        tb[2*jj][2*kk] = float(rows[iterator+2*jj][2*kk+2])
+                        tb[2*jj][2*kk+1] = float(rows[iterator+2*jj][2*kk+3])
+                        tb[2*jj+1][2*kk] = float(rows[iterator+2*jj+1][2*kk+2])
+                        tb[2*jj+1][2*kk+1] = float(rows[iterator+2*jj+1][2*kk+3])
                 
                 tempBetas.append(tb)
                 iterator = iterator + len(self.region.getX())
@@ -635,10 +664,13 @@ class Model():
             
             iterator = iterator + 3 + len(self.region.getX())
             
-            windBetas = numpy.empty([len(self.region.getX()),len(self.region.getX())])
+            windBetas = numpy.empty([2*len(self.region.getX()),2*len(self.region.getX())])
             for ii in range(len(self.region.getX())):                
                 for jj in range(len(self.region.getX())):
-                    windBetas[ii][jj] = float(rows[iterator+ii][jj+1])
+                    windBetas[2*ii][2*jj] = float(rows[iterator+2*ii][2*jj+1])
+                    windBetas[2*ii][2*jj+1] = float(rows[iterator+2*ii][2*jj+2])
+                    windBetas[2*ii+1][2*jj] = float(rows[iterator+2*ii+1][2*jj+1])
+                    windBetas[2*ii+1][2*jj+1] = float(rows[iterator+2*ii+1][2*jj+2])
                 
             iterator = iterator + len(self.region.getX())
                 
@@ -659,14 +691,18 @@ class Model():
             
             iterator = iterator + 3 + len(self.region.getX())
             
-            windBetas = numpy.empty([len(self.region.getX()),len(self.region.getX())])
+            windBetas = numpy.empty([2*len(self.region.getX()),2*len(self.region.getX())])
             for ii in range(len(self.region.getX())):                
                 for jj in range(len(self.region.getX())):
-                    windBetas[ii][jj] = float(rows[iterator+ii][jj])
+                    windBetas[2*ii][2*jj] = float(rows[iterator+2*ii][2*jj+1])
+                    windBetas[2*ii][2*jj+1] = float(rows[iterator+2*ii][2*jj+2])
+                    windBetas[2*ii+1][2*jj] = float(rows[iterator+2*ii+1][2*jj+1])
+                    windBetas[2*ii+1][2*jj+1] = float(rows[iterator+2*ii+1][2*jj+2])
                 
             iterator = iterator + len(self.region.getX())
                 
             wg.setWindEWB(windBetas)
+            wg.setRegion(self.region)
             
             self.region.setWeatherGenerator(wg)
             weatherConfigFile.close()

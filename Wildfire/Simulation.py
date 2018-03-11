@@ -7,6 +7,7 @@ Created on Sun Dec 10 23:32:32 2017
 
 import numpy
 import math
+import scipy
 
 class Simulation():
     # Class for defining a simulation run
@@ -120,10 +121,14 @@ class Simulation():
         timeSteps = self.model.getTotalSteps()
         stepSize = self.model.getStepSize()
 
+        rain = numpy.empty([timeSteps,regionSize])
+        rain[0] = region.getRain()
         precipitation = numpy.empty([timeSteps,regionSize])
-        precipitation[0] = region.getRain()
-        temperature = numpy.empty([timeSteps,regionSize])
-        temperature[0] = region.getTemperature()
+        precipitation[0] = region.getHumidity()
+        temperatureMin = numpy.empty([timeSteps,regionSize])
+        temperatureMin[0] = region.getTemperatureMin()
+        temperatureMax = numpy.empty([timeSteps,regionSize])
+        temperatureMax[0] = region.getTemperatureMax()
         windNS = numpy.empty([timeSteps,regionSize])
         windNS[0] = region.getWindN()
         windEW = numpy.empty([timeSteps,regionSize])
@@ -135,19 +140,9 @@ class Simulation():
         
         # Simulate the path forward from time zero to the end
         for ii in range(timeSteps):
-            # 1. Determine wet locations
-            # Initial draws of random variable
-            w = numpy.random.normal(0,1,regionSize)
-            # Now, correlate them using the Cholesky decomposition of the
-            # occurrence covariance matrix
-            C = numpy.linalg.cholesky(wg.getWetOccurrenceCovariance())
-            # Final random vector
-            w = numpy.matmul(C,w)
-            # Compare to probabilities
-            p = numpy.multiply(wg.getWetProbT0Wet(),precipitation[ii]) + numpy.multiply(wg.getWetProbT0Dry(),1-precipitation[ii])
-            precipitation[ii+1] = bool(w < scipy.stats.norm.isf(q=p,loc=0,scale=1))
-            
-            
+            # Compute weather
+            wg.computeWeather(rain,precipitation,temperatureMin,temperatureMax,windNS,windEW,FFDI,ii)
+            pass            
 
     def pathRecomputation(self,t,state_t,maps):
         # Return recomputed VALUES as a vector across the paths
