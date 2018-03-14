@@ -135,13 +135,15 @@ class Simulation():
         windEW[0] = region.getWindE()
         FFDI = numpy.empty([timeSteps,regionSize])
         FFDI[0] = region.getDangerIndex()
+        windRegimes = numpy.empty([timeSteps])
+        windRegimes[0] = region.getWindRegime()
         
         wg = region.getWeatherGenerator()
         
         # Simulate the path forward from time zero to the end
         for ii in range(timeSteps):
             # Compute weather
-            wg.computeWeather(rain,precipitation,temperatureMin,temperatureMax,windNS,windEW,FFDI,ii)
+            wg.computeWeather(rain,precipitation,temperatureMin,temperatureMax,windRegimes,windNS,windEW,FFDI,ii)
             pass            
 
     def pathRecomputation(self,t,state_t,maps):

@@ -6,7 +6,7 @@ Created on Sun Dec 10 23:10:43 2017
 """
 
 import numpy
-import scipy
+import scipy.stats
 from Process import Process
 
 class WeatherGenerator():
@@ -27,7 +27,6 @@ class WeatherGenerator():
         self.humidityReductionMean = numpy.empty([0,0])
         self.humidityReductionSD = numpy.empty([0,0])
         self.precipContributionMultiplier = numpy.empty([0,0])
-        self.humidityCorrelation = numpy.empty([0,0])
         # Non-precipitation variables are performed by a first-order
         # multivariate auto-regression (Wilks 2009) conditional upon wet and
         # dry days => T_t = [A]T_(t-1) + [B]e_t. [A] is block diagonal.
@@ -44,10 +43,10 @@ class WeatherGenerator():
         self.tempB = []
         # One for each time period. We assume precipitation occurrence has no
         # impact on the regressions.
-        self.windNSA = []
-        self.windNSB = []
-        self.windEWA = []
-        self.windEWB = []
+        self.windRegimes = 0
+        self.windRegimeTransitions = numpy.empty([0,0])
+        self.windA = []
+        self.windB = []
         self.region = None
 
     def getWetProbT0Wet(self):
@@ -122,29 +121,29 @@ class WeatherGenerator():
     def setTempB(self,b):
         self.tempB = b
         
-    def getWindNSA(self):
-        return self.windNSA
+    def getWindRegimes(self):
+        return self.windRegimes
         
-    def setWindNSA(self,a):
-        self.windNSA = a
+    def setWindRegimes(self,r):
+        self.windRegimes = r
         
-    def getWindNSB(self):
-        return self.windNSB
+    def getWindRegimeTransitions(self):
+        return self.windRegimeTransitions
         
-    def setWindNSB(self,b):
-        self.windNSB = b
+    def setWindRegimeTransitions(self,t):
+        self.windRegimeTransitions = t
         
-    def getWindEWA(self):
-        return self.windEWA
+    def getWindA(self):
+        return self.windA
         
-    def setWindEWA(self,a):
-        self.windEWA = a
+    def setWindA(self,a):
+        self.windA = a
         
-    def getWindEWB(self):
-        return self.windEWB
+    def getWindB(self):
+        return self.windB
         
-    def setWindEWB(self,b):
-        self.windEWB = b
+    def setWindB(self,b):
+        self.windB = b
         
     def getRegion(self):
         return self.region
@@ -169,15 +168,9 @@ class WeatherGenerator():
         
     def setPrecipitationContributionMultiplier(self,p):
         self.precipContributionMultiplier = p
-        
-    def getHumidityCorrelation(self):
-        return self.humidityCorrelation
-        
-    def setHumidityCorrelation(self,h):
-        self.humidityCorrelation = h
 
     # Simulate one period
-    def computeWeather(self,rain,precipitation,tempMin,tempMax,windNS,windEW,FFDI,time):
+    def computeWeather(self,rain,precipitation,tempMin,tempMax,windRegimes,windNS,windEW,FFDI,time):
         # 1. Determine wet locations
         self.computePrecipitation(rain,precipitation,time)
         
@@ -185,7 +178,7 @@ class WeatherGenerator():
         self.computeTemperature(rain,tempMin,tempMax,time)
         
         # 4. Compute wind
-        self.computeWind(windNS,windEW,time)
+        self.computeWind(windRegimes,windNS,windEW,time)
         
         # 5. Use all of these results to compute the danger index
         self.generateFFDI(precipitation,temperature,windNS,windEW,FFDI,time)
@@ -208,15 +201,15 @@ class WeatherGenerator():
         # Relative humidity (precipitation) is a function of the relative
         # humidity at the previous time step and the precipitation at this time
         # Current precipitation at rainfall locations
-        alpha = self.getAlphas()[time]
+        alpha = self.getPrecipAlpha()[time]
         
         betaChoice = alpha < numpy.random.uniform(0,1,regionSize)
-        beta = numpy.multiply(self.getPrecipBetas()[0],betaChoice) + numpy.multiply(self.getPrecipBetas()[0],1-betaChoice )
+        beta = numpy.multiply(self.getPrecipBetas()[0][:][time],betaChoice) + numpy.multiply(self.getPrecipBetas()[1][:][time],1-betaChoice)
         # Initial draws of random variable
         w = numpy.random.normal(0,1,regionSize)
         # Now correlate using the Cholesky decomposition of the occurrence
         # covariance matrix
-        C = numpy.linalg.cholesky(self.getHumidityCorrelation())
+        C = numpy.linalg.cholesky(self.getPrecipAmountCovariance())
         # Final random vector
         h = numpy.matmul(C,w)
         # Compute the precipitation amounts. Only areas that actually experience
@@ -226,7 +219,7 @@ class WeatherGenerator():
         
         # Now add the reduced humidity from the previous period
         precipitation[time+1] = precipitation[time+1] + precipitation[time]*numpy.random.normal(self.getHumidityReductionMean()[time],self.getHumidityReductionSD()[time],regionSize)
-    
+        
     def computeTemperature(self,rain,tempMin,tempMax,time):
         regionSize = self.region.getX().size
         
@@ -236,31 +229,61 @@ class WeatherGenerator():
         # Normalise previous time step temperatures conditional on whether
         # previous time step was wet or dry
         # MEANS
-        meanDryMin = numpy.multiply(1-rain[time],tempMin[time])/(numpy.sum(1-rain[time]))
-        meanWetMin = numpy.multiply(rain[time],tempMin[time])/(numpy.sum(rain[time]))
-        meanDryMax = numpy.multiply(1-rain[time],tempMax[time])/(numpy.sum(1-rain[time]))
-        meanWetMax = numpy.multiply(rain[time],tempMax[time])/(numpy.sum(rain[time]))
+        meanDryMin = numpy.sum(numpy.multiply(1-rain[time],tempMin[time])/(numpy.sum(1-rain[time])))
+        meanWetMin = numpy.sum(numpy.multiply(rain[time],tempMin[time])/(numpy.sum(rain[time])))
+        meanDryMax = numpy.sum(numpy.multiply(1-rain[time],tempMax[time])/(numpy.sum(1-rain[time])))
+        meanWetMax = numpy.sum(numpy.multiply(rain[time],tempMax[time])/(numpy.sum(rain[time])))
         # STANDARD DEVIATIONS
-        sdDryMin = numpy.sqrt(numpy.sum(numpy.multiply(1-rain[time],numpy.power(tempMin[time]-meanDryMin,2))))
-        sdWetMin = numpy.sqrt(numpy.sum(numpy.multiply(rain[time],numpy.power(tempMin[time]-meanWetMin,2))))
-        sdDryMax = numpy.sqrt(numpy.sum(numpy.multiply(1-rain[time],numpy.power(tempMax[time]-meanDryMax,2))))
-        sdWetMax = numpy.sqrt(numpy.sum(numpy.multiply(rain[time],numpy.power(tempMax[time]-meanWetMax,2))))        
+        sdDryMin = numpy.sqrt(numpy.sum(numpy.multiply(1-rain[time],numpy.power(tempMin[time]-meanDryMin,2)))/numpy.sum(1-rain[time]))
+        sdWetMin = numpy.sqrt(numpy.sum(numpy.multiply(rain[time],numpy.power(tempMin[time]-meanWetMin,2)))/numpy.sum(rain[time]))
+        sdDryMax = numpy.sqrt(numpy.sum(numpy.multiply(1-rain[time],numpy.power(tempMax[time]-meanDryMax,2)))/numpy.sum(1-rain[time]))
+        sdWetMax = numpy.sqrt(numpy.sum(numpy.multiply(rain[time],numpy.power(tempMax[time]-meanWetMax,2)))/numpy.sum(rain[time]))        
         # CREATE THE STANDARDISED TEMPERATURES
         tempMinStd = numpy.multiply(1-rain[time],(tempMin[time]-meanDryMin)/sdDryMin) + numpy.multiply(rain[time],(tempMin[time]-meanWetMin)/sdWetMin)
         tempMaxStd = numpy.multiply(1-rain[time],(tempMax[time]-meanDryMax)/sdDryMax) + numpy.multiply(rain[time],(tempMax[time]-meanWetMax)/sdWetMax)
-        tempPrev = numpy.array([tempMinStd.transpose(),tempMaxStd.transpose()])
+        tempPrev = numpy.array([tempMinStd.transpose(),tempMaxStd.transpose()]).transpose().reshape((2*regionSize,1))
         # Now compute the current temperature        
-        tempNow = numpy.matmul(self.tempA[time],tempPrev)+numpy.matmul(self.tempB,e)
-        # Save to arrays
+        tempNow = numpy.matmul(self.tempA[time],tempPrev)+numpy.matmul(self.tempB[time],e)
+        # Save to arrays and reverse the standardisation
         tempNowReshaped = tempNow.reshape((2,regionSize))
         tempMin[time+1] = numpy.multiply(1-rain[time+1],tempNowReshaped[:,0]*sdDryMin+meanDryMin) + numpy.multiply(rain[time+1],tempNowReshaped[:,0]*sdWetMin+meanWetMin)
         tempMax[time+1] = numpy.multiply(1-rain[time+1],tempNowReshaped[:,1]*sdDryMax+meanDryMax) + numpy.multiply(rain[time+1],tempNowReshaped[:,1]*sdWetMax+meanWetMax)
+                
+        testy = numpy.reshape(tempMax[time+1],(20,20))
+    def computeWind(self,windRegimes,windNS,windEW,FFDI,time):
+        # Initially, as per Aillot (2013) we do not treat wind as being a
+        # function of anything other than wind
+        regionSize = self.region.getX().size
+        
+        # Random vector
+        e = numpy.random.normal(0,1,regionSize*2)
+        
+        # Normalise previous time step wind in each of the two directions
+        # MEANS
+        meanNS = numpy.mean(windNS[time])
+        meanEW = numpy.mean(windEW[time])
+        
+        # STANDARD DEVIATIONS
+        sdNS = numpy.std(windNS[time])
+        sdEW = numpy.std(windEW[time])
+        
+        # CREATE STANDARDISED WIND
+        windPrev = numpy.array([[(windNS[time]-meanNS)/sdNS],[(windEW[time]-meanEW)/sdEW]])
+        
+        # Now compute the current wind
+        regimes = range(self.windRegimes)
+        regimeProbs = self.windRegimeTransitions[windRegimes[time]]
+        windRegimes[time+1] = numpy.random.choice(regimes,1,p=regimeProbs)
+        windNow = numpy.matmul(self.windA[windRegimes[time+1]],windPrev) + numpy.matmul(self.windB[windRegimes[time+1]],e)
+                
+        # Save to the arrays and reverse the standardisation
+        windNowReshaped = windNow.reshape((2,regionSize))
+        windNS[time+1] = windNowReshaped[:,0]*sdNS + meanNS
+        windEW[time+1] = windNowReshaped[:,1]*sdEW + meanEW
     
-    def computeWind(self):
-        pass    
-    
-    def generateFFDI(self):
-        pass
+    def generateFFDI(self,precipitation,temperature,windNS,windEW,FFDI,time):
+        wind = numpy.sqrt(numpy.power(windNS,2) + numpy.power(windEW,2))
+        FFDI[time+1] = 2*numpy.exp(-0.45+0.987*numpy.log(10)-0.0345*precipitation[time+1]+0.0338*temperature[time+1]+0.0234*wind)
     
     # Compute weather generator parameters from weather station data
     def calculateParametersFromStationData(self):

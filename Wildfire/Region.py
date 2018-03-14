@@ -31,6 +31,7 @@ class Region():
         self.temperature_0_min = numpy.empty([0,0])
         self.temperature_0_max = numpy.empty([0,0])
         self.vegetation = numpy.empty([0,0])
+        self.windRegime = 0
         self.windN = numpy.empty([0,0])
         self.windE = numpy.empty([0,0])
         self.stationDistances = numpy.empty([0,0])
@@ -204,6 +205,12 @@ class Region():
         
     def setName(self,n):
         self.name = n
+        
+    def getWindRegime(self):
+        return self.windRegime
+        
+    def setWindRegime(self,r):
+        self.windRegime = r
         
     def getWindN(self):
         return self.windN
