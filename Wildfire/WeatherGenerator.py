@@ -239,17 +239,16 @@ class WeatherGenerator():
         sdDryMax = numpy.sqrt(numpy.sum(numpy.multiply(1-rain[time],numpy.power(tempMax[time]-meanDryMax,2)))/numpy.sum(1-rain[time]))
         sdWetMax = numpy.sqrt(numpy.sum(numpy.multiply(rain[time],numpy.power(tempMax[time]-meanWetMax,2)))/numpy.sum(rain[time]))
         # CREATE THE STANDARDISED TEMPERATURES
-        tempMinStd = numpy.multiply(1-rain[time],(tempMin[time]-meanDryMin)/sdDryMin) + numpy.multiply(rain[time],(tempMin[time]-meanWetMin)/sdWetMin).reshape(regionSize,1)
-        tempMaxStd = numpy.multiply(1-rain[time],(tempMax[time]-meanDryMax)/sdDryMax) + numpy.multiply(rain[time],(tempMax[time]-meanWetMax)/sdWetMax).reshape(regionSize,1)
+        tempMinStd = (numpy.multiply(1-rain[time],(tempMin[time]-meanDryMin)/sdDryMin) + numpy.multiply(rain[time],(tempMin[time]-meanWetMin)/sdWetMin)).reshape(regionSize,1)
+        tempMaxStd = (numpy.multiply(1-rain[time],(tempMax[time]-meanDryMax)/sdDryMax) + numpy.multiply(rain[time],(tempMax[time]-meanWetMax)/sdWetMax)).reshape(regionSize,1)
         tempPrev = numpy.concatenate((tempMinStd,tempMaxStd),axis=1).reshape(2*regionSize,1)
         # Now compute the current temperature
         tempNow = numpy.matmul(self.tempA[time],tempPrev)+numpy.matmul(self.tempB[time],e)
         # Save to arrays and reverse the standardisation
         tempNowReshaped = tempNow.reshape((regionSize,2))
-        print(tempNowReshaped[0][1])
-        print(tempNow[1])
-        tempMin[time+1] = numpy.multiply(1-rain[time+1],tempNowReshaped[:][0]*sdDryMin+meanDryMin) + numpy.multiply(rain[time+1],tempNowReshaped[:][0]*sdWetMin+meanWetMin)
-        tempMax[time+1] = numpy.multiply(1-rain[time+1],tempNowReshaped[:][1]*sdDryMax+meanDryMax) + numpy.multiply(rain[time+1],tempNowReshaped[:][1]*sdWetMax+meanWetMax)
+        tempMin[time+1] = numpy.multiply(1-rain[time+1],tempNowReshaped[:,0]*sdDryMin+meanDryMin) + numpy.multiply(rain[time+1],tempNowReshaped[:,0]*sdWetMin+meanWetMin)
+        tempMax[time+1] = numpy.multiply(1-rain[time+1],tempNowReshaped[:,1]*sdDryMax+meanDryMax) + numpy.multiply(rain[time+1],tempNowReshaped[:,1]*sdWetMax+meanWetMax)
+    
     def computeWind(self,windRegimes,windNS,windEW,time):
         # Initially, as per Aillot (2013) we do not treat wind as being a
         # function of anything other than wind
@@ -268,19 +267,18 @@ class WeatherGenerator():
         sdEW = numpy.std(windEW[time])
 
         # CREATE STANDARDISED WIND
-        windPrev = numpy.array([[(windNS[time]-meanNS)/sdNS],[(windEW[time]-meanEW)/sdEW]])
+        windPrev = numpy.concatenate(((windNS[time]-meanNS)/sdNS,(windEW[time]-meanEW)/sdEW),axis=1).reshape(2*regionSize,1)
 
         # Now compute the current wind
         regimes = range(self.windRegimes)
         regimeProbs = self.windRegimeTransitions[windRegimes[time]]
         windRegimes[time+1] = numpy.random.choice(regimes,1,p=regimeProbs)
         windNow = numpy.matmul(self.windA[windRegimes[time+1]],windPrev) + numpy.matmul(self.windB[windRegimes[time+1]],e)
-        print('success')
 
         # Save to the arrays and reverse the standardisation
-        windNowReshaped = windNow.reshape((2,regionSize))
-        windNS[time+1] = windNowReshaped[:][0]*sdNS + meanNS
-        windEW[time+1] = windNowReshaped[:][1]*sdEW + meanEW
+        windNowReshaped = windNow.reshape((regionSize,2))
+        windNS[time+1] = windNowReshaped[:,0]*sdNS + meanNS
+        windEW[time+1] = windNowReshaped[:,1]*sdEW + meanEW
 
     def generateFFDI(self,precipitation,temperature,windNS,windEW,FFDI,time):
         wind = numpy.sqrt(numpy.power(windNS,2) + numpy.power(windEW,2))
