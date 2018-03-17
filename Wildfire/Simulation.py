@@ -80,6 +80,7 @@ class Simulation():
 
     def simulate(self):
         # Generate exogenous forward paths for weather and fire starts and save
+        # The forward paths are just the Danger Indices at each location
         exogenousPaths = self.forwardPaths()
 
         # Generate random control paths and store
@@ -95,22 +96,30 @@ class Simulation():
         # We don't need to store the precipitation, wind, and temperature matrices
         # over time. We only need the resulting danger index
 
-        paths = [[] for ii in range(self.model.getROVPaths())]
+        paths = []
         
         for path in range(self.model.getROVPaths()):
-            paths[path] =self.initialForwardPath()
+            paths.append(self.initialForwardPath())           
 
-        return 0
+        return paths
         
     def rov(self,exogenousPaths,randCont,endogenousPaths):
         pass
 
     def randomControls(self):
-        return 0
+        randControls = numpy.random.choice(range(self.model.getControls().size),self.model.getROVPaths()*self.model.getTotalSteps()).reshape(self.model.getROVPaths(),self.model.getTotalSteps()).reshape(self.model.getROVPaths(),self.model.getTotalSteps())
+        
+        return randControls
 
-    def endogenousPaths(ep,rc):
+    def endogenousPaths(self,ep,rc):
         # We store the actual fires and their sizes
-        return 0
+        
+        paths = []
+        
+        for path in range(self.model.getROVPaths()):
+            paths.append(self.initialEndogenousPath(ep,rc,path))
+            
+        return paths
 
     def multiLocLinReg(self,predictors,regressors):
         pass
@@ -119,7 +128,6 @@ class Simulation():
         region = self.model.getRegion()
         regionSize = region.getX().size
         timeSteps = self.model.getTotalSteps()
-        stepSize = self.model.getStepSize()
 
         rain = numpy.empty([timeSteps,regionSize])
         rain[0] = region.getRain()
@@ -144,7 +152,61 @@ class Simulation():
         for ii in range(timeSteps):
             # Compute weather
             wg.computeWeather(rain,precipitation,temperatureMin,temperatureMax,windRegimes,windNS,windEW,FFDI,ii)
-            pass            
+            pass
+        
+        return FFDI
+        
+    def initialEndogenousPath(self,ep,rc,path):
+        regionSize = self.region.getX().size
+        timeSteps = self.model.getTotalSteps()
+        stepSize = self.model.getStepSize()
+        
+        # Keep a whole map of fire in the region. We do not keep track of all
+        # the randomly-generated numbers used for fire growth and success (or
+        # even first starts for that matter) as it is expected that the fires
+        # will have different successes and may even be different fires in the
+        # first place. This will save a lot of memory.
+        fireSeverityMap = []
+        
+        for ii in range(timeSteps):
+            control = rc[path,ii]
+            
+            # Randomly generate fire starts based on FFDIs
+            comparators = self.model.getRegion().getVegetation()
+            randFireStarts = float(comparators > numpy.random.uniform(0,1,regionSize))
+            
+            # NESTED OPTIMISATION #############################################
+            # Optimise aircraft locations given selected control
+            
+            # Given the locations found for this control, update the fire
+            # severities for the next time period. We use the probabilities.
+            
+        return fireSeverityMap
+        
+    def comparator(self,ffdi,time):
+        comparators = numpy.empty(self.region.getX().size(),1)
+        # Serial
+        for ii in range(self.region.getX().size):
+            # Linear interpolation. Assume ffdis evenly spaced
+            veg = self.region.getVegetation()[ii]
+            ffdiRange = self.region.getVegetations[veg].getFFDIRange()
+            occurrenceProbs = self.region.getVegetations[veg].getOccurrence()
+            ffdis = ffdiRange.size
+            ffdiMinIdx = math.floor((ffdi[time][ii]-ffdiRange[0])*(ffdis-1)/(ffdiRange[ffdis] - ffdiRange[0]))
+            ffdiMaxIdx = ffdiMinIdx + 1
+            
+            if ffdiMinIdx < 0:
+                ffdiMinIdx = 0
+                ffdiMaxIdx = 1
+            else if ffdiMaxIdx >= ffdis:
+                ffdiMinIdx = ffdis - 2
+                ffdiMaxIdx = ffdis - 1
+
+            xd = (ffdi[time][ii]-ffdiRange[ffdiMinIdx])/(ffdiRange[ffdiMaxIdx] - ffdiRange[ffdiMinIdx])
+            
+            comparators[ii] = xd*occurrenceProbs[ffdiMinIdx] + (1-xd)*occurrenceProbs[ffdiMaxIdx]
+        
+        return comparators
 
     def pathRecomputation(self,t,state_t,maps):
         # Return recomputed VALUES as a vector across the paths

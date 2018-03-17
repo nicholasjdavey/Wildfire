@@ -181,7 +181,8 @@ class WeatherGenerator():
         self.computeWind(windRegimes,windNS,windEW,time)
 
         # 5. Use all of these results to compute the danger index
-        self.generateFFDI(precipitation,temperature,windNS,windEW,FFDI,time)
+        # For conservativism, we only use the maximum temperature
+        self.generateFFDI(precipitation,tempMax,windNS,windEW,FFDI,time)
 
     def computePrecipitation(self,rain,precipitation,time):
         regionSize = self.region.getX().size
@@ -267,13 +268,13 @@ class WeatherGenerator():
         sdEW = numpy.std(windEW[time])
 
         # CREATE STANDARDISED WIND
-        windPrev = numpy.concatenate(((windNS[time]-meanNS)/sdNS,(windEW[time]-meanEW)/sdEW),axis=1).reshape(2*regionSize,1)
+        windPrev = numpy.concatenate(((windNS[time].reshape(regionSize,1)-meanNS)/sdNS,(windEW[time].reshape(regionSize,1)-meanEW)/sdEW),axis=1).reshape(2*regionSize,1)
 
         # Now compute the current wind
         regimes = range(self.windRegimes)
-        regimeProbs = self.windRegimeTransitions[windRegimes[time]]
+        regimeProbs = self.windRegimeTransitions[int(windRegimes[time])]
         windRegimes[time+1] = numpy.random.choice(regimes,1,p=regimeProbs)
-        windNow = numpy.matmul(self.windA[windRegimes[time+1]],windPrev) + numpy.matmul(self.windB[windRegimes[time+1]],e)
+        windNow = numpy.matmul(self.windA[int(windRegimes[time+1])],windPrev) + numpy.matmul(self.windB[int(windRegimes[time+1])],e)
 
         # Save to the arrays and reverse the standardisation
         windNowReshaped = windNow.reshape((regionSize,2))
