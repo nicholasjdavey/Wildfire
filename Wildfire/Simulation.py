@@ -8,6 +8,7 @@ Created on Sun Dec 10 23:32:32 2017
 import numpy
 import math
 import scipy
+import pulp
 
 class Simulation():
     # Class for defining a simulation run
@@ -167,21 +168,20 @@ class Simulation():
         # will have different successes and may even be different fires in the
         # first place. This will save a lot of memory.
         fireSeverityMap = []
+        aircraftLocations = []
         
         for ii in range(timeSteps):
             control = rc[path,ii]
             
-            # Randomly generate fire starts based on FFDIs
-            comparators = self.model.getRegion().getVegetation()
-            randFireStarts = float(comparators > numpy.random.uniform(0,1,regionSize))
-            
             # NESTED OPTIMISATION #############################################
             # Optimise aircraft locations given selected control
+            aircraftLocations.append(self.optimalLocations(rc[path,ii],fireSeverityMap[time]))
             
             # Given the locations found for this control, update the fire
             # severities for the next time period. We use the probabilities.
+            fireSeverityMap.append(self.fireSeverity(aircraftLocations,fireSeverityMap[ii],ep[ii]))
             
-        return fireSeverityMap
+        return [fireSeverityMap,aircraftLocations]
         
     def comparator(self,ffdi,time):
         comparators = numpy.empty(self.region.getX().size(),1)
@@ -197,8 +197,8 @@ class Simulation():
             
             if ffdiMinIdx < 0:
                 ffdiMinIdx = 0
-                ffdiMaxIdx = 1
-            else if ffdiMaxIdx >= ffdis:
+                ffdiMaxIdx = 1                
+            elif ffdiMaxIdx >= ffdis:
                 ffdiMinIdx = ffdis - 2
                 ffdiMaxIdx = ffdis - 1
 
@@ -207,6 +207,12 @@ class Simulation():
             comparators[ii] = xd*occurrenceProbs[ffdiMinIdx] + (1-xd)*occurrenceProbs[ffdiMaxIdx]
         
         return comparators
+        
+    def optimalLocations(self,randCont,fireSeverityMap):
+        pass
+    
+    def fireSeverity(self,locations,fireSeverityMap,ffdi):
+        pass
 
     def pathRecomputation(self,t,state_t,maps):
         # Return recomputed VALUES as a vector across the paths
