@@ -42,6 +42,7 @@ class Model():
         self.aircraftDataFiles = []
         self.landcraftDataFiles = []
         self.simulations = []
+        self.resourceTypes = []
         self.variableParameters = None
         self.controls = []
         self.region = None
@@ -49,6 +50,9 @@ class Model():
         self.totalSteps = 0
         self.hoursPerDay = 0
         self.rovPaths = 0
+        self.nestedOptMethod = 0
+        self.lookahead = 0
+        self.coverTime = 0
 
     def getROVPaths(self):
         return self.rovPaths
@@ -139,6 +143,12 @@ class Model():
 
     def setLandcraftDataFiles(self,l):
         self.landcraftDataFiles = l
+        
+    def getResourceTypes(self):
+        return self.resourceTypes
+        
+    def setResourceTypes(self,r):
+        self.resourceTypes = r
 
     def getSimulations(self):
         return self.simulations
@@ -163,6 +173,24 @@ class Model():
 
     def setRegion(self,r):
         self.region = r
+        
+    def getNestedOptMethod(self):
+        return self.nestedOptMethod
+        
+    def setNestedOptMethod(self,m):
+        self.nestedOptMethod = m
+        
+    def getLookahead(self):
+        return self.lookahead
+        
+    def setLookahead(self,l):
+        self.lookahead = l
+        
+    def getCoverTime(self):
+        return self.coverTime
+        
+    def setCoverTime(self,t):
+        self.coverTime = t
 
     def readInSourceData(self,filename):
         # First read the raw source files
@@ -196,6 +224,7 @@ class Model():
         self.occurrenceDataFile = contents[43+noAircraft+noLandcraft].split(":")[1].strip()
         self.exDamageDataFile = contents[49+noAircraft+noLandcraft].split(":")[1].strip()
 
+        # These controls are not used for the fourth type of linear program
         noControls = int(contents[66+noAircraft+noLandcraft].split(":")[1].strip())
 
         for ii in range(noControls):
@@ -233,6 +262,9 @@ class Model():
         self.stepSize = float(contents[76+noAircraft+noLandcraft+noControls].split(":")[1].strip())
         self.hoursPerDay = float(contents[77+noAircraft+noLandcraft+noControls].split(":")[1].strip())
         self.rovPaths = int(contents[78+noAircraft+noLandcraft+noControls].split(":")[1].strip())
+        self.nestedOptMethod = int(contents[79+noAircraft+noLandcraft+noControls].split(":")[1].strip())
+        self.lookahead = int(contents[80+noAircraft+noLandcraft+noControls].split(":")[1].strip())
+        self.coverTime = float(contents[81+noAircraft+noLandcraft+noControls].split(":")[1].strip())
 
         self.variableParameters = varParams
 
@@ -267,22 +299,44 @@ class Model():
         # Tankers
         # Indices for vehicles at future calls refer to the order created here.
         # Order is A1...AI,H1...HJ,T1...TK
-        # We only have one of each type for now
+        # WE ONLY HAVE ONE OF EACH TYPE FOR NOW!
+        resources = []
         aircraftDetails = []
         with open("../"+self.aircraftDataFiles[0]) as tf:
             reader = csv.reader(tf)
             aircraftDetails = [r[0] for r in reader]
+        aircraft = Tanker()
+        aircraft.setFlyingHours(float(aircraftDetails[4].split(":")[1]))
+        aircraft.setMaxDailyHours(float(aircraftDetails[5].split(":")[1]))
+        aircraft.setCapacity(float(aircraftDetails[6].split(":")[1]))
+        aircraft.setSpeed(float(aircraftDetails[7].split(":")[1]))
+        resources.append(aircraft)
+        
         # Helicopters
         helicopterDetails = []
         with open("../"+self.aircraftDataFiles[1]) as hf:
             reader = csv.reader(hf)
-            helicopterDetails = [r[0] for r in reader]
+        helicopterDetails = [r[0] for r in reader]
+        heli = Heli()
+        heli.setFlyingHours(float(helicopterDetails[4].split(":")[1]))
+        heli.setMaxDailyHours(float(helicopterDetails[5].split(":")[1]))
+        heli.setCapacity(float(helicopterDetails[6].split(":")[1]))
+        heli.setSpeed(float(helicopterDetails[7].split(":")[1]))
+        resources.append(heli)
+        
         # Firetrucks
         truckDetails = []
         with open("../"+self.landcraftDataFiles[0]) as hf:
             reader = csv.reader(hf)
             truckDetails = [r for r in reader]
-            
+        vehicle = Land()
+        vehicle.setCrewSize(float(truckDetails[4].split(":")[1]))
+        vehicle.setCapacity(float(truckDetails[5].split(":")[1]))
+        vehicle.setSpeed(float(truckDetails[6].split(":")[1]))
+        resources.append(vehicle)
+
+        self.resourceTypes = resources        
+        
         # Vegetation details
         vegetations = []
         with open("../"+self.occurrenceDataFile) as vp:
@@ -353,6 +407,7 @@ class Model():
             airStrips = []
             bases = []
             # Store all the air strips
+            # We only have 1 tanker and 1 helicopter at the moment
             test = True
             while test:
                 if (all('' == s or s.isspace() for s in rows[iterator][1:4]) or (len(rows[iterator]) < 8)):
@@ -370,6 +425,7 @@ class Model():
                         aircraft.setCapacity(float(aircraftDetails[6].split(":")[1]))
                         aircraft.setSpeed(float(aircraftDetails[7].split(":")[1]))
                         aircraftList.append(aircraft)
+                    airStrip.setAirTankers(aircraftList)
                     noHelicopters = int(rows[iterator][4])
                     heliList = []
                     for ii in range(noHelicopters):

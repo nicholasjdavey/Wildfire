@@ -79,8 +79,11 @@ Control 4       :              0.5                     0.5
 Aircraft Speed             : 1
 Occurrence Probability     : 1
 Damage Intensity           : 1
-Wealther Uncertainty       : 1
+Weather Uncertainty        : 1
 Time Steps (Total Hours)   : 15
 Step Size (Hours)          : 1
 Daylight Hours Per Day     : 15
 ROV Paths                  : 100000
+Relocation LP Method       : 0
+Lookahead                  : 0
+Cover Time (minutes)       : 20
