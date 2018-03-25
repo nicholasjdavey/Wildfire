@@ -282,7 +282,7 @@ class WeatherGenerator():
         windEW[time+1] = windNowReshaped[:,1]*sdEW + meanEW
 
     def generateFFDI(self,precipitation,temperature,windNS,windEW,FFDI,time):
-        wind = numpy.sqrt(numpy.power(windNS,2) + numpy.power(windEW,2))
+        wind = numpy.sqrt(numpy.power(windNS[time+1],2) + numpy.power(windEW[time+1],2))
         FFDI[time+1] = 2*numpy.exp(-0.45+0.987*numpy.log(10)-0.0345*precipitation[time+1]+0.0338*temperature[time+1]+0.0234*wind)
 
     # Compute weather generator parameters from weather station data

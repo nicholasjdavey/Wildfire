@@ -15,9 +15,16 @@ class Base(Station):
         # Constructs an instance
         Station.__init__(self)
         self.landResources = []
+        self.maxResources = 0
 
     def getLandResources(self):
         return self.landResources
         
     def setLandResources(self,l):
         self.landResources = l
+        
+    def getMaxResources(self):
+        return self.maxResources
+        
+    def setMaxResources(self,m):
+        self.maxResources = m

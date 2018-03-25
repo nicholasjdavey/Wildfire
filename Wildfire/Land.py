@@ -13,3 +13,9 @@ class Land(Resource):
 
     def __init__(self):
         self.crewSize = 0
+
+    def getCrewSize(self):
+        return self.crewSize
+        
+    def setCrewSize(self,s):
+        self.crewSize = s

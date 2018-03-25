@@ -16,6 +16,8 @@ class AirStrip(Station):
         Station.__init__(self)
         self.airTankers = []
         self.helicopters = []
+        self.maxTankers = 0
+        self.maxHelicopters = 0
 
     def getAirTankers(self):
         return self.airTankers
@@ -28,3 +30,15 @@ class AirStrip(Station):
 
     def setHelicopters(self,h):
         self.helicopters = h
+
+    def getMaxTankers(self):
+        return self.maxTankers
+    
+    def setMaxTankers(self,m):
+        self.maxTankers = m
+        
+    def getMaxHelicopters(self):
+        return self.maxHelicopters
+        
+    def setMaxHelicopters(self,m):
+        self.maxHelicopters = m

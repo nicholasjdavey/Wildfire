@@ -316,7 +316,7 @@ class Model():
         helicopterDetails = []
         with open("../"+self.aircraftDataFiles[1]) as hf:
             reader = csv.reader(hf)
-        helicopterDetails = [r[0] for r in reader]
+            helicopterDetails = [r[0] for r in reader]
         heli = Heli()
         heli.setFlyingHours(float(helicopterDetails[4].split(":")[1]))
         heli.setMaxDailyHours(float(helicopterDetails[5].split(":")[1]))
@@ -328,7 +328,7 @@ class Model():
         truckDetails = []
         with open("../"+self.landcraftDataFiles[0]) as hf:
             reader = csv.reader(hf)
-            truckDetails = [r for r in reader]
+            truckDetails = [r[0] for r in reader]
         vehicle = Land()
         vehicle.setCrewSize(float(truckDetails[4].split(":")[1]))
         vehicle.setCapacity(float(truckDetails[5].split(":")[1]))
@@ -416,6 +416,8 @@ class Model():
                 else:
                     airStrip = AirStrip()
                     airStrip.setLocation(numpy.array([float(rows[iterator][1]),float(rows[iterator][2])]))
+                    airStrip.setMaxTankers(float(rows[iterator][5]))
+                    airStrip.setMaxHelicopters(float(rows[iterator][6]))
                     noAircraft = int(rows[iterator][3])
                     aircraftList = []
                     for ii in range(noAircraft):
