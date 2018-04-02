@@ -85,5 +85,6 @@ Step Size (Hours)          : 1
 Daylight Hours Per Day     : 15
 ROV Paths                  : 5
 Relocation LP Method       : 0
-Lookahead                  : 0
+Lookahead                  : 1
 Cover Time (minutes)       : 20
+Time discount factor       : 0.7

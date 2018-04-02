@@ -280,35 +280,33 @@ class Simulation():
             2: self.assignmentOne,
             3: self.assignmentTwo
         }
-        
+
         prog = switch.get(locationProgram)
         assignments = prog(randCont,fireSeverityMap,assignmentsCurr,currLocs,cumHoursCurr,resourceTypes,ffdi)
 
         return assignments
-        
+
     def maxCover(self,randCont,fireSeverityMap,assignmentsCurr,currLocs,cumHoursCurr,resourceTypes,ffdi):
-        assignmentsNew = numpy.copy(assignmentsCurr)
-        
-        # We only consider the maximum cover of 1 tanker and 1 helicopter for now        
+        # We only consider the maximum cover of 1 tanker and 1 helicopter for now
         maxCoverDists = numpy.empty(2)
-        
+
         for aircraft in range(2):
             speed = self.model.getResourceTypes()[aircraft].getSpeed()
             maxTime = self.model.getCoverTime()/60
             maxCoverDists[aircraft] = speed*maxTime
-        
+
         # We only get air bases for now
         bases = len(self.model.getRegion().getStations()[0])
         baseNodeSufficient = [None]*2
         baseTPrev = [sum(assignmentsCurr[resourceTypes==0,0]==jj) for jj in range(bases)]
         baseHPrev = [sum(assignmentsCurr[resourceTypes==1,0]==jj) for jj in range(bases)]
-        
+
         for aircraft in range(2):
             baseNodeSufficient[aircraft] = self.model.getRegion().getStationPatchDistances()[0] <= maxCoverDists[aircraft]
 
         # SET UP THE LINEAR PROGRAM (using PuLP for now)
         relocate = LpProblem("Fire Resource Relocation", LpMaximize)
-        
+
         # Decision variables
         # First, names for parameters and variables
         patches = baseNodeSufficient[0].shape[0]
@@ -319,7 +317,7 @@ class Simulation():
         lambda2 = self.model.getControls()[randCont].getLambda2()
         baseSpacingsTanker = self.model.getRegion().getStationDistances()[0]
         baseSpacingsHeli = self.model.getRegion().getStationDistances()[0]
-        
+
         BasesT = ["BaseT_" + str(ii+1) for ii in range(bases)]
         BasesH = ["BaseH_" + str(ii+1) for ii in range(bases)]
         PatchCovered = ["PatchCover_" + str(ii+1) for ii in range(patches)]
@@ -331,7 +329,7 @@ class Simulation():
         DSupplyH = ["SupplyH_" + str(ii+1) for ii in range(bases)]
         DDemandT = ["DemandT_" + str(ii+1) for ii in range(bases)]
         DDemandH = ["DemandH_" + str(ii+1) for ii in range(bases)]
-        
+
         baseTVars = [LpVariable(BasesT[ii],lowBound=0,upBound=bases[ii].getMaxTankers(),cat="Integer") for ii in range(bases)]
         baseHVars = [LpVariable(BasesH[ii],lowBound=0,upBound=bases[ii].getMaxHelicopters(),cat="Integer") for ii in range(bases)]
         patchCoverVars = [LpVariable(PatchCovered[ii],cat="Binary") for ii in range(patches)]
@@ -356,77 +354,295 @@ class Simulation():
         # Constraints
         relocate += lpSum([baseTVars[jj] for jj in range(bases)]) == totalTankers, "Sum of tankers is total"
         relocate += lpSum([baseHVars[jj] for jj in range(bases)]) == totalHelis, "Sum of helicopters is total"
-        
+
         for ii in range(patches):
             relocate += (patchCoverVars[ii] - 0.5*patchCoverTVars[ii] - 0.5*patchCoverHVars[ii]) <= 0, "Patch " + str(ii) + " covered by both aircraft"
-        
+
         for ii in range(patches):
             relocate += (patchCoverTVars[ii] - lpSum([baseTVars[jj]*baseNodeSufficient[0][ii,jj] for jj in range(bases)])) <= 0, "Patch " + str(ii) + " covered by at least one tanker"
-        
+
         for ii in range(patches):
             relocate += (patchCoverHVars[ii] - lpSum([baseHVars[jj]*baseNodeSufficient[1][ii,jj] for jj in range(bases)])) <= 0, "Patch " + str(ii) + " covered by at least one helicopter"
-        
+
         # The signs in Chow and Regan (2011), INFOR appear to be the wrong way around. Corrected here.
         for jj in range(bases):
             relocate += (-supplyTVars[jj] - baseTVars[jj] + baseTPrev[jj]) == 0, "Supply of tankers from base " + str(jj)
             relocate += (-supplyHVars[jj] - baseHVars[jj] + baseHPrev[jj]) == 0, "Supply of helicopters from base " + str(jj)
             relocate += (-demandTVars[jj] + baseTVars[jj] - baseTPrev[jj]) == 0, "Demand of tankers by base " + str(jj)
             relocate += (-demandHVars[jj] + baseHVars[jj] - baseHPrev[jj]) == 0, "Demand of helicopters by base " + str(jj)
-        
+
         for jj in range(bases):
             relocate += lpSum([relocTVars[jj][ii] for ii in range(bases)]) == supplyTVars[jj], "Supply flow conservation for tankers for base " + str(jj)
             relocate += lpSum([relocHVars[jj][ii] for ii in range(bases)]) == supplyHVars[jj], "Supply flow conservation for helicopters for base " + str(jj)
-            relocate += lpSum([relocTVars[ii][jj] for ii in range(bases)]) == demandTVars[jj], "Supply flow conservation for tankers for base " + str(jj)
-            relocate += lpSum([relocHVars[ii][jj] for ii in range(bases)]) == demandHVars[jj], "Supply flow conservation for helicopters for base " + str(jj)
-        
+            relocate += lpSum([relocTVars[ii][jj] for ii in range(bases)]) == demandTVars[jj], "Demand flow conservation for tankers for base " + str(jj)
+            relocate += lpSum([relocHVars[ii][jj] for ii in range(bases)]) == demandHVars[jj], "Demand flow conservation for helicopters for base " + str(jj)
+
         relocate.writeLP("Relocation.lp")
         relocate.solve()
-        
+
         # SEND THE ASSIGNMENT OUTPUT TO THE LINEAR PROGRAM
 #        print("Status: ", LpStatus[relocate.status])
 #        print("Value: ", value(relocate.objective))
-        
+
         # Extract the optimal values for the variables
         varsdict= {}
         for var in relocate.variables():
             varsdict[var.name] = var.varValue
-            
+
         # Base assignments
         baseAss = numpy.empty([bases,2])
         for base in range(bases):
             # Tankers
-            baseAss[base,0] = varsdict['BaseT_' + str(base)]        
+            baseAss[base,0] = varsdict['BaseT_' + str(base)]
             # Helicopters
             baseAss[base,1] = varsdict['BaseH_' + str(base)]
-            
+
         # Relocations
         relocs = []
         relocs.append(numpy.empty([bases,bases]))
         relocs.append(numpy.empty([bases,bases]))
-        
+
         for base1 in range(bases):
             for base2 in range(bases):
                 relocs[0][base1][base2] = varsdict["RelocT_" + str(base1) + "_" + str(base2)]
                 relocs[1][base1][base2] = varsdict["RelocH_" + str(base1) + "_" + str(base2)]
-            
-        assignmentsNew = self.assignmentsSub(assignmentsCurr,fireSeverityMap,cumHoursCurr,currLocs,resourceTypes,baseAssignments,relocs)
-        
-        # Put the variables in the correct format to send back to the main
-        # routine. We assume that existing fires are attended by the nearest
-        # available aircraft. We do not set a limit on how far aircraft have to
-        # travel
-        
-#        print("Value: ", value(relocate.objective))
 
-        # As part of this relocation program, we still need to assign aircraft
-        # to fires to allow the fires to be fought during the simulations
-        
+        assignmentsNew = self.assignmentsHeuristic(assignmentsCurr,fireSeverityMap,cumHoursCurr,currLocs,resourceTypes,baseAss,relocs,lambda2)
+
         return assignmentsNew
-    
+
     def pCenter(self,randCont,fireSeverityMap,assignmentsCurr,currLocs,cumHoursCurr,resourceTypes,ffdi):
+        # This is the second type of relocation program. Like the Max Cover
+        # formulation, we only compute aggregate values, not assignments of
+        # individual aircraft.
+
+        # We only get air bases for now
+        bases = len(self.model.getRegion().getStations[0])
+        baseTPrev = [sum(assignmentsCurr[resourceTypes==0,0]==jj) for jj in range(bases)]
+        baseHPrev = [sum(assignmentsCurr[resourceTypes==1,0]==jj) for jj in range(bases)]
+
+        # SET UP THE LINEAR PROGRAM
+        relocate = LpProblem("Fire Resource Relocation",LpMinimize)
+
+        # Decision variables
+        # First, names for parameters and variables
+        patches = len(self.model.getRegion().getPatches())
+        bases = len(self.model.getRegion().getStations()[0])
+        totalTankers = numpy.sum(resourceTypes==0)
+        totalHelis = numpy.sum(resourceTypes==1)
+        lambda1 = self.model.getControls()[randCont].getLambda1()
+        lambda2 = self.model.getControls()[randCont].getLambda2()
+        baseSpacingsTanker = self.model.getRegion().getStationDistances()[0]
+        baseSpacingsHeli = self.model.getRegion().getStationDistances()[0]
+        basePatchSpacingsTanker = self.model.getRegion().getStationDistances()[0]
+        basePatchSpacingsHeli = self.model.getRegion().getStationDistances()[0]
+
+        BasesT = ["BaseT_" + str(ii+1) for ii in range(bases)]
+        BasesH = ["BaseH_" + str(ii+1) for ii in range(bases)]
+        RelocT = [["RelocT_" + str(jj+1) + "_" + str(ii+1) for ii in  range(bases)] for jj in range(bases)]
+        RelocH = [["RelocH_" + str(jj+1) + "_" + str(ii+1) for ii in  range(bases)] for jj in range(bases)]
+        DSupplyT = ["SupplyT_" + str(ii+1) for ii in range(bases)]
+        DSupplyH = ["SupplyH_" + str(ii+1) for ii in range(bases)]
+        DDemandT = ["DemandT_" + str(ii+1) for ii in range(bases)]
+        DDemandH = ["DemandH_" + str(ii+1) for ii in range(bases)]
+
+        baseTVars = [LpVariable(BasesT[ii],lowBound=0,upBound=bases[ii].getMaxTankers(),cat="Integer") for ii in range(bases)]
+        baseHVars = [LpVariable(BasesH[ii],lowBound=0,upBound=bases[ii].getMaxHelicopters(),cat="Integer") for ii in range(bases)]
+        relocTVars = [[LpVariable(RelocT[ii][jj],lowBound=0,upBound=totalTankers,cat="Integer") for ii in range(bases)] for jj in range(bases)]
+        relocHVars = [[LpVariable(RelocH[ii][jj],lowBound=0,upBound=totalHelis,cat="Integer") for ii in range(bases)] for jj in range(bases)]
+        supplyTVars = [LpVariable(DSupplyT[ii],lowBound=0,upBound=totalTankers,cat="Integer") for ii in range(bases)]
+        supplyHVars = [LpVariable(DSupplyH[ii],lowBound=0,upBound=totalHelis,cat="Integer") for ii in range(bases)]
+        demandTVars = [LpVariable(DDemandT[ii],lowBound=0,upBound=totalTankers,cat="Integer") for ii in range(bases)]
+        demandHVars = [LpVariable(DDemandH[ii],lowBound=0,upBound=totalHelis,cat="Integer") for ii in range(bases)]
+
+        # The LP uses an aggregation of the weather generator data (FFDI and FireSeverityMap)
+        [ffdiAgg,fireSeverityAgg] = self.aggregateWeatherData(ffdi,fireSeverityMap)
+
+        # Objective
+        # Due to the aggregated nature of this program, we cannot track individual aircraft.
+        # Instead, the objective assumes that for relocation, aircraft are
+        # initially at their respective bases (even though this may not be the
+        # case in reality).
+        relocate += (lpSum([lambda1*((1-lambda2)*ffdiAgg[ii] + lambda2*fireSeverityAgg[ii])*(baseTVars[jj]*basePatchSpacingsTanker[ii][jj]+baseHVars[jj]*basePatchSpacingsHeli[ii][jj]) for ii in range(patches) for jj in range(bases)] + [baseSpacingsTanker[ii][jj]*relocTVars[ii][jj] + baseSpacingsHeli[ii][jj]*relocHVars[ii][jj] for ii in range(bases) for jj in range(bases)]))
+
+        # Constraints
+        relocate += lpSum([baseTVars[jj] for jj in range(bases)]) == totalTankers, "Sum of tankers is total"
+        relocate += lpSum([baseHVars[jj] for jj in range(bases)]) == totalHelis, "Sum of helicopters is total"
+
+        # The signs in Chow and Regan (2011), INFOR appear to be the wrong way around. Corrected here.
+        for jj in range(bases):
+            relocate += (-supplyTVars[jj] - baseTVars[jj] + baseTPrev[jj]) == 0, "Supply of tankers from base " + str(jj)
+            relocate += (-supplyHVars[jj] - baseHVars[jj] + baseHPrev[jj]) == 0, "Supply of helicopters from base " + str(jj)
+            relocate += (-demandTVars[jj] + baseTVars[jj] - baseTPrev[jj]) == 0, "Demand of tankers by base " + str(jj)
+            relocate += (-demandHVars[jj] + baseHVars[jj] - baseHPrev[jj]) == 0, "Demand of helicopters by base " + str(jj)
+
+        for jj in range(bases):
+            relocate += lpSum([relocTVars[jj][ii] for ii in range(bases)]) == supplyTVars[jj], "Supply flow conservation for tankers for base " + str(jj)
+            relocate += lpSum([relocHVars[jj][ii] for ii in range(bases)]) == supplyHVars[jj], "Supply flow conservation for helicopters for base " + str(jj)
+            relocate += lpSum([relocTVars[ii][jj] for ii in range(bases)]) == demandTVars[jj], "Demand flow conservation for tankers for base " + str(jj)
+            relocate += lpSum([relocHVars[ii][jj] for ii in range(bases)]) == demandHVars[jj], "Demand flow conservation for helicopters for base " + str(jj)
+
+        relocate.writeLP("Relocation.lp")
+        relocate.solve()
+
+        # Extract the optimal vlaues for the variables
+        varsdict = {}
+        for var in relocate.variables():
+            varsdict[var.name] = var.varValue
+
+        # Base assignments
+        baseAss = numpy.empty([bases,2])
+        for base in range(bases):
+            # Tankers
+            baseAss[base,0] = varsdict['BaseT_' + str(base)]
+            # Helicopters
+            baseAss[base,1] = varsdict['BaseH_' + str(base)]
+
+        # Relocations
+        relocs = []
+        relocs.append(numpy.empty([bases,bases]))
+        relocs.append(numpy.empty([bases,bases]))
+
+        for base1 in range(bases):
+            for base2 in range(bases):
+                relocs[0][base1][base2] = varsdict["RelocT_" + str(base1) + "_" + str(base2)]
+                relocs[1][base1][base2] = varsdict["RelocH_" + str(base1) + "_" + str(base2)]
+
+        assignmentsNew = self.assignmentsHeuristic(assignmentsCurr,fireSeverityMap,cumHoursCurr,currLocs,resourceTypes,baseAss,relocs,lambda2)
+
+        return assignmentsNew
+
+    def assignmentOne(self,randCont,fireSeverityMap,assignmentsCurr,currLocs,cumHoursCurr,resourceTypes,ffdi):
+        bases = len(self.model.getRegion().getStations()[0])
+        patches = len(self.model.getRegion().getPatches())
+        
+        # We need threshold for early and late attacks
+        maxCoverDists = numpy.empty(2)
+
+        for aircraft in range(2):
+            speed = self.model.getResourceTypes()[aircraft].getSpeed()
+            maxTime = self.model.getCoverTime()/60
+            maxCoverDists[aircraft] = speed*maxTime
+        
+        # Previous period locations (binary)
+        
+        # Configurations (any combination of [0,1,2+][e|l][T|H])
+        # Arrangement is
+        # TE|TL|HE|HL
+        submat = numpy.array(range(0,3)).reshape((3,1))
+        config = numpy.empty([81,4])
+        
+        for ii in range(4):
+            config[:,ii] = numpy.tile(numpy.repeat(submat,3**(3-ii),axis=0),(3**ii,1)).flatten()
+
+        # Expected damage vs. configuration for each patch (Existing fires, Phi_E)
+        # Precomputed values
+        # EXISTING FIRES
+
+        # POTENTIAL FIRES
+
+        # Expected damage vs. configuration for each patch (Potential fires, Phi_P)
+
+        # Travel times aircraft to fires
+
+        # Travel times aircraft to bases
+        
         pass
-    
-    def assingmentsSub(self,assignmentsCurr,fireSeverityMap,cumHoursCurr,currLocs,resourceTypes,baseAssignments,relocs):
+
+    # This is the main assignment problem we solve as it allows us to account for
+    # positions of aircraft, their proximities to fires
+    def assignmentTwo(self,randCont,fireSeverityMap,assignmentsCurr,currLocs,cumHoursCurr,resourceTypes,ffdi):
+        pass
+
+    def assignmentsHeuristic(self,assignmentCurr,fireSeverityMap,cumHoursCurr,currLocs,resourceTypes,baseAssignments,relocs,lambda2):
+        # This is a simple greedy heuristic whereby an upper limit is first
+        # decided for all fires (the same for each fire).
+        # Max aircraft to be allocated to any fire (we upper limit set as 5 of
+        # each type for now with a lower limit of 1). This is arbitrary, then
+        # again, the Max Cover and P-Median formulations are arbitrary in
+        # comparison to the assignment problems as they do not take into
+        # consideration actual fire damage but only proxies.
+
+        # FIRST ASSIGN AIRCRAFT TO FIRES ######################################
+        assignmentsNew = numpy.zeros(assignmentsCurr.shape)
+        kMax = lambda2*4+1
+        idx = numpy.nonzero(fireSeverityMap)
+        bases = len(self.model.getRegion().getStations()[0])
+
+        # Compute the distances between aircraft and the fires. We only want the
+        # closest aircraft with enough hours to fight the fire
+        dists2Fire = self.currPos2Fire(currLocs,fireSeverityMap)
+
+        # Next, sort the fires by severity and start assigning aircraft to them
+        # in order (i.e. fill demand for most severe fires first)
+        sortedIdx = numpy.argsort(idx)[::-1]
+
+        remainingMask = numpy.ones(len(resourceTypes))
+        resources = self.model.getRegion().getResourceTypes()
+        speeds = (resourceTypes == 0)*resources[0].getSpeed() + (resourceTypes == 1)*resources[1].getSpeed()
+
+        for sidx in sortedIdx:
+            tankers = numpy.argsort(dists2Fire[sortedIdx[sidx],numpy.multiply(remainingMask,resourcesType == 0)]*(numpy.divide(dists2Fire[sortedIdx[sidx],:],speeds) < cumHours))
+            helicopters = numpy.argsort(dists2Fire[sortedIdx[sidx],numpy.multiply(remainingMask,resourcesType == 1)]*(numpy.divide(dists2Fire[sortedIdx[sidx],:],speeds) < cumHours))
+            assignmentsNew[tankers[0:min(len(tankers),kMax)],1] = sortedIdx[sidx] + 1
+            assignmentsNew[helicopters[0:min(len(tankers),kMax)],1] = sortedIdx[sidx] + 1
+            remainingMask[tankers] = 0
+            remainingMask[helicopters] = 0
+
+        # NEXT, ASSIGN AIRCRAFT TO BASES
+        # Use the bulk relocation variables from earlier to perform the
+        # assignments of individual aircraft.
+        # We go through each base and select the aircraft that have the
+        # shortest travel time to go up to the number required. If the hours of
+        # these aircraft are not sufficient to cover the travel distance, then
+        # the aircraft are not relocated.
+        # N.B. This also means that the relocation variables in the previous
+        # linear program may not necessarily be followed exactly as intended.
+        # This is a shortcoming of this approach.
+        for base1 in range(bases):
+            for base2 in range(bases):
+                distB1B2 = self.model.getRegion().getStationDistances()[0][base1,base2]
+                # Number of aircraft from base1 to base2
+                # TANKERS
+                noSwap = reloc[0][base1][base2]
+                # Tankers initially at the base that are free to move
+                initB1Free = numpy.nonzero(numpy.multiply(resourceTypes == 0,numpy.multiply(assignmentsCurr[:,0] == base1,cumHours >= numpy.divide(distB1B2,speeds))))
+                # Tankers initially at the base that are NOT free to move
+                initB1Fixed = numpy.nonzero(numpy.multiply(resourceTypes == 0,numpy.multiply(assignmentsCurr[:,0] == base1,cumHours < numpy.divide(distB1B2,speeds))))
+                mask = numpy.zeros(len(assignmentsCurr[:,0]))
+
+                mask[initB1Free] = 1
+                # Tankers sorted by remaining hours, with only sufficient
+                # remaining hours allowed to relocate
+                toRelocate = numpy.argsort(numpy.multiply(cumHours,mask))[::-1]
+                noReloc = min(len(numpy.nonzero(toRelocate)),noSwap)
+
+                # Assign the aircraft to the bases
+                assignmentsNew[toRelocate[0:noReloc],0] = base2
+                assignmentsNew[initB1Fixed,0] = base1
+
+                # HELICOPTERS
+                noSwap = reloc[1][base1][base2]
+                # Helicopters initially at the base that are free to move
+                initB1Free = numpy.nonzero(numpy.multiply(resourceTypes == 1,numpy.multiply(assignmentsCurr[:,0] == base1,cumHours >= numpy.divide(distB1B2,speeds))))
+                # Helicopters initially at the base that are NOT free to move
+                initB1Fixed = numpy.nonzero(numpy.multiply(resourceTypes == 1,numpy.multiply(assignmentsCurr[:,0] == base1,cumHours < numpy.divide(distB1B2,speeds))))
+                mask = numpy.zeros(len(assignmentsCurr[:,0]))
+
+                mask[initB1Free] = 1
+                # Tankers sorted by remaining hours, with only sufficient
+                # remaining hours allowed to relocate
+                toRelocate = numpy.argsort(numpy.multiply(cumHours,mask))[::-1]
+                noReloc = min(len(numpy.nonzero(toRelocate)),noSwap)
+
+                # Assign the aircraft to the bases
+                assignmentsNew[toRelocate[0:noReloc],0] = base2
+                assignmentsNew[initB1Fixed,0] = base1
+
+        # We can return the assignments now
+        return assignmentsNew
+
+    def assingmentsSub1(self,assignmentsCurr,fireSeverityMap,cumHoursCurr,currLocs,resourceTypes,baseAssignments,relocs,lambda2):
         # To find the assignment of individual aircraft to bases and fires, we
         # use the following simple assignment program that assigns the nearest
         # aircraft to the current fires. The goal is to minimise travel times
@@ -436,20 +652,60 @@ class Simulation():
         # there are idle aircraft stationed within a twenty minute attack
         # distance, in which case we can assign another one tanker and one
         # helicopter.
+        # Travel speeds of the two types of aircraft
+        travelSpeeds = numpy.empty(2)
+
+        for aircraft in range(2):
+            travelSpeeds[aircraft] = self.modelGetResourceTypes()[aircraft].getSpeed()
+
+        # Compute the distances between aircraft and the fires. We only want the
+        # closest aircraft with enough hours to fight the fire
+        dists2Fire = self.currPos2Fire(currLocs,fireSeverityMap)
+
+        # First, we take the relocations found already to determine which
+        # aircraft from each base to relocate to the corresponding new bases.
+        # We use the relocation variables from earlier. The relocation problem
+        # seeks to maximise the remaining travel hours of aircraft for the
+        # purpose of relocation (note, this may not be the end result as
+        # aircraft will also fight fires, which may require more than one
+        # attack. This is uncertain.)
         assignment = LpProblem("Assignment of aircraft to fires",LpMinimize)
-                    
-        # Next, aircraft are allocated to bases so as to minimise travel time.
+
+        # Objective
+
+        # Next, aircraft are allocated to fires so as to minimise travel time
+        # for the first pass.
+        # Max aircraft to be allocated to any fire (we upper limit set as 5 of
+        # each type for now with a lower limit of 1). This is arbitrary, then
+        # again, the Max Cover and P-Median formulations are arbitrary in
+        # comparison to the assignment problems as they do not take into
+        # consideration actual fire damage but only proxies.
+        kMax = lambda2*4+1
+
         assignment = LpProblem("Assignment of aircraft to bases",LpMinimize)
-        
+
         return assignmentsNew
-    
-    def assignmentOne(self,randCont,fireSeverityMap,assignmentsCurr,currLocs,cumHoursCurr,resourceTypes,ffdi):
-        pass
-    
-    # This is the main assignment problem we solve as it allows us to account for
-    # positions of aircraft, their proximities to fires
-    def assignmentTwo(self,randCont,fireSeverityMap,assignmentsCurr,currLocs,cumHoursCurr,resourceTypes,ffdi):
-        pass
+
+    def currPos2Fire(self,currLocs,fireSeverityMap):
+        # Computes the distance between each aircraft and each fire
+        fires = numpy.nonzero(fireSeverityMap)
+
+        xFire = numpy.array([self.model.getRegion().getX()[fires[fire]] for fire in range(fires)])
+        yFire = numpy.array([self.model.getRegion().getY()[fires[fire]] for fire in range(fires)])
+        xAircraft = numpy.array([currLocs[aircraft][0] for aircraft in currlocs.shape[0]])
+        yAircraft = numpy.array([currLocs[aircraft][1] for aircraft in currlocs.shape[0]])
+
+        noFires = xFire.shape
+        noAircraft = xAircraft.shape
+
+        X1 = numpy.tile(xFire.transpose(),(noAircraft[0],1))
+        X2 = numpy.tile(xAircraft,(noFires[0],1)).transpose()
+        Y1 = numpy.tile(yFire.transpose(),(noAircraft[0],1))
+        Y2 = numpy.tile(yAircraft,(noFires[0],1)).transpose()
+
+        dists2Fire = numpy.sqrt((X1-X2)**2+(Y1-Y2)**2)
+
+        return dists2Fire
 
     def fireSeverity(self,fireSeverityMap,assignments,currLocs,cumHours,resourceTypes,ffdi):
         # This routine performs the simulation for a single time step
@@ -518,8 +774,9 @@ class Simulation():
                 yInit = currLocs[assignedAircraft[aircraft]][1]
                 xBase = self.model.getStations()[0][baseIdx].getLocation()[0]
                 yBase = self.model.getStations()[0][baseIdx].getLocation()[1]
-                xFire = self.model.getRegion().getPatches()[idx[fire]].getCentroid()[0]
-                yFire = self.model.getRegion().getPatches()[idx[fire]].getCentroid()[1]
+                #yFire = self.model.getRegion().getPatches()[idx[fire]].getCentroid()[1]
+                xFire = self.model.getRegion().getX()[idx[fire]]
+                yFire = self.model.getRegion().getY()[idx[fire]]
                 init2Fire = math.sqrt((xFire-xInit)**2 + (yFire-yInit)**2)
                 base2Fire = math.sqrt((xBase-xFire)**2 + (yBase-yFire)**2)
                 speed = resources[resourceTypes[assignedAircraft[aircraft]]].getSpeed()
@@ -623,7 +880,7 @@ class Simulation():
                             currLocsNew[assignedAircraft[aircraft][0]] = xBase
                             currLocsNew[assignedAircraft[aircraft][1]] = yBase
                             if elapsedTime - finalVisitTime > base2Fire/speed:
-                                # Aircraft is returning to fire so needs to turn around                           
+                                # Aircraft is returning to fire so needs to turn around
                                 cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - (elapsedTime - finalVisitTime - base2Fire/speed)
                             else:
                                 # Just let the aircraft continute back to base
@@ -683,7 +940,7 @@ class Simulation():
                             xD2B = dist2Base/base2Fire
                             currLocsNew[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
                             currLocsNew[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
-                            
+
                         cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
                 else:
                     # The aircraft has not reached the location it was sent to
@@ -695,14 +952,14 @@ class Simulation():
                             # Aircraft makes it back in time no matter what
                             currLocsNew[assignedAircraft[aircraft][0]] = xBase
                             currLocsNew[assignedAircraft[aircraft][1]] = yBase
-                            
+
                             if elapsedTime - finalVisitTime > base2Fire/speed:
-                                # Aircraft is returning to fire so needs to turn around                           
+                                # Aircraft is returning to fire so needs to turn around
                                 cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - (elapsedTime - finalVisitTime - base2Fire/speed)
                             else:
                                 # Just let the aircraft continute back to base
                                 cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - base2Fire/speed + (elapsedTime - finalVisitTime)
-                        
+
                         else:
                             # Aircraft will not make it back all the way in time
                             xD2B = dist2Base/base2Fire
@@ -721,7 +978,7 @@ class Simulation():
         # Now we need to determine the positions of the aircraft that were not
         # assigned to fires. They may have been in the process of relocating.
         idleAircraft = numpy.nonzero(assignments[:,1] == 0)
-        
+
         for aircraft in idleAircraft:
             # If the distance to the assigned base is less than the distance the
             # aircraft can travel in this period, move to the base and update
@@ -733,7 +990,7 @@ class Simulation():
             yBase = self.model.getStations()[0][baseIdx].getLocation()[1]
             curr2Base = math.sqrt((xBase-xInit)**2 + (yBase-yInit)**2)
             speed = resources[resourceTypes[idleAircraft[aircraft]]].getSpeed()
-            
+
             if curr2Base < speed*timeStep:
                 # Aircraft makes it to destination
                 currLocsNew[idleAircraft[aircraft][0]] = xBase
@@ -777,7 +1034,7 @@ class Simulation():
             rocMean = xd*rocMeanRange[ffdiMinIdx] + (1-xd)*rocMeanRange[ffdiMaxIdx]
             rocSD = xd*rocSDRange[ffdiMinIdx] + (1-xd)*rocSDRange[ffdiMaxIdx]
             fireGrowthRatePatches[patch] = numpy.random.normal(rocMean,rocSD)
-            
+
         # Using these probabilities, compute the chances of fires occurring and
         # the time at which they occur (if a fire already exists in a patch,
         # it is assumed that the resources assigned to it are not diverted to
@@ -786,30 +1043,30 @@ class Simulation():
         fireStarts = numpy.zeros(len(occurrenceProbPatches))
         starts = numpy.random.uniform(0,1,int(sum(newFires)))*timeStep
         fireStarts[numpy.nonzero(fireStarts)] = starts
-        
+
         additionalSeverity = numpy.multiply(numpy.multiply((timeStep - fireStarts),fireGrowthRatePatches),(fireStarts > 0.0))
-        
+
         fireSeverityMapNew = fireSeverityMapNew + additionalSeverity
         damage = damage + sum(additionalSeverity)
-        
+
         # Use the times at which the fires occur to determine the damage and
         # fire size by the end of the period. Add to the existing severity
         # matrix and recorded damage
         # Return the results
         return [cumHoursNew,fireSeverityMapNew,currLocsNew,damage]
-        
+
     def aggregateWeatherData(self,ffdi,fireSeverityMap):
 
         patches = len(self.model.getRegion().getPatches())
         ffdiAgg = numpy.empty(patches)
         severityAgg = numpy.empty(patches)
-        
+
         iterator = 0
         for patch in self.model.getRegion().getPatches():
             ffdiAgg[iterator] = sum([ffdi[ii-1] for ii in patch.getIndices()])/len(patch.getIndices())
             severityAgg[iterator] = sum([fireSeverityMap[ii-1] for ii in patch.getIndices()])/len(patch.getIndices())
             iterator = iterator + 1
-        
+
         return [ffdiAgg,severityAgg]
 
     def pathRecomputation(self,t,state_t,maps):

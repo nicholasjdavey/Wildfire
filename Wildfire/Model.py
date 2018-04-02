@@ -545,8 +545,6 @@ class Model():
             self.region.setWindN(windN[0:ii])
             self.region.setWindE(windE[0:ii])                
             self.region.setVegetations(vegetations)
-
-            regionConfigFile.close()
         else:
             # If not, build the data
             self.computeRegionParameters()
@@ -848,4 +846,9 @@ class Model():
         # We set the drought factor to 10
         wind = numpy.sqrt(self.region.getWindN()**2+self.region.getWindE()**2)
         self.region.setDangerIndex(Simulation.computeFFDI((self.region.getTemperatureMax()+self.region.getTemperatureMin())/2,self.region.getHumidity(),wind,10))
+        
+        if self.nestedOptMethod > 1:
+            self.computeExpectedDamage
+        
+    def computeExpectedDamaged(self):
         
