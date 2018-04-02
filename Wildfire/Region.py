@@ -45,6 +45,8 @@ class Region():
         self.helicopters = []
         self.firetrucks = []
         self.name = ""
+        self.expectedDamagePotential = numpy.empty([0,0])
+        self.expectedDamageExisting = numpy.empty([0,0])
         
     def getPatches(self):
         return self.patches
@@ -237,3 +239,15 @@ class Region():
     
     def setWindE(self,w):
         self.windE = w
+        
+    def getExpDE(self):
+        return self.expectedDamageExisting
+        
+    def setExpDE(self,d):
+        self.expectedDamageExisting = d
+        
+    def getExpDP(self):
+        return self.expectedDamagePotential
+    
+    def setExpDP(self,d):
+        self.expectedDamagePotential = d

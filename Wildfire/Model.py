@@ -848,7 +848,29 @@ class Model():
         self.region.setDangerIndex(Simulation.computeFFDI((self.region.getTemperatureMax()+self.region.getTemperatureMin())/2,self.region.getHumidity(),wind,10))
         
         if self.nestedOptMethod > 1:
-            self.computeExpectedDamage
+            self.computeExpectedDamage()
         
     def computeExpectedDamaged(self):
+        # First determine the probability distributions for <T minute and >T
+        # minute aircraft attack times (base-to-patch)
+        maxCoverDists = numpy.empty(2)
+        travelProbDistsLess = []
+        travelProbDistsMore = []
         
+        for aircraft in range(2):
+            speed = self.model.getResourceTypes()[aircraft].getSpeed()
+            maxTime = self.model.getCoverTime()/60
+            maxCoverDists[aircraft] = speed*maxTime
+            
+        for aircraft in range(2):
+            travelProbDistsLess.append(numpy.histogram(self.region.getStationPatchDistances()[aircraft][numpy.nonzero(self.region.getStationPatchDistances()[aircraft] <= maxCoverDists[aircraft])]))
+            travelProbDistsMore.append(numpy.histogram(self.region.getStationPatchDistances()[aircraft][numpy.nonzero(self.region.getStationPatchDistances()[aircraft] > maxCoverDists[aircraft])]))
+
+        configurations = []
+        
+        for configuration in configurations:
+            binCentroids = (hist[1][0:(len(hist[1])-1)] + hist[0][1:(len(hist[1]))])/2
+            binWeights = hist[0]/hist[0].sum()
+            randVals = numpy.random.choice(binCentroids,p=binWeights,size=1000)
+        
+        return [expDE,expDP]
