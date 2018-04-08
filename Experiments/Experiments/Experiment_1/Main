@@ -87,4 +87,5 @@ ROV Paths                  : 5
 Relocation LP Method       : 0
 Lookahead                  : 1
 Cover Time (minutes)       : 20
+MC Paths (where needed)    : 2000
 Time discount factor       : 0.7

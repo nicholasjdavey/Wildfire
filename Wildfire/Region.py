@@ -37,8 +37,8 @@ class Region():
         self.stationDistances = numpy.empty([0,0])
         self.stationPatchDistances = numpy.empty([0,0])
         self.weatherGenerator = None
-        self.expectedPotentialDamage = numpy.empty([0,0])
-        self.expectedExistingDamage = numpy.empty([0,0])
+        self.expectedPotentialDamage = []
+        self.expectedExistingDamage = []
         self.fires = []
         self.vegetations = []
         self.airTankers = []
