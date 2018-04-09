@@ -947,6 +947,7 @@ class Model():
         resources = self.model.getRegion().getResourceTypes()
 
         # Timing of ffdi changes (i.e. start of each FFDI interval)
+        occurrenceProbs = self.model.getRegion().getVegetations[veg].getOccurrence()[ffdiPath]
         ffdiTimings = numpy.linspace(0,self.stepSize*(len(ffdiPath)-1),len(ffdiPath))
         ffdis = ffdiRange[ffdiPath]
         # Rate of change per hour for each ffdi path step
@@ -1017,14 +1018,14 @@ class Model():
             damagesE[path] = self.computeSinglePathE(path,configurations[configuration],ffdiTimings,rocMean,rocSD,svs,travelDists,aircraftTypes,tankerEarlySuccess,tankerLateSuccess,heliEarlySuccess,heliLateSuccess)
             
             # POTENTIAL FIRES #################################################
-            damagesP[path] = self.computeSinglePathE(path,configurations[configuration],ffdiTimings,rocMean,rocSD,svs,travelDists,aircraftTypes,tankerEarlySuccess,tankerLateSuccess,heliEarlySuccess,heliLateSuccess)
+            damagesP[path] = self.computeSinglePathE(path,configurations[configuration],ffdiTimings,occurrenceProbs,rocMean,rocSD,svs,travelDists,aircraftTypes,tankerEarlySuccess,tankerLateSuccess,heliEarlySuccess,heliLateSuccess)
             
         # Build a probability distribution for the expected damage (not used
         # yet)
                 
         return [expectedDamagePotential,expectedDamageExisting]
     
-    def computeSinglePathE(self,path,configuration,ffdiTimings,rocMean,rocSD,svs,travelDists,aircraftTypes,tankerEarlySuccess,tankerLateSuccess,heliEarlySuccess,heliLateSuccess):        
+    def computeSinglePathE(self,path,configuration,ffdiTimings,rocMean,rocSD,svs,travelDists,aircraftTypes,tankerEarlySuccess,tankerLateSuccess,heliEarlySuccess,heliLateSuccess):
         # Figure out how many times each aircraft assigned to the fire will
         # visit over this lookahead
         visits = numpy.empty(0)
@@ -1056,7 +1057,7 @@ class Model():
             # First compute the growth of the fire from the previous period up
             # to now
             # What is the current FFDI index?
-            ffdiIdx = math.floor(visitList[0][visit]/self.timeStep)
+            ffdiIdx = int(math.floor(visitList[0][visit]/self.timeStep))
             if ffdiIdx == prevIdx:
                 severity = severity*numpy.random.normal(rocMean[ffdiIdx],rocSD[ffdiIdx])*timeInterval
             else:
@@ -1064,31 +1065,41 @@ class Model():
                 # FFDI
                 ffdiIdxes = numpy.linspace(prevIdx,ffdiIdx,ffdiIdx-prevIdx+1)
                 # First index contribution
-                severity = severity*numpy.random.normal(rocMean[ffdiIdxes[0],rocSD[ffdiIdxes[0]]])*(ffdiTimings[ffdiIdxes[1]]-elapsedTime)
-                # Intervening index contributions
+                severity = severity*numpy.random.normal(rocMean[ffdiIdxes[0]],rocSD[ffdiIdxes[0]])*(ffdiTimings[ffdiIdxes[1]]-elapsedTime)
+                # Intervening index contributions (full interval used)
                 for idx in ffdiIdxes[1:(len(ffdiIdxes)-2)]:
-                    severity = severity*numpy.random.normal(rocMean[ffdiIdxes[idx],rocSD[ffdiIdxes[idx]]])*(ffdiTimings[ffdiIdxes[idx+1]]-ffdiTimings[ffdiIdxes[idx]])
+                    severity = severity*numpy.random.normal(rocMean[ffdiIdxes[idx]],rocSD[ffdiIdxes[idx]])*(ffdiTimings[ffdiIdxes[idx+1]]-ffdiTimings[ffdiIdxes[idx]])
                 # Final index contribution
                 severity = severity*numpy.random.normal(rocMean[ffdiIdxes[len(ffdiIdxes)-1]])*(visitList[0][visit] - ffdiIdxes[len(ffdiIdxes)-1])
+                prevIdx = ffdiIdx                
                 
             elapsedTime = visitList[0][visit]
             extinguished = True if numpy.random.uniform() < svs[visitList[1][visit]][ffdiIdx] else False
             visit = visit + 1
         
-        endDamage = 0.0
-        
         if not(extinguished):
             # We need to now compute the increase in damage if the fire is still
             # active
             ffdiIdx = math.floor(elapsedTime/self.timeStep)
-            if ffdiIdx < (len(ffdiTimings)-1):
+            if ffdiIdx == (len(ffdiTimings)-1):
+                severity = severity*numpy.random.normal(rocMean[ffdiIdxes[ffdiIdx]],rocSD[ffdiIdxes[ffdiIdx]])*(self.lookahead*self.timeStep - elapsedTime)
+            else:
                 ffdiIdxes = numpy.linspace(ffdiIdx,len(ffdiTimings)-1,len(ffdiTimings)-1-ffdiIdx)
                 # First index contribution
-                severity = severity*numpy.random.normal(rocMean[ffdiIdxes[0],rocSD[ffdiIdxes[0]]])*(ffdiTimings[ffdiIdxes[1]]-elapsedTime)
+                severity = severity*numpy.random.normal(rocMean[ffdiIdxes[0]],rocSD[ffdiIdxes[0]])*(ffdiTimings[ffdiIdxes[1]]-elapsedTime)
                 # Intervening index contributions
                 for idx in ffdiIdxes[1:(len(ffdiIdxes)-2)]:
-                    severity = severity*numpy.random.normal(rocMean[ffdiIdxes[idx],rocSD[ffdiIdxes[idx]]])*(ffdiTimings[ffdiIdxes[idx+1]]-ffdiTimings[ffdiIdxes[idx]])
+                    severity = severity*numpy.random.normal(rocMean[ffdiIdxes[idx]],rocSD[ffdiIdxes[idx]])*(ffdiTimings[ffdiIdxes[idx+1]]-ffdiTimings[ffdiIdxes[idx]])
                 # Final index contribution
                 severity = severity*numpy.random.normal(rocMean[ffdiIdxes[len(ffdiIdxes)-1]])*(self.lookahead*self.timeStep - ffdiIdxes[len(ffdiIdxes)-1])
         
         return severity
+        
+    def computeSinglePathP(self,path,configuration,ffdiTimings,occurrenceProbs,rocMean,rocSD,svs,travelDists,aircraftTypes,tankerEarlySuccess,tankerLateSuccess,heliEarlySuccess,heliLateSuccess):
+        # First need to determine if a fire occurs and when
+        
+        clear = True
+        counter = 0
+        
+        while clear and counter < len(ffdiTimings):
+            clear = False if numpy.random.uniform() < occurrenceProbs[counter]
