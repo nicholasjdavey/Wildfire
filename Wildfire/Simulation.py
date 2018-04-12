@@ -8,6 +8,7 @@ Created on Sun Dec 10 23:32:32 2017
 import numpy
 import math
 import scipy
+import copy
 from pulp import *
 
 class Simulation():
@@ -124,8 +125,8 @@ class Simulation():
         [initialMap,initialAss,initialLocs,cumHours0,resourceTypes] = self.initialiseAssignments()
 
         for path in range(self.model.getROVPaths()):
-            [fireSeverity,cumulativeDamage] = self.initialEndogenousPath(ep[path],rc[path],initialMap,initialAss,initialLocs,cumHours0,resourceTypes)
-            paths.append([fireSeverity,cumulativeDamage])
+            [fires,cumulativeDamage] = self.initialEndogenousPath(ep[path],rc[path],initialMap,initialAss,initialLocs,cumHours0,resourceTypes)
+            paths.append([fires,cumulativeDamage])
 
         return paths
 
@@ -181,6 +182,22 @@ class Simulation():
         assignments[0] = initialAss
         currLocs[0] = initialLocs
         cumHours[0] = cumHours0
+        # Initialise the existing fires
+        fireIdxes = numpy.nonzero(fireSeverityMap[0])
+        noFires = fireSeverityMap[0][fireIdxes]
+        
+        fires = [None]*(self.model.getTimeSteps()+1)
+        currFires = []
+        for fire in range(len(noFires)):
+            currFire = Fire()
+            # We use the index of the grid cell in which the fire resides. This
+            # is the 2D index.
+            currFire.setLocation(numpy.array([fireIdxes[0][fire],fireIdxes[1][fire]]))
+            currFire.setSize(fireSeverityMap[fireIdxes[0][fire]][fireIdxes[1][fire]])
+            currFire.setInitialSize(currFire.getSize())
+            currFires.append(currFire)
+        
+        fires[0](currFires)
 
         for ii in range(timeSteps):
             control = rc[ii]
@@ -188,15 +205,15 @@ class Simulation():
 
             # NESTED OPTIMISATION #############################################
             # Optimise aircraft locations given selected control and state
-            assignments[ii] = self.optimalLocations(control,fireSeverityMap[ii],assignments[ii],currLocs[ii],cumHours[ii],resourceTypes,ep[ii],locationProgram)
+            assignments[ii] = self.optimalLocations(control,fires[ii],assignments[ii],currLocs[ii],cumHours[ii],resourceTypes,ep[ii],locationProgram)
 
             # Given the locations found for this control, update the fire
             # severities for the next time period. We use the probabilities. We
             # also compute the new damage incurred and the hours used.
-            [cumHours[ii+1],fireSeverityMap[ii+1],currLocs[ii+1],damage] = self.fireSeverity(fireSeverityMap[ii],assignments[ii+1],currLocs[ii+1],cumHours[ii+1],resourceTypes,ep[ii])
+            [cumHours[ii+1],fires[ii+1],currLocs[ii+1],damage,fires[ii+1]] = self.fireSeverity(fires[ii],assignments[ii+1],currLocs[ii+1],cumHours[ii+1],resourceTypes,ep[ii])
             cumDamage[ii+1] = cumDamage[ii] + damage
 
-        return [fireSeverityMap,assignments,currLocs,cumHours,cumDamage]
+        return [fires,assignments,currLocs,cumHours,cumDamage]
 
     def initialiseAssignments(self):
         # Find where all of the fires currently are
@@ -707,23 +724,23 @@ class Simulation():
 
         return dists2Fire
 
-    def fireSeverity(self,fireSeverityMap,assignments,currLocs,cumHours,resourceTypes,ffdi):
+    def fireSeverity(self,firesOld,assignments,currLocs,cumHours,resourceTypes,ffdi):
         # This routine performs the simulation for a single time step
 
-        # First, compute the extinguishing success for each fire given the allocations
+        # First, compute the extinguishing success for each active fire given the allocations
         idx = numpy.nonzero(fireSeverityMap)
         timeStep = self.model.getStepSize() # In hours
-        fireSeverityMapNew = numpy.copy(fireSeverityMap)
-        endAttackTime = numpy.zeros(len(fireSeverityMap))+timeStep
+#        fireSeverityMapNew = numpy.zero(fireSeverityMap.shape)
         damage = 0.0
         currLocsNew = numpy.copy(currLocs)
 
-        for fire in range(len(idx)):
+        for fire in firesOld:
             # Find out the aircraft assigned to this fire
             assignedAircraft = numpy.nonzero(assignments[:,1] == fire)
 
             # Get the probabilities of success for each aircraft type
-            severity = fireSeverityMap[idx[fire]]
+            severity = fire.getSize()
+            correspondingPatch = numpy.ravel_multi_index(fire.getLocation,self.model.getRegion().getX().shape)
             veg = self.model.getRegion().getVegetation()[idx[fire]]
             ffdiRange = self.model.getRegion().getVegetations[veg].getFFDIRange()
             rocMeanRange = self.model.getRegion().getVegetations[veg].getROCA2PerHour()[0]
@@ -973,8 +990,21 @@ class Simulation():
                         currLocsNew[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
                         currLocsNew[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
                         cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
+                        
+        # Randomly generate new fires based on the FFDIs in each of the patches
+        # We first need the indices of the bounding FFDIs in the FFDI list for
+        # each vegetation.
+        ffdiMatrix = []
+        occurrenceMatrix = []
+        for vegetation in self.model.getRegion().getVegetations():
+            ffdiMatrix.append(vegetation.getFFDIRange())
+            occurrenceMatrix.append(vegetation.getOccurrence())
+            
+        ffdiMatrix = numpy.array(ffdiMatrix)
+        occurrenceMatrix = numpy.array(occurrenceMatrix)
 
         # We have computed the new locations for the aircraft assigned to fires
+        # (Both existing and new one generated in this period).
         # Now we need to determine the positions of the aircraft that were not
         # assigned to fires. They may have been in the process of relocating.
         idleAircraft = numpy.nonzero(assignments[:,1] == 0)

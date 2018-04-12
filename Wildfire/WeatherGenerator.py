@@ -19,8 +19,8 @@ class WeatherGenerator():
     def __init__(self):
         self.wetProbT0Wet = numpy.empty([0,0])
         self.wetProbT0Dry = numpy.empty([0,0])
-        self.wetOccurrenceCovarianceMatrix = numpy.empty([0,0])
-        self.precipAmountCovarianceMatrix = numpy.empty([0,0])
+        self.wetOccurrenceCovariance = numpy.empty([0,0])
+        self.precipAmountCovariance = numpy.empty([0,0])
         self.precipAlpha = numpy.empty([0,0])
         # One matrix for each time period
         self.precipBetas = []
@@ -35,6 +35,7 @@ class WeatherGenerator():
         # different times of day are required for 'de-standardising' the
         # generated next period temperatures, consistent with whether a location
         # is wet or dry at the next period.
+        self.tempReversion = 0
         self.tempMeanWet = numpy.empty([0,0])
         self.tempMeanDry = numpy.empty([0,0])
         self.tempSDWet = numpy.empty([0,0])
@@ -45,9 +46,15 @@ class WeatherGenerator():
         # impact on the regressions.
         self.windRegimes = 0
         self.windRegimeTransitions = numpy.empty([0,0])
+        self.windReversion = 0
+        self.meanWindNS = numpy.empty([0,0])
+        self.meanWindEW = numpy.empty([0,0])
+        self.windSDNS = numpy.empty([0,0])
+        self.windSDEW = numpy.empty([0,0])
         self.windA = []
         self.windB = []
         self.region = None
+        self.model = None
 
     def getWetProbT0Wet(self):
         return self.wetProbT0Wet
@@ -84,12 +91,18 @@ class WeatherGenerator():
 
     def setPrecipBetas(self,b):
         self.precipBetas = b
+        
+    def getTempReversion(self):
+        return self.tempReversion
+        
+    def setTempReversion(self,r):
+        self.tempReversion = r
 
     def getTempMeanWet(self):
         return self.tempMeanWet
 
     def setTempMeanWet(self,t):
-        self.tempMean = t
+        self.tempMeanWet = t
 
     def getTempMeanDry(self):
         return self.tempMeanDry
@@ -131,7 +144,37 @@ class WeatherGenerator():
         return self.windRegimeTransitions
 
     def setWindRegimeTransitions(self,t):
-        self.windRegimeTransitions = t
+        self.windRegimeTransitions = t        
+        
+    def getWindReversion(self):
+        return self.windReversion
+
+    def setWindReversion(self,r):
+        self.windReversion = r
+    
+    def getWindMeanNS(self):
+        return self.meanWindNS
+        
+    def setWindMeanNS(self,w):
+        self.meanWindNS = w
+
+    def getWindMeanEW(self):
+        return self.meanWindEW
+
+    def setWindMeanEW(self,w):
+        self.meanWindEW = w
+
+    def getWindSDNS(self):
+        return self.windSDNS
+
+    def setWindSDNS(self,sd):
+        self.windSDNS = sd
+
+    def getWindSDEW(self):
+        return self.windSDEW
+
+    def setWindSDEW(self,sd):
+        self.windSDEW = sd
 
     def getWindA(self):
         return self.windA
@@ -168,6 +211,12 @@ class WeatherGenerator():
 
     def setPrecipitationContributionMultiplier(self,p):
         self.precipContributionMultiplier = p
+        
+    def getModel(self):
+        return self.model
+    
+    def setModel(self,m):
+        self.model = m
 
     # Simulate one period
     def computeWeather(self,rain,precipitation,tempMin,tempMax,windRegimes,windNS,windEW,FFDI,time):
@@ -223,28 +272,58 @@ class WeatherGenerator():
 
     def computeTemperature(self,rain,tempMin,tempMax,time):
         regionSize = self.region.getX().size
-
-        # First, generate random vector
-        e = numpy.random.normal(0,1,regionSize*2).reshape(2*regionSize,1)
-
         # Normalise previous time step temperatures conditional on whether
         # previous time step was wet or dry
         # MEANS
-        meanDryMin = numpy.sum(numpy.multiply(1-rain[time],tempMin[time])/(numpy.sum(1-rain[time])))
-        meanWetMin = numpy.sum(numpy.multiply(rain[time],tempMin[time])/(numpy.sum(rain[time])))
-        meanDryMax = numpy.sum(numpy.multiply(1-rain[time],tempMax[time])/(numpy.sum(1-rain[time])))
-        meanWetMax = numpy.sum(numpy.multiply(rain[time],tempMax[time])/(numpy.sum(rain[time])))
+        meanDryMin = numpy.sum(numpy.multiply(1-rain[time],tempMin[time]))/(numpy.sum(1-rain[time]))
+        meanWetMin = numpy.sum(numpy.multiply(rain[time],tempMin[time]))/(numpy.sum(rain[time]))
+        meanDryMax = numpy.sum(numpy.multiply(1-rain[time],tempMax[time]))/(numpy.sum(1-rain[time]))
+        meanWetMax = numpy.sum(numpy.multiply(rain[time],tempMax[time]))/(numpy.sum(rain[time]))
         # STANDARD DEVIATIONS
         sdDryMin = numpy.sqrt(numpy.sum(numpy.multiply(1-rain[time],numpy.power(tempMin[time]-meanDryMin,2)))/numpy.sum(1-rain[time]))
         sdWetMin = numpy.sqrt(numpy.sum(numpy.multiply(rain[time],numpy.power(tempMin[time]-meanWetMin,2)))/numpy.sum(rain[time]))
         sdDryMax = numpy.sqrt(numpy.sum(numpy.multiply(1-rain[time],numpy.power(tempMax[time]-meanDryMax,2)))/numpy.sum(1-rain[time]))
         sdWetMax = numpy.sqrt(numpy.sum(numpy.multiply(rain[time],numpy.power(tempMax[time]-meanWetMax,2)))/numpy.sum(rain[time]))
-        # CREATE THE STANDARDISED TEMPERATURES
+        # CREATE THE STANDARDISED TEMPERATURES FOR THE CURRENT PERIOD
         tempMinStd = (numpy.multiply(1-rain[time],(tempMin[time]-meanDryMin)/sdDryMin) + numpy.multiply(rain[time],(tempMin[time]-meanWetMin)/sdWetMin)).reshape(regionSize,1)
         tempMaxStd = (numpy.multiply(1-rain[time],(tempMax[time]-meanDryMax)/sdDryMax) + numpy.multiply(rain[time],(tempMax[time]-meanWetMax)/sdWetMax)).reshape(regionSize,1)
         tempPrev = numpy.concatenate((tempMinStd,tempMaxStd),axis=1).reshape(2*regionSize,1)
+        # SET UP THE MODEL PARAMETERS TO COMPUTE THE MIN AND MAX FOR THE NEXT
+        # (Need to fix up the way max and min are treated in future rework)
+        # Corresponding minimum and maximum temperatures (for reversion) based
+        # on NEXT period values
+        # Means (standardised against CURRENT temperatures) for reversion
+        tempMinMean = (numpy.multiply(1-rain[time],numpy.ones(len(rain[time]))*(self.tempMeanDry[time]-meanDryMin)/sdDryMin) + numpy.multiply(rain[time],numpy.ones(len(rain[time]))*(self.tempMeanWet[time]-meanWetMin)/sdWetMin)).reshape(regionSize,1)*(meanDryMin/meanDryMax)
+        tempMaxMean = (numpy.multiply(1-rain[time],numpy.ones(len(rain[time]))*(self.tempMeanDry[time]-meanDryMin)/sdDryMin) + numpy.multiply(rain[time],numpy.ones(len(rain[time]))*(self.tempMeanWet[time]-meanWetMin)/sdWetMin)).reshape(regionSize,1)
+        tempMeans = numpy.concatenate((tempMinMean,tempMaxMean),axis=1).reshape(2*regionSize,1)
+        # Standard deviations (standardised against CURRENT temperatures)
+        # We also need the standard deviations for the uncertainty component.
+        # We first correlate the uncertainties using the Beta matrix and then
+        # scale based on the ratio of the size of these random numbers relative
+        # to their appropriate standard deviations (depending on whether the
+        # location is wet or dry this period).
+        tempMinSD = (numpy.multiply(1-rain[time+1],numpy.ones(len(rain[time+1]))*self.tempSDDry[time]/sdDryMin) + numpy.multiply(rain[time],numpy.ones(len(rain[time]))*self.tempSDWet[time]/sdWetMin)).reshape(regionSize,1)*(meanDryMin/meanDryMax)
+        tempMaxSD = (numpy.multiply(1-rain[time],numpy.ones(len(rain[time]))*self.tempSDDry[time]/sdDryMin) + numpy.multiply(rain[time],numpy.ones(len(rain[time]))*self.tempSDWet[time]/sdWetMin)).reshape(regionSize,1)
+        tempSDs = numpy.concatenate((tempMinSD,tempMaxSD),axis=1).reshape(2*regionSize,1)
+        
+        # Initial draws of random variable
+        w = numpy.random.normal(0,1,2*regionSize)
+        # Now correlate using the Cholesky decomposition of the temperature
+        # covariance matrix
+        # For some reason the Cholesky decomposition does not compute nicely
+        # without adding a small increment to the diagonals
+        B = numpy.linalg.cholesky(self.tempB[time])
+        # Final random vector
+        e = numpy.matmul(B,w).reshape(2*regionSize,1)
+        
+        # Finally, generate random vector, conditional on wet/dry for the
+        # current period and normalised using the mean and standard deviation
+        # for the current period's wet/dry maximum and minimum
+#        e = numpy.random.normal(0,1,regionSize*2).reshape(2*regionSize,1)
+        
         # Now compute the current temperature
-        tempNow = numpy.matmul(self.tempA[time],tempPrev)+numpy.matmul(self.tempB[time],e)
+#        tempNow = tempPrev + self.model.getStepSize()*self.tempReversion*(tempMeans - numpy.matmul(self.tempA[time],tempPrev))+numpy.multiply(tempSDs,numpy.matmul(self.tempB[time],e))
+        tempNow = tempPrev + self.model.getStepSize()*self.tempReversion*(tempMeans - numpy.matmul(self.tempA[time],tempPrev))+numpy.multiply(tempSDs,e)
         # Save to arrays and reverse the standardisation
         tempNowReshaped = tempNow.reshape((regionSize,2))
         tempMin[time+1] = numpy.multiply(1-rain[time+1],tempNowReshaped[:,0]*sdDryMin+meanDryMin) + numpy.multiply(rain[time+1],tempNowReshaped[:,0]*sdWetMin+meanWetMin)

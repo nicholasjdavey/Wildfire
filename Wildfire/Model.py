@@ -6,7 +6,7 @@ Created on Sun Dec 10 23:10:43 2017
 """
 
 import numpy
-import numba
+#import numba
 import math
 import csv
 from Control import Control
@@ -371,6 +371,8 @@ class Model():
                 iterator = iterator + 2
                 test = True
                 successes = []
+                # The first half of the rows for the success are initial successes
+                # The second half are the successes for extended attack
                 while test:
                     if iterator >= len(rows):
                         break
@@ -658,7 +660,7 @@ class Model():
                 for jj in range(len(self.region.getX())):
                     humidityCorrelations[ii][jj] = float(rows[iterator+ii][jj+1])
 
-            iterator = iterator + 3 + len(self.region.getX())
+            iterator = iterator + 2 + len(self.region.getX())
             
             # Temperature parameters
             # Means and Standard Deviations
@@ -666,6 +668,9 @@ class Model():
             meanTempDry = numpy.empty([self.totalSteps])
             tempSDWet = numpy.empty([self.totalSteps])
             tempSDDry = numpy.empty([self.totalSteps])
+            
+            wg.setTempReversion(float(rows[iterator][1]))
+            iterator = iterator + 2
             
             for ii in range(self.totalSteps):
                 meanTempWet[ii] = float(rows[iterator][ii*4+1])
@@ -700,8 +705,8 @@ class Model():
             for ii in range(self.totalSteps):
                 tb = numpy.zeros([2*len(self.region.getX()),2*len(self.region.getX())])
                 
-                for jj in range(len(self.region.getX())):
-                    for kk in range(len(self.region.getX())):
+                for jj in range(2*len(self.region.getX())):
+                    for kk in range(2*len(self.region.getX())):
                         tb[jj][kk] = float(rows[iterator+jj][kk+2])
                         if abs(tb[jj][kk]) > 1:
                             tb[jj][kk] = 0.0
@@ -727,6 +732,28 @@ class Model():
             wg.setWindRegimeTransitions(regimeTransitions)
                     
             iterator = iterator + wg.getWindRegimes() + 2
+        
+            # Means and Standard Deviations
+            meanWindNS = numpy.empty([self.totalSteps])
+            meanWindEW = numpy.empty([self.totalSteps])
+            windSDNS = numpy.empty([self.totalSteps])
+            windSDEW = numpy.empty([self.totalSteps])
+            
+            wg.setWindReversion(float(rows[iterator][1]))
+            iterator = iterator + 2
+            
+            for ii in range(self.totalSteps):
+                meanWindNS[ii] = float(rows[iterator][ii*4+1])
+                meanWindEW[ii] = float(rows[iterator][ii*4+2])
+                windSDNS[ii] = float(rows[iterator][ii*4+3])
+                windSDEW[ii] = float(rows[iterator][ii*4+4])
+                
+            wg.setWindMeanNS(meanWindNS)
+            wg.setWindMeanEW(meanWindEW)
+            wg.setWindSDNS(windSDNS)
+            wg.setWindSDEW(windSDEW)
+            
+            iterator = iterator + 2
             
             windAlphas = []
 
@@ -765,6 +792,7 @@ class Model():
             wg.setWindB(windBetas)
             
             wg.setRegion(self.region)
+            wg.setModel(self)
             
             self.region.setWeatherGenerator(wg)
             weatherConfigFile.close()
@@ -965,10 +993,10 @@ class Model():
         
         # Before computing the expected damage, we need to randomly generate
         # the travel times for the different aircraft for each path
-        randDistsTankerEarly = numpy.random.choice(binCentroids[0],p=binWeights[0],self.mcPaths*configuration[0]).reshape(mcPaths,configuration[0])
-        randDistsTankerLate = numpy.random.choice(binCentroids[2],p=binWeights[2],self.mcPaths*configuration[2]).reshape(mcPaths,configuration[2])
-        randDistsHeliEarly = numpy.random.choice(binCentroids[1],p=binWeights[1],self.mcPaths*configuration[1]).reshape(mcPaths,configuration[1])
-        randDistsHeliLate = numpy.random.choice(binCentroids[3],p=binWeights[3],self.mcPaths*configuration[3]).reshape(mcPaths,configuration[3])
+        randDistsTankerEarly = numpy.random.choice(binCentroids[0],p=binWeights[0],size=self.mcPaths*configuration[0]).reshape(mcPaths,configuration[0])
+        randDistsTankerLate = numpy.random.choice(binCentroids[2],p=binWeights[2],size=self.mcPaths*configuration[2]).reshape(mcPaths,configuration[2])
+        randDistsHeliEarly = numpy.random.choice(binCentroids[1],p=binWeights[1],size=self.mcPaths*configuration[1]).reshape(mcPaths,configuration[1])
+        randDistsHeliLate = numpy.random.choice(binCentroids[3],p=binWeights[3],size=self.mcPaths*configuration[3]).reshape(mcPaths,configuration[3])
         
         # Random firefighting success
         # We do not know at this stage how many visits will occur so we allow
@@ -1102,4 +1130,4 @@ class Model():
         counter = 0
         
         while clear and counter < len(ffdiTimings):
-            clear = False if numpy.random.uniform() < occurrenceProbs[counter]
+            clear = False if numpy.random.uniform() < occurrenceProbs[counter] else True
