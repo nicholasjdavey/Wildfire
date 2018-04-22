@@ -24,7 +24,7 @@ from Simulation import Simulation
 from WeatherGenerator import WeatherGenerator
 from VariableParameters import VariableParameters
 from ExperimentalScenario import ExperimentalScenario
-from datetime import datetime, date, time, timedelta
+#from datetime import datetime, date, time, timedelta
 
 class Model():
     # Class for defining a model region
@@ -354,7 +354,7 @@ class Model():
             iterator = 2
             while iterator < len(rows):
                 vegetation = Vegetation()
-                vegetationNo = rows[iterator][0].strip("VEGETATION_")
+#                vegetationNo = rows[iterator][0].strip("VEGETATION_")
                 iterator = iterator + 1
                 vegetation.setName(rows[iterator][2])
                 iterator = iterator + 1
@@ -886,7 +886,11 @@ class Model():
         if self.nestedOptMethod > 1:
             self.computeExpectedDamage()
         
-    def computeExpectedDamage(self):
+    def computeExpectedDamageGrid(self):
+        if self.getNestedOptMethod() <= 1:
+            return
+        
+        # Otherwise, we continue
         # First determine the probability distributions for <T minute and >T
         # minute aircraft attack times (base-to-patch)
         maxCoverDists = numpy.empty(2)
@@ -898,13 +902,14 @@ class Model():
         for aircraft in range(2):
             speeds[aircraft] = self.model.getResourceTypes()[aircraft].getSpeed()
             maxTime = self.model.getCoverTime()/60
-            maxCoverDists[aircraft] = speed*maxTime
+            maxCoverDists[aircraft] = speeds[aircraft]*maxTime
             
         for aircraft in range(2):
             travelProbDistsLess.append(numpy.histogram(self.region.getStationPatchDistances()[aircraft][numpy.nonzero(self.region.getStationPatchDistances()[aircraft] <= maxCoverDists[aircraft])]/speeds[aircraft]))
             travelProbDistsMore.append(numpy.histogram(self.region.getStationPatchDistances()[aircraft][numpy.nonzero(self.region.getStationPatchDistances()[aircraft] > maxCoverDists[aircraft])]/speeds[aircraft]))
 
-        configurations = numpy.empty([81,4])
+        configurations = numpy.empty([81,4])        
+        submat = numpy.array[0,1,2]
         for ii in range(4):
             configurations[:,ii] = numpy.tile(numpy.repeat(submat,3**(3-ii),axis=0),(3**ii,1)).flatten()
         
@@ -967,7 +972,7 @@ class Model():
         # Computes the expected damage for a single configuration, ffdiPath, vegetation combination
         veg = self.model.getRegion().getVegetation()[vegetation]
         
-        ffdiRange = self.model.getRegion().getVegetations[veg].getFFDIRange()
+#        ffdiRange = self.model.getRegion().getVegetations[veg].getFFDIRange()
         rocMeanRange = self.model.getRegion().getVegetations[veg].getROCA2PerHour()[0]
         rocSDRange = self.model.getRegion().getVegetations[veg].getROCA2PerHour()[1]
         succTankerRange = self.model.getRegion().getVegetations[veg].getExtinguishingSuccess()[0]
@@ -977,7 +982,7 @@ class Model():
         # Timing of ffdi changes (i.e. start of each FFDI interval)
         occurrenceProbs = self.model.getRegion().getVegetations[veg].getOccurrence()[ffdiPath]
         ffdiTimings = numpy.linspace(0,self.stepSize*(len(ffdiPath)-1),len(ffdiPath))
-        ffdis = ffdiRange[ffdiPath]
+#        ffdis = ffdiRange[ffdiPath]
         # Rate of change per hour for each ffdi path step
         rocMean = rocMeanRange[ffdiPath]
         rocSD = rocSDRange[ffdiPath]
@@ -993,24 +998,24 @@ class Model():
         
         # Before computing the expected damage, we need to randomly generate
         # the travel times for the different aircraft for each path
-        randDistsTankerEarly = numpy.random.choice(binCentroids[0],p=binWeights[0],size=self.mcPaths*configuration[0]).reshape(mcPaths,configuration[0])
-        randDistsTankerLate = numpy.random.choice(binCentroids[2],p=binWeights[2],size=self.mcPaths*configuration[2]).reshape(mcPaths,configuration[2])
-        randDistsHeliEarly = numpy.random.choice(binCentroids[1],p=binWeights[1],size=self.mcPaths*configuration[1]).reshape(mcPaths,configuration[1])
-        randDistsHeliLate = numpy.random.choice(binCentroids[3],p=binWeights[3],size=self.mcPaths*configuration[3]).reshape(mcPaths,configuration[3])
+        randDistsTankerEarly = numpy.random.choice(binCentroids[0],p=binWeights[0],size=self.mcPaths*configuration[0]).reshape(self.mcPaths,configuration[0])
+        randDistsTankerLate = numpy.random.choice(binCentroids[2],p=binWeights[2],size=self.mcPaths*configuration[2]).reshape(self.mcPaths,configuration[2])
+        randDistsHeliEarly = numpy.random.choice(binCentroids[1],p=binWeights[1],size=self.mcPaths*configuration[1]).reshape(self.mcPaths,configuration[1])
+        randDistsHeliLate = numpy.random.choice(binCentroids[3],p=binWeights[3],size=self.mcPaths*configuration[3]).reshape(self.mcPaths,configuration[3])
         
         # Random firefighting success
         # We do not know at this stage how many visits will occur so we allow
         # for the maximum number of visits for the shortest distance. We also
         # do not know a priori what the ffdi will be, so we cannot just compute
         # the true/false attack success but the random number itself.
-        maxVisits = int(floor(self.lookahead*self.timeStep/binCentroids[0][0]))
-        tankerEarlySuccess = numpy.random.uniform(0,1,mcPaths*configuration[0]*maxVisits).reshape((mcPaths,configuration[0],maxVisits))
-        maxVisits = int(floor(self.lookahead*self.timeStep/binCentroids[2][0]))
-        tankerLateSuccess = numpy.random.uniform(0,1,mcPaths*configuration[2]*maxVisits).reshape((mcPaths,configuration[2],maxVisits))
-        maxVisits = int(floor(self.lookahead*self.timeStep/binCentroids[1][0]))
-        heliEarlySuccess = numpy.random.uniform(0,1,mcPaths*configuration[1]*maxVisits).reshape((mcPaths,configuration[1],maxVisits))
-        maxVisits = int(floor(self.lookahead*self.timeStep/binCentroids[3][0]))
-        heliLateSuccess = numpy.random.uniform(0,1,mcPaths*configuration[3]*maxVisits).reshape((mcPaths,configuration[3],maxVisits))
+        maxVisits = int(self.lookahead*self.timeStep/binCentroids[0][0])
+        tankerEarlySuccess = numpy.random.uniform(0,1,self.mcPaths*configuration[0]*maxVisits).reshape((self.mcPaths,configuration[0],maxVisits))
+        maxVisits = int(self.lookahead*self.timeStep/binCentroids[2][0])
+        tankerLateSuccess = numpy.random.uniform(0,1,self.mcPaths*configuration[2]*maxVisits).reshape((self.mcPaths,configuration[2],maxVisits))
+        maxVisits = int(self.lookahead*self.timeStep/binCentroids[1][0])
+        heliEarlySuccess = numpy.random.uniform(0,1,self.mcPaths*configuration[1]*maxVisits).reshape((self.mcPaths,configuration[1],maxVisits))
+        maxVisits = int(self.lookahead*self.timeStep/binCentroids[3][0])
+        heliLateSuccess = numpy.random.uniform(0,1,self.mcPaths*configuration[3]*maxVisits).reshape((self.mcPaths,configuration[3],maxVisits))
         
         # Now perform the Monte Carlo simulations using the random numbers we
         # have just generated to determine the expected damage
@@ -1023,22 +1028,22 @@ class Model():
             
             # Early Tankers
             for tanker in range(configurations[configuration][0]):
-                travelDists.append(randDistsTankerEarly[path][tanker])
+                travelDists.append(randDistsTankerEarly[path][tanker]/resources[0].getSpeed())
                 aircraftTypes.append(0)
                 
             # Late Tankers
             for tanker in range(configurations[configuration][2]):
-                travelDists.append(randDistsTankerLate[path][tanker])
+                travelDists.append(randDistsTankerLate[path][tanker]/resources[0].getSpeed())
                 aircraftTypes.append(0)
             
             # Early Helicopters
             for heli in range(configurations[configuration][1]):
-                travelDists.append(randDistsHeliEarly[path][heli])
+                travelDists.append(randDistsHeliEarly[path][heli]/resources[1].getSpeed())
                 aircraftTypes.append(1)
 
             # Late Helicopters
             for heli in range(configurations[configuration][3]):
-                travelDists.append(randDistsHeliLate[path][heli])
+                travelDists.append(randDistsHeliLate[path][heli]/resources[1].getSpeed())
                 aircraftTypes.append(1)
             
             
@@ -1046,12 +1051,118 @@ class Model():
             damagesE[path] = self.computeSinglePathE(path,configurations[configuration],ffdiTimings,rocMean,rocSD,svs,travelDists,aircraftTypes,tankerEarlySuccess,tankerLateSuccess,heliEarlySuccess,heliLateSuccess)
             
             # POTENTIAL FIRES #################################################
-            damagesP[path] = self.computeSinglePathE(path,configurations[configuration],ffdiTimings,occurrenceProbs,rocMean,rocSD,svs,travelDists,aircraftTypes,tankerEarlySuccess,tankerLateSuccess,heliEarlySuccess,heliLateSuccess)
+            damagesP[path] = self.computeSinglePathP(path,configurations[configuration],veg,ffdiTimings,aircraftTypes)
             
         # Build a probability distribution for the expected damage (not used
         # yet)
+        expectedDamageExisting = numpy.mean(damagesE)
+        expectedDamagePotential = numpy.mean(damagesP)
                 
         return [expectedDamagePotential,expectedDamageExisting]
+    
+    def computeExpectedDamageStatistical(self,exogenousPaths):
+        if self.getNestedOptMethod() <= 1:
+            return
+            
+        # Otherwise, we continue
+        # First, determine which grid points to compute based on the computed
+        # paths (we only need to consider the exogenous paths that will
+        # actually be encountered). We fit the data points of the exogenous
+        # paths to the grid, incrementing their count with each number of
+        # elements encountered.
+        # Upper limits for bins for FFDI.
+        bins = self.region.getVegetations()[0].getFFDIRange()
+        # Assume bin spacings are even for now
+        binSpacing = bins[1] - bin[0]
+        # We won't use the values outside the range
+        computedPaths = []
+        
+        for path in self.rovPaths:
+            # Find bin path to which this path belongs and populate
+            pathTrace = numpy.divide(exogenousPaths[path,:]-bin[0],binSpacing,dtype=int)
+            computedPaths[path] = pathTrace
+
+        computedPaths = numpy.array(computedPaths)        
+        
+        # Remove duplicate bin paths
+        new_array = [tuple(row) for row in computedPaths]
+        computedPaths = numpy.unique(new_array)
+        
+        # Compute in the same manner as the full grid approach
+        maxCoverDists = numpy.empty(2)
+        speeds = numpy.empty(2)
+        # N.B. distances are actually times here
+        travelProbDistsLess = []
+        travelProbDistsMore = []
+        
+        for aircraft in range(2):
+            speeds[aircraft] = self.model.getResourceTypes()[aircraft].getSpeed()
+            maxTime = self.model.getCoverTime()/60
+            maxCoverDists[aircraft] = speeds[aircraft]*maxTime
+            
+        for aircraft in range(2):
+            travelProbDistsLess.append(numpy.histogram(self.region.getStationPatchDistances()[aircraft][numpy.nonzero(self.region.getStationPatchDistances()[aircraft] <= maxCoverDists[aircraft])]/speeds[aircraft]))
+            travelProbDistsMore.append(numpy.histogram(self.region.getStationPatchDistances()[aircraft][numpy.nonzero(self.region.getStationPatchDistances()[aircraft] > maxCoverDists[aircraft])]/speeds[aircraft]))
+
+        configurations = numpy.empty([81,4])        
+        submat = numpy.array[0,1,2]
+        for ii in range(4):
+            configurations[:,ii] = numpy.tile(numpy.repeat(submat,3**(3-ii),axis=0),(3**ii,1)).flatten()
+        
+        # Compute the probability distributions for distances for aircraft to
+        # demand nodes/patches for each aircraft given the assigned region
+        # Order is TankerLess \ HeliLess\ TankerMore \ HeliMore
+        binCentroids = []
+        binWeights = []
+        # Less than specified threshold
+        binCentroids.append((travelProbDistsLess[0][1][0:(len(travelProbDistsLess[0][1])-1)] + travelProbDistsLess[0][1][1:(len(travelProbDistsLess[0][1]))])/2)
+        binCentroids.append((travelProbDistsLess[1][1][0:(len(travelProbDistsLess[1][1])-1)] + travelProbDistsLess[1][1][1:(len(travelProbDistsLess[1][1]))])/2)
+        binWeights.append(travelProbDistsLess[0][0]/(travelProbDistsLess[0][0].sum()))
+        binWeights.append(travelProbDistsLess[1][0]/(travelProbDistsLess[1][0].sum()))
+        
+        # Greater than specified threshold
+        binCentroids.append((travelProbDistsMore[0][1][0:(len(travelProbDistsMore[0][1])-1)] + travelProbDistsMore[0][1][1:(len(travelProbDistsMore[0][1]))])/2)
+        binCentroids.append((travelProbDistsMore[1][1][0:(len(travelProbDistsMore[1][1])-1)] + travelProbDistsMore[1][1][1:(len(travelProbDistsMore[1][1]))])/2)
+        binWeights.append(travelProbDistsMore[0][0]/(travelProbDistsMore[0][0].sum()))
+        binWeights.append(travelProbDistsMore[1][0]/(travelProbDistsMore[1][0].sum()))
+        
+        # Initialise expected damage matrices (for now we don't care about SD)
+        # We might consider only using a fixed number of points spaced evenly
+        # over the lookahead period instead of using the entire lookahead. As
+        # We will only test up to a five period lookahead, which should be 
+        # manageable for memory and pre-computation purposes.
+        
+        # Each lookahead (as well as the configuration and vegetations) is a
+        # dimension/predictor
+        expectedPotentialDamage = []
+        expectedExistingDamage = []
+        
+        for configuration in len(configurations):
+            expPD = [None]*len(self.region.getVegetations())
+            expED = [None]*len(self.region.getVegetations())
+            
+            for vegetation in range(len(self.region.getVegetations())):
+                # Consider only lookaheads that we found earlier and populate
+                # those
+                lookaheadCombos = ffdis**self.lookahead
+                expPDFFDIPaths = [None]*lookaheadCombos
+                expEDFFDIPaths = [None]*lookaheadCombos
+                shape = tuple([len(self.region.getVegetations()[vegetation].getFFDIRange())]*self.lookahead)
+                
+                for path in range(computedPaths):
+                    # Compute the index of this path
+                    pathIdx = numpy.ravel_multi_index(tuple(computedPaths[path]),shape)
+                    [expPDFFDIPaths[pathIdx],expEDFFDIPaths[pathIdx]]= self.computeSingleExpectedDamage(configuration,vegetation,computedPaths[path],configurations,binCentroids,binWeights)
+                
+            expectedPotentialDamage.append(expPD)
+            expectedExistingDamage.append(expED)
+        
+        # Now compute the values at the remaining data points
+        
+        # If we have a reasonable spread, populate the remaining points through
+        # weighted averaging.
+        self.region.setExpectedPotentialDamage(expectedPotentialDamage)
+        self.region.setExpectedExistingDamage(expectedExistingDamage)
     
     def computeSinglePathE(self,path,configuration,ffdiTimings,rocMean,rocSD,svs,travelDists,aircraftTypes,tankerEarlySuccess,tankerLateSuccess,heliEarlySuccess,heliLateSuccess):
         # Figure out how many times each aircraft assigned to the fire will
@@ -1076,9 +1187,8 @@ class Model():
         totalVisits = len(visits)
         severity = 1.0
         prevIdx = 0
-        damage = 0.0
         
-        while not(extinguished) and elapsedTime < timeStep and visit < totalVisits:
+        while not(extinguished) and elapsedTime < self.stepSize*len(ffdiTimings) and visit < totalVisits:
             timeInterval = visitList[0][visit] - elapsedTime
             aircraft = int(visitList[1][visit])
             
@@ -1123,11 +1233,97 @@ class Model():
         
         return severity
         
-    def computeSinglePathP(self,path,configuration,ffdiTimings,occurrenceProbs,rocMean,rocSD,svs,travelDists,aircraftTypes,tankerEarlySuccess,tankerLateSuccess,heliEarlySuccess,heliLateSuccess):
-        # First need to determine if a fire occurs and when
+    def computeSinglePathP(self,path,configuration,vegIdx,ffdiTimings,travelDists,aircraftTypes):
+        # We assume that the patch exists in isolation
+    
+        # First sample a number of fires occurring in this patch randomly for each time window
+        newFiresPeriod = None*[len(ffdiTimings)]
+        newFires = []
+        damage = 0
         
-        clear = True
-        counter = 0
+        for ii in len(range(ffdiTimings)):
+            newFiresPeriod[ii] = (numpy.multiply(numpy.divide(1,occurrenceProbs[ii]),numpy.log(1-numpy.random.uniform(0,1,1)))).astype(int)
+            newFiresPeriod[ii] = numpy.array(newFires[ii],numpy.random.uniform(0,1,newFires[ii])*self.stepSize) + ii*self.stepSize
+            
+            # Sort the fires in this period by time of occurrence
+            newFiresPeriod[ii] = newFiresPeriod[ii][:,numpy.argsort(newFires[ii][1,:])]
+            
+        # Put all of the fires into one contiguous array
+        for ii in len(range(ffdiTimings)):
+            newFires.append(newFiresPeriod[ii])
+    
+        newFires = numpy.array(newFires)
         
-        while clear and counter < len(ffdiTimings):
-            clear = False if numpy.random.uniform() < occurrenceProbs[counter] else True
+        # Now fight each of these fires using the probabilities of early and
+        # late success for each type of aircraft
+        resources = self.region.getResourceTypes()
+        speed = numpy.empty(2)
+        speed[0] = resources[0].getSpeed()
+        speed[1] = resources[1].getSpeed()
+        elapsedTime = 0
+        start = 0
+        newFireObjs = []
+        assignments = []
+        resourceTypes = []
+        
+        # Convert configurations to aircraft to assign (early first, then late)
+        # Early tankers
+        for ii in range(configuration[ii]):
+            assignments.append([0])
+            resourceTypes.append(0)
+            
+        # Early helicopters
+        for ii in range(configuration[ii]):
+            assignments.append([0])
+            resourceTypes.append(1)
+            
+        # Late tankers
+        for ii in range(configuration[ii]):
+            assignments.append([0])
+            resourceTypes.append(0)
+            
+        # Late helicopters
+        for ii in range(configuration[ii]):
+            assignments.append([0])
+            resourceTypes.append(1)
+        
+        currLocs = travelDists
+        cumHours = numpy.zeros(len(assignments[:,1]))
+        
+        while elapsedTime < self.stepSize*len(ffdiTimings):
+            timeStep = 0
+            if start < (len(newFires[:,1])-1):
+                timeStep = newFires[start+1,1] - elapsedTime
+            else:
+                timeStep = self.model.getStepSize()
+                
+            # Find aircraft to assign to this new fire ########################
+            [nearestTanker,nearestHeli] = Simulation().assignNearestAvailable(self,assignments,currLocs,cumHours,resourceTypes,[0,0],timeStep)
+            if nearestTanker > 0:
+                assignments[nearestTanker] = len(newFireObjs)
+            if nearestHeli > 0:
+                assignments[nearestHeli] = len(newFireObjs)
+            
+            # Append the fire to the list of active fires
+            fire = Fire()
+            fire.setLocation([0,0])
+            newFireObjs.append(fire)
+            
+            # Fight this new fire (plus other new fires still active) up to the
+            # start of the next fire
+            for fireIdx in range(len(newFireObjs)):
+                fire = newFireObjs[fireIdx]
+                if fire.getSize() > 0:
+                    assignedAircraft = numpy.nonzero(assignments[:,1] == (fireIdx + 1))
+                    currPeriod = int()
+                    damage = damage + Simulation.fightFire(self.model,fire,assignedAircraft,currLocs,cumHours,resourceTypes,ffdiTimings[currPeriod],ffdiRange,rocMean,rocSD,succTanker,succHeli,self.stepSize)
+                    # If this pass extinguished the fire, record and make aircraft available again
+                    if fire.getSize() == 0:
+                        assignments[numpy.nonzero(assignments[:,1] == (fireIdx + 1))] = 0
+            
+            if start < (len(newFires[1,:])-1):
+                elapsedTime = newFires[start+1,1]
+            else:
+                elapsedTime = self.model.getTimeStep()
+                
+            start = start + 1

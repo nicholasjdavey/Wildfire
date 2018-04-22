@@ -120,7 +120,6 @@ class Simulation():
         # We store the actual fires and their sizes
 
         paths = []
-        cumulativeDamages = []
 
         [initialMap,initialAss,initialLocs,cumHours0,resourceTypes] = self.initialiseAssignments()
 
@@ -210,7 +209,7 @@ class Simulation():
             # Given the locations found for this control, update the fire
             # severities for the next time period. We use the probabilities. We
             # also compute the new damage incurred and the hours used.
-            [cumHours[ii+1],fires[ii+1],currLocs[ii+1],damage,fires[ii+1]] = self.fireSeverity(fires[ii],assignments[ii+1],currLocs[ii+1],cumHours[ii+1],resourceTypes,ep[ii])
+            [cumHours[ii+1],fires[ii+1],currLocs[ii+1],damage] = self.fireSeverity(fires[ii],assignments[ii+1],currLocs[ii+1],cumHours[ii+1],resourceTypes,ep[ii])
             cumDamage[ii+1] = cumDamage[ii] + damage
 
         return [fires,assignments,currLocs,cumHours,cumDamage]
@@ -304,6 +303,8 @@ class Simulation():
         return assignments
 
     def maxCover(self,randCont,fireSeverityMap,assignmentsCurr,currLocs,cumHoursCurr,resourceTypes,ffdi):
+        # Compute the expected number of fires for each patch
+        
         # We only consider the maximum cover of 1 tanker and 1 helicopter for now
         maxCoverDists = numpy.empty(2)
 
@@ -337,6 +338,7 @@ class Simulation():
 
         BasesT = ["BaseT_" + str(ii+1) for ii in range(bases)]
         BasesH = ["BaseH_" + str(ii+1) for ii in range(bases)]
+        LikelihoodCover = ["PatchLikelihoodCover_" + str(ii+1) for ii in range(patches)]
         PatchCovered = ["PatchCover_" + str(ii+1) for ii in range(patches)]
         PatchCoveredT = ["PatchCoverT_" + str(ii+1) for ii in range(patches)]
         PatchCoveredH = ["PatchCoverH_" + str(ii+1) for ii in range(patches)]
@@ -727,29 +729,44 @@ class Simulation():
     def fireSeverity(self,firesOld,assignments,currLocs,cumHours,resourceTypes,ffdi):
         # This routine performs the simulation for a single time step
 
+        # EXISTING FIRES ######################################################
         # First, compute the extinguishing success for each active fire given the allocations
-        idx = numpy.nonzero(fireSeverityMap)
+#        idx = numpy.nonzero(fireSeverityMap)
         timeStep = self.model.getStepSize() # In hours
 #        fireSeverityMapNew = numpy.zero(fireSeverityMap.shape)
         damage = 0.0
         currLocsNew = numpy.copy(currLocs)
+        cumHoursNew = numpy.copy(cumHours)
 
+        firesNew = []
+        fireIdx = 1
         for fire in firesOld:
             # Find out the aircraft assigned to this fire
-            assignedAircraft = numpy.nonzero(assignments[:,1] == fire)
+            fireNew = copy.copy(fire)
+            veg = model.getRegion().getVegetation()[tuple(fire.getLocation())]
+            ffdiRange = model.getRegion().getVegetations()[veg].getFFDIRange()
+            rocMeanRange = model.getRegion().getVegetations[veg].getROCA2PerHour()[0]
+            rocSDRange = model.getRegion().getVegetations[veg].getROCA2PerHour()[1]
+            succTankerRange = model.getRegion().getVegetations[veg].getExtinguishingSuccess()[0]
+            succHeliRange = model.getRegion().getVegetations[veg].getExtinguishingSuccess()[1]
+            ffdiFire = ffdi[tuple(fire.getLocation())]
+            assignedAircraft = numpy.nonzero(assignments[:,1] == fireIdx)
+            damage = damage + Simulation.fightFire(self.model,fire,assignedAircraft,currLocsNew,cumHoursNew,resourceTypes,ffdiFire,veg,ffdiRange,rocMeanRange,rocSDRange,succTankerRange,succHeliRange,timeStep)
+            if fireNew.getSize() > 0:
+                firesNew.append(fireNew)
 
-            # Get the probabilities of success for each aircraft type
-            severity = fire.getSize()
-            correspondingPatch = numpy.ravel_multi_index(fire.getLocation,self.model.getRegion().getX().shape)
-            veg = self.model.getRegion().getVegetation()[idx[fire]]
-            ffdiRange = self.model.getRegion().getVegetations[veg].getFFDIRange()
+        # POTENTIAL FIRES #####################################################
+        occurrenceProbPatches = numpy.array(len(self.model.getRegion().getVegetations()))
+        fireGrowthRatePatches = numpy.array(len(self.model.getRegion().getVegetations()))
+
+        for patch in range(len(self.model.getRegion().getPatches())):
+            veg = self.model.getRegion().getVegetation()[patch]
+            occurrenceProbsRange = self.model.getRegion().getVegetation()[veg].getOccurrence()
             rocMeanRange = self.model.getRegion().getVegetations[veg].getROCA2PerHour()[0]
             rocSDRange = self.model.getRegion().getVegetations[veg].getROCA2PerHour()[1]
-            succTankerRange = self.model.getRegion().getVegetations[veg].getExtinguishingSuccess()[0]
-            succHeliRange = self.model.getRegion().getVegetations[veg].getExtinguishingSuccess()[1]
-            resources = self.model.getRegion().getResourceTypes()
+            ffdiRange = self.model.getRegion().getVegetations[veg].getFFDIRange()
             ffdis = ffdiRange.size
-            ffdiMinIdx = math.floor((ffdi[idx[fire]]-ffdiRange[0])*(ffdis-1)/(ffdiRange[ffdis] - ffdiRange[0]))
+            ffdiMinIdx = math.floor((ffdi[patch]-ffdiRange[0])*(ffdis-1)/(ffdiRange[ffdis-1] - ffdiRange[0]))
             ffdiMaxIdx = ffdiMinIdx + 1
 
             if ffdiMinIdx < 0:
@@ -759,252 +776,106 @@ class Simulation():
                 ffdiMinIdx = ffdis - 2
                 ffdiMaxIdx = ffdis - 1
 
-            xd = (ffdi[idx[fire]]-ffdiRange[ffdiMinIdx])/(ffdiRange[ffdiMaxIdx] - ffdiRange[ffdiMinIdx])
-
-            # Rate of change per hour
+            xd = (ffdi[patch]-ffdiRange[ffdiMinIdx])/(ffdiRange[ffdiMaxIdx] - ffdiRange[ffdiMinIdx])
+            occurrenceProbPatches[patch] = xd*occurrenceProbsRange[ffdiMinIdx] + (1-xd)*occurrenceProbsRange[ffdiMaxIdx]
             rocMean = xd*rocMeanRange[ffdiMinIdx] + (1-xd)*rocMeanRange[ffdiMaxIdx]
             rocSD = xd*rocSDRange[ffdiMinIdx] + (1-xd)*rocSDRange[ffdiMaxIdx]
+            fireGrowthRatePatches[patch] = numpy.random.normal(rocMean,rocSD)
 
-            # Extinguishing success for each type of aircraft. We only have
-            # tankers and helicopters for now.
-            svs = numpy.empty(2)
-            svs[0] = xd*succTankerRange[ffdiMinIdx] + (1-xd)*succTankerRange[ffdiMaxIdx]
-            svs[1] = xd*succHeliRange[ffdiMinIdx] + (1-xd)*succHeliRange[ffdiMaxIdx]
-
-            # Figure out how many times each aircraft assigned to the fire will
-            # visit
-            visits = []
-            totalVisits = numpy.zeros(len(assignedAircraft))
-            #init2Fires = numpy.zeros(len(assignedAircraft))
-            #base2Fires = numpy.zeros(len(assignedAircraft))
-
-            # Simulate attacks
-            for aircraft in range(len(assignedAircraft)):
-                # Distances to destinations are how far the aircraft are to the
-                # assigned fire.
-                # Aircraft can slightly overshoot the remaining number of hours
-                # but they cannot leave for a new attack if they have already
-                # done so.
-                baseIdx = assignments[assignedAircraft[aircraft],0]
-                remHours = resources[resourceTypes[assignedAircraft[aircraft]]].getMaxDailyHours() - cumHours[assignedAircraft[aircraft]]
-                xInit = currLocs[assignedAircraft[aircraft]][0]
-                yInit = currLocs[assignedAircraft[aircraft]][1]
-                xBase = self.model.getStations()[0][baseIdx].getLocation()[0]
-                yBase = self.model.getStations()[0][baseIdx].getLocation()[1]
-                #yFire = self.model.getRegion().getPatches()[idx[fire]].getCentroid()[1]
-                xFire = self.model.getRegion().getX()[idx[fire]]
-                yFire = self.model.getRegion().getY()[idx[fire]]
-                init2Fire = math.sqrt((xFire-xInit)**2 + (yFire-yInit)**2)
-                base2Fire = math.sqrt((xBase-xFire)**2 + (yBase-yFire)**2)
-                speed = resources[resourceTypes[assignedAircraft[aircraft]]].getSpeed()
-                #init2Fires[aircraft] = init2Fire
-                #base2Fires[aircraft] = base2Fire
-
-                # Is the current position near enough to visit at least once?
-                trem = timeStep
-
-                if init2Fire < speed*timeStep:
-                    # Visit: 1. Time of visit
-                    #        2. Aircraft ID
-                    visit = [None]*2
-                    visit[0] = assignedAircraft[aircraft]
-                    visit[1] = init2Fire/speed
-                    trem = trem - init2Fire/speed
-                    visits.append(visit)
-                    totalVisits[aircraft] = totalVisits[aircraft] + 1
-
-                # Now check when other possible visits may occur from the
-                # aircraft moving between the fire and base
-                tripTime = 2*base2Fire/speed
-
-                while trem > 0 and remHours > 0:
-                    if 2*base2Fire < speed*trem:
-                        visit = [None]*2
-                        visit[0] = aircraft
-                        visit[1] = 2*base2Fire/speed + visits[len(visits)-1][1]
-                        trem = trem - 2*base2Fire/speed
-                        visits.append(visit)
-                        totalVisits[aircraft] = totalVisits[aircraft] + 1
-                        trem = trem - tripTime
-                        remHours = remHours - tripTime
-
-            # Now sort the aircraft visits and perform them. Before each visit,
-            # grow the fire and compute the incremental damage. Then, have the
-            # aircraft visit. If successful in extinguishing, set fire severity
-            # to zero and find locations of all attacking aircraft (send back
-            # to base if in the air).
-            visits = numpy.array(visits)
-            visits = visits[visits[:,1].argsort()]
-
-            extinguished = False
-            elapsedTime = 0.0
-            visit = 0
-            totalVisits = len(visits)
-
-            while not(extinguished) and elapsedTime < timeStep and visit < totalVisits:
-                timeInterval = visits[visit,1] - elapsedTime
-                aircraft = int(visits[visit,0])
-
-                # Compute growth of fire up until the visit as well as the
-                # cumulative damage incurred
-                severityOld = severity
-                severity = severity*numpy.random.normal(rocMean,rocSD)*timeInterval
-                damage = damage + (severity - severityOld)
-                elapsedTime = elapsedTime + timeInterval
-
-                # Compute whether the fire is extinguished by the visit
-                if numpy.random.uniform(0,1) < svs[resourceTypes[aircraft]]:
-                    extinguished = True
-                    fireSeverityMapNew[idx[fire]] = severity
-                    endAttackTime[idx[fire]] = elapsedTime
-
-            if not(extinguished):
-                elapsedTime = timeStep
-
-            # Time available to relocate back to base from extinguishing
-            trem = timeStep - elapsedTime
-
-            # Compute the final positions of all aircraft for this time period
-            # given the success of fighting the fire. Also record the number of
-            # flying hours used up.
-            cumHoursNew = numpy.copy(cumHours)
-            for aircraft in range(len(assignedAircraft)):
-                # Find location at time of extinguishing
-                visitIdxes = numpy.nonzero(visits[:,0] <= elapsedTime)
-                baseIdx = assignments[assignedAircraft[aircraft],0]
-                xInit = currLocs[assignedAircraft[aircraft]][0]
-                yInit = currLocs[assignedAircraft[aircraft]][1]
-                xBase = self.model.getStations()[0][baseIdx].getLocation()[0]
-                yBase = self.model.getStations()[0][baseIdx].getLocation()[1]
-                xFire = self.model.getRegion().getPatches()[idx[fire]].getCentroid()[0]
-                yFire = self.model.getRegion().getPatches()[idx[fire]].getCentroid()[1]
-                init2Fire = math.sqrt((xFire-xInit)**2 + (yFire-yInit)**2)
-                base2Fire = math.sqrt((xBase-xFire)**2 + (yBase-yFire)**2)
-                init2Base = math.sqrt((xInit-xBase)**2 + (yInit-yBase)**2)
-                speed = resources[resourceTypes[assignedAircraft[aircraft]]].getSpeed()
-
-                if len(visitIdxes) > 0:
-                    # See how long it was since the last visit to determine
-                    # location
-                    finalVisitTime = visits[visitIdxes[len(visitIdxes)-1][1]]
-
-                    if extinguished == True:
-                        # Aircraft will return to base
-                        if trem*speed >= base2Fire:
-                            # Aircraft diverts back to base immediately and
-                            # makes it there before the next period no matter
-                            # its position
-                            currLocsNew[assignedAircraft[aircraft][0]] = xBase
-                            currLocsNew[assignedAircraft[aircraft][1]] = yBase
-                            if elapsedTime - finalVisitTime > base2Fire/speed:
-                                # Aircraft is returning to fire so needs to turn around
-                                cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - (elapsedTime - finalVisitTime - base2Fire/speed)
-                            else:
-                                # Just let the aircraft continute back to base
-                                cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - base2Fire/speed + (elapsedTime - finalVisitTime)
-                        else:
-                            # Position of aircraft at time of extinguishing
-                            distSinceFinalVisit = speed*(elapsedTime - finalVisitTime)
-
-                            if distSinceFinalVisit > base2Fire:
-                                # Aircraft is heading to fire at the end
-                                dist2Base = distSinceFinalVisit - base2Fire
-
-                                if dist2Base/speed < trem:
-                                    # Aircraft will make it back to base in time
-                                    currLocsNew[assignedAircraft[aircraft][0]] = xBase
-                                    currLocsNew[assignedAircraft[aircraft][1]] = yBase
-                                    cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - dist2Base/speed
-                                else:
-                                    # Aircraft will still be on its way at the end
-                                    remDist2Base = dist2Base - trem*speed
-                                    xD2B = remDist2Base/base2Fire
-                                    currLocsNew[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
-                                    currLocsNew[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
-                                    cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
-                            else:
-                                # Aircraft is returning to base
-                                dist2Base = base2Fire - distSinceFinalVisit
-
-                                if dist2Base/speed < trem:
-                                    # Aircraft will make it back to base in time
-                                    currLocsNew[assignedAircraft[aircraft][0]] = xBase
-                                    currLocsNew[assignedAircraft[aircraft][1]] = yBase
-                                    cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - dist2Base/speed
-                                else:
-                                    # Aircraft will still be on its way at the end
-                                    remDist2Base = dist2Base - trem*speed
-                                    xD2B = remDist2Base/base2Fire
-                                    currLocsNew[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
-                                    currLocsNew[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
-                                    cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
-                    else:
-                        # Aircraft will continue its mission
-                        # Time elapsed between final visit and end of period
-                        distSinceFinalVisit = speed*(timeStep - finalVisitTime)
-
-                        if distSinceFinalVisit > base2Fire:
-                            # Aircraft is heading back to fire
-                            dist2Base = distSinceFinalVisit - base2Fire
-
-                            xD2B = dist2Base/base2Fire
-                            currLocsNew[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
-                            currLocsNew[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
-                        else:
-                            # Aircraft is heading back to base
-                            dist2Base = base2Fire - distSinceFinalVisit
-
-                            xD2B = dist2Base/base2Fire
-                            currLocsNew[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
-                            currLocsNew[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
-
-                        cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
-                else:
-                    # The aircraft has not reached the location it was sent to
-                    if extinguished == True:
-                        # Aircraft will head back to base
-                        dist2Base = init2Base + speed*elapsedTime
-
-                        if trem*speed >= dist2Base:
-                            # Aircraft makes it back in time no matter what
-                            currLocsNew[assignedAircraft[aircraft][0]] = xBase
-                            currLocsNew[assignedAircraft[aircraft][1]] = yBase
-
-                            if elapsedTime - finalVisitTime > base2Fire/speed:
-                                # Aircraft is returning to fire so needs to turn around
-                                cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - (elapsedTime - finalVisitTime - base2Fire/speed)
-                            else:
-                                # Just let the aircraft continute back to base
-                                cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - base2Fire/speed + (elapsedTime - finalVisitTime)
-
-                        else:
-                            # Aircraft will not make it back all the way in time
-                            xD2B = dist2Base/base2Fire
-                            currLocsNew[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
-                            currLocsNew[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
-                            cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
-                    else:
-                        # Aircraft will continue with its mission
-                        dist2Base = init2Base + speed*timeStep
-                        xD2B = dist2Base/base2Fire
-                        currLocsNew[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
-                        currLocsNew[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
-                        cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
-                        
-        # Randomly generate new fires based on the FFDIs in each of the patches
-        # We first need the indices of the bounding FFDIs in the FFDI list for
-        # each vegetation.
-        ffdiMatrix = []
-        occurrenceMatrix = []
-        for vegetation in self.model.getRegion().getVegetations():
-            ffdiMatrix.append(vegetation.getFFDIRange())
-            occurrenceMatrix.append(vegetation.getOccurrence())
+        # Using these probabilities, compute the number of fires occurring and
+        # the times at which they occur.
+        noFiresPerPatch = (numpy.multiply(numpy.divide(1,occurrenceProbPatches),numpy.log(1-numpy.random.uniform(0,1,len(occurrenceProbPatches))))).astype(int)
+#        newFiresPerPatch = float(occurrenceProbPatches > numpy.random.uniform(0,1,len(occurrenceProbPatches)))
+#        fireStarts = numpy.zeros(len(occurrenceProbPatches))
+        totalNewFires = noFiresPerPatch.sum()
+        newFires = numpy.empty(totalNewFires)
+        iterator = 0
+        nonZeroPatches = numpy.nonzero(noFiresPerPatch)
+        
+        for patch in range(len(numpy.nonzero(noFiresPerPatch))):
+            newFires[iterator:(iterator+noFiresPerPatch[nonZeroPatches[patch]]-1)] = nonZeroPatches[patch]
+            iterator = iterator + noFiresPerPatch[nonZeroPatches[patch]]
             
-        ffdiMatrix = numpy.array(ffdiMatrix)
-        occurrenceMatrix = numpy.array(occurrenceMatrix)
+        newFires = numpy.array(newFires,numpy.random.uniform(0,1,totalNewFires)*timeStep)
+        # Now sort by time of occurrence
+        newFires = newFires[:,numpy.argsort(newFires[:,1])]
+        
+        # Now fight each of these fires using the nearest available aircraft at
+        # the time of ignition
+        elapsedTime = 0
+        start = 0
+        newFireObjs = []
+        
+        while elapsedTime < self.model.getTimeStep():
+            timeStep = 0
+            if start < (len(newFires[:,1])-1):
+                timeStep = newFires[start+1,1] - elapsedTime
+            else:
+                timeStep = self.model.getStepSize()
+                
+            # Find aircraft to assign to this new fire ########################
+            # Get the nearest available helicopter and air tanker            
+            xfire = self.model.getRegion().getPatches()[newFires[start][0]].getCentroid()[0]
+            yfire = self.model.getRegion().getPatches()[newFires[start][0]].getCentroid()[1]
+            
+            [nearestTanker,nearestHeli] = self.assignNearestAvailable(assignments,currLocs,cumHours,resourceTypes,[xfire,yfire],self.model.getStepSize()-elapsedTime)
+            if nearestTanker > 0:            
+                assignments[nearestTanker] = start + len(firesOld)
+            if nearestHeli > 0:
+                assignments[nearestHeli] = start + len(firesOld)
+            
+            # Append the fire to the list of active fires
+            fire = Fire()
+            fire.setLocation(self.model.getRegion().getPatches()[newFires[start]].getCentroid())
+            newFireObjs.append(fire)
+                
+            # Fight this new fire (plus other new fires still active) up to the
+            # start of the next fire
+            for fireIdx in range(len(newFireObjs)):
+                fire = newFireObjs[fireIdx]
+                veg = model.getRegion().getVegetation()[tuple(fire.getLocation())]
+                ffdiRange = model.getRegion().getVegetations()[veg].getFFDIRange()
+                rocMeanRange = model.getRegion().getVegetations[veg].getROCA2PerHour()[0]
+                rocSDRange = model.getRegion().getVegetations[veg].getROCA2PerHour()[1]
+                succTankerRange = model.getRegion().getVegetations[veg].getExtinguishingSuccess()[0]
+                succHeliRange = model.getRegion().getVegetations[veg].getExtinguishingSuccess()[1]
+                ffdiFire = ffdi[tuple(fire.getLocation())]
+                
+                if fire.getSize() > 0:
+                    assignedAircraft = numpy.nonzero(assignments[:,1] == (fireIdx + len(firesOld) + 1))
+                    damage = damage + Simulation.fightFire(self.model,fire,assignedAircraft,currLocsNew,cumHoursNew,resourceTypes,ffdiFire,veg,ffdiRange,rocMeanRange,rocSDRange,succTankerRange,succHeliRange,timeStep)
+                    # If this pass extinguished the fire, the aircraft become available again
+                    if fire.getSize() == 0:
+                        assignments[numpy.nonzero(assignments[:,1] == (fireIdx + len(firesOld) + 1))] = 0
+            
+            if start < (len(newFires[1,:])-1):
+                elapsedTime = newFires[start+1,1]
+            else:
+                elapsedTime = self.model.getTimeStep()
+                
+            start = start + 1
+        
+        for fireIdx in range(totalNewFires):            
+            if fire.getSize() > 0:
+                firesNew.append(fire)
+#        
+#        starts = numpy.random.uniform(0,1,int(sum(newFires)))*timeStep
+#        fireStarts[numpy.nonzero(fireStarts)] = starts
+
+#        # Randomly generate new fires based on the FFDIs in each of the patches
+#        # We first need the indices of the bounding FFDIs in the FFDI list for
+#        # each vegetation.
+#        ffdiMatrix = []
+#        occurrenceMatrix = []
+#        for vegetation in self.model.getRegion().getVegetations():
+#            ffdiMatrix.append(vegetation.getFFDIRange())
+#            occurrenceMatrix.append(vegetation.getOccurrence())
+#            
+#        ffdiMatrix = numpy.array(ffdiMatrix)
+#        occurrenceMatrix = numpy.array(occurrenceMatrix)
 
         # We have computed the new locations for the aircraft assigned to fires
-        # (Both existing and new one generated in this period).
+        # (Both existing and new fires generated in this period).
         # Now we need to determine the positions of the aircraft that were not
         # assigned to fires. They may have been in the process of relocating.
         idleAircraft = numpy.nonzero(assignments[:,1] == 0)
@@ -1033,57 +904,301 @@ class Simulation():
                 currLocsNew[idleAircraft[aircraft][0]] = xBase + xD2B*(xInit - xBase)
                 currLocsNew[idleAircraft[aircraft][1]] = yBase + xD2B*(yInit - yBase)
                 cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
+#        additionalSeverity = numpy.multiply(numpy.multiply((timeStep - fireStarts),fireGrowthRatePatches),(fireStarts > 0.0))
 
-        # Next, compute the creation of new fires. We only compute these at the
-        # end of the time step as it they do not influence the current aircraft
-        # allocations in the current problem formulation. This can be changed
-        # as more realism is added into the program (for future publication).
-        # These fires go unchecked.
-        occurrenceProbPatches = numpy.array(len(self.model.getRegion().getVegetations()))
-        fireGrowthRatePatches = numpy.array(len(self.model.getRegion().getVegetations()))
-
-        for patch in range(len(self.model.getRegion().getPatches())):
-            veg = self.model.getRegion().getVegetation()[patch]
-            occurrenceProbsRange = self.model.getRegion().getVegetation()[veg].getOccurrence()
-            rocMeanRange = self.model.getRegion().getVegetations[veg].getROCA2PerHour()[0]
-            rocSDRange = self.model.getRegion().getVegetations[veg].getROCA2PerHour()[1]
-            ffdiRange = self.model.getRegion().getVegetations[veg].getFFDIRange()
-            ffdis = ffdiRange.size
-            ffdiMinIdx = math.floor((ffdi[patch]-ffdiRange[0])*(ffdis-1)/(ffdiRange[ffdis] - ffdiRange[0]))
-            ffdiMaxIdx = ffdiMinIdx + 1
-
-            if ffdiMinIdx < 0:
-                ffdiMinIdx = 0
-                ffdiMaxIdx = 1
-            elif ffdiMaxIdx >= ffdis:
-                ffdiMinIdx = ffdis - 2
-                ffdiMaxIdx = ffdis - 1
-
-            xd = (ffdi[patch]-ffdiRange[ffdiMinIdx])/(ffdiRange[ffdiMaxIdx] - ffdiRange[ffdiMinIdx])
-            occurrenceProbPatches[patch] = xd*occurrenceProbsRange[ffdiMinIdx] + (1-xd)*occurrenceProbsRange[ffdiMaxIdx]
-            rocMean = xd*rocMeanRange[ffdiMinIdx] + (1-xd)*rocMeanRange[ffdiMaxIdx]
-            rocSD = xd*rocSDRange[ffdiMinIdx] + (1-xd)*rocSDRange[ffdiMaxIdx]
-            fireGrowthRatePatches[patch] = numpy.random.normal(rocMean,rocSD)
-
-        # Using these probabilities, compute the chances of fires occurring and
-        # the time at which they occur (if a fire already exists in a patch,
-        # it is assumed that the resources assigned to it are not diverted to
-        # also fight this fire.
-        newFires = float(occurrenceProbPatches > numpy.random.uniform(0,1,len(occurrenceProbPatches)))
-        fireStarts = numpy.zeros(len(occurrenceProbPatches))
-        starts = numpy.random.uniform(0,1,int(sum(newFires)))*timeStep
-        fireStarts[numpy.nonzero(fireStarts)] = starts
-
-        additionalSeverity = numpy.multiply(numpy.multiply((timeStep - fireStarts),fireGrowthRatePatches),(fireStarts > 0.0))
-
-        fireSeverityMapNew = fireSeverityMapNew + additionalSeverity
+#        fireSeverityMapNew = fireSeverityMapNew + additionalSeverity
         damage = damage + sum(additionalSeverity)
 
         # Use the times at which the fires occur to determine the damage and
         # fire size by the end of the period. Add to the existing severity
         # matrix and recorded damage
         # Return the results
-        return [cumHoursNew,fireSeverityMapNew,currLocsNew,damage]
+        return [cumHoursNew,firesNew,currLocsNew,damage]
+    
+    @staticmethod
+    def fightFire(model,fire,assignments,currLocs,cumHours,resourceTypes,ffdi,veg,ffdiRange,rocMeanRange,rocSDRange,succTankerRange,succHeliRange,timeStep):
+        # Get the probabilities of success for each aircraft type
+        severity = fire.getSize()
+#            correspondingPatch = numpy.ravel_multi_index(fire.getLocation(),self.model.getRegion().getX().shape)
+#            veg = self.model.getRegion().getVegetation()[correspondingPatch]
+        resources = model.getRegion().getResourceTypes()
+        ffdis = len(ffdiRange)
+        ffdiMinIdx = math.floor((ffdi-ffdiRange[0])*(ffdis-1)/(ffdiRange[ffdis-1] - ffdiRange[0]))
+        ffdiMaxIdx = ffdiMinIdx + 1
+
+        if ffdiMinIdx < 0:
+            ffdiMinIdx = 0
+            ffdiMaxIdx = 1
+        elif ffdiMaxIdx >= ffdis:
+            ffdiMinIdx = ffdis - 2
+            ffdiMaxIdx = ffdis - 1
+
+        xd = (ffdi[tuple(fire.getLocation())]-ffdiRange[ffdiMinIdx])/(ffdiRange[ffdiMaxIdx] - ffdiRange[ffdiMinIdx])
+
+        # Rate of change per hour
+        rocMean = xd*rocMeanRange[ffdiMinIdx] + (1-xd)*rocMeanRange[ffdiMaxIdx]
+        rocSD = xd*rocSDRange[ffdiMinIdx] + (1-xd)*rocSDRange[ffdiMaxIdx]
+
+        # Extinguishing success for each type of aircraft. We only have
+        # tankers and helicopters for now.
+        svs = numpy.empty(2)
+        svs[0] = xd*succTankerRange[ffdiMinIdx] + (1-xd)*succTankerRange[ffdiMaxIdx]
+        svs[1] = xd*succHeliRange[ffdiMinIdx] + (1-xd)*succHeliRange[ffdiMaxIdx]
+
+        # Figure out how many times each aircraft assigned to the fire will
+        # visit
+        visits = []
+        totalVisits = numpy.zeros(len(assignments))
+        #init2Fires = numpy.zeros(len(assignedAircraft))
+        #base2Fires = numpy.zeros(len(assignedAircraft))
+
+        # Simulate attacks
+        for aircraft in range(len(assignedAircraft)):
+            # Distances to destinations are how far the aircraft are to the
+            # assigned fire.
+            # Aircraft can slightly overshoot the remaining number of hours
+            # but they cannot leave for a new attack if they have already
+            # done so.
+            baseIdx = assignments[assignedAircraft[aircraft],0]
+            remHours = resources[resourceTypes[assignedAircraft[aircraft]]].getMaxDailyHours() - cumHours[assignedAircraft[aircraft]]
+            xInit = currLocs[assignedAircraft[aircraft]][0]
+            yInit = currLocs[assignedAircraft[aircraft]][1]
+            xBase = model.getStations()[0][baseIdx].getLocation()[0]
+            yBase = model.getStations()[0][baseIdx].getLocation()[1]
+            #yFire = self.model.getRegion().getPatches()[idx[fire]].getCentroid()[1]
+            xFire = fire.getLocation()[0]
+            yFire = fire.getLocation()[1]
+            init2Fire = math.sqrt((xFire-xInit)**2 + (yFire-yInit)**2)
+            base2Fire = math.sqrt((xBase-xFire)**2 + (yBase-yFire)**2)
+            speed = resources[resourceTypes[assignedAircraft[aircraft]]].getSpeed()
+            #init2Fires[aircraft] = init2Fire
+            #base2Fires[aircraft] = base2Fire
+
+            # Is the current position near enough to visit at least once?
+            trem = timeStep
+
+            if init2Fire < speed*timeStep:
+                # Visit: 1. Time of visit
+                #        2. Aircraft ID
+                visit = [None]*2
+                visit[0] = assignedAircraft[aircraft]
+                visit[1] = init2Fire/speed
+                trem = trem - init2Fire/speed
+                visits.append(visit)
+                totalVisits[aircraft] = totalVisits[aircraft] + 1
+
+            # Now check when other possible visits may occur from the
+            # aircraft moving between the fire and base
+            tripTime = 2*base2Fire/speed
+
+            while trem > 0 and remHours > 0:
+                if 2*base2Fire < speed*trem:
+                    visit = [None]*2
+                    visit[0] = aircraft
+                    visit[1] = 2*base2Fire/speed + visits[len(visits)-1][1]
+                    trem = trem - 2*base2Fire/speed
+                    visits.append(visit)
+                    totalVisits[aircraft] = totalVisits[aircraft] + 1
+                    trem = trem - tripTime
+                    remHours = remHours - tripTime
+
+        # Now sort the aircraft visits and perform them. Before each visit,
+        # grow the fire and compute the incremental damage. Then, have the
+        # aircraft visit. If successful in extinguishing, set fire severity
+        # to zero and find locations of all attacking aircraft (send back
+        # to base if in the air).
+        visits = numpy.array(visits)
+        visits = visits[visits[:,1].argsort()]
+
+        extinguished = False
+        elapsedTime = 0.0
+        visit = 0
+        totalVisits = len(visits)
+        damage = 0.0
+
+        while not(extinguished) and elapsedTime < timeStep and visit < totalVisits:
+            timeInterval = visits[visit,1] - elapsedTime
+            aircraft = int(visits[visit,0])
+
+            # Compute growth of fire up until the visit as well as the
+            # cumulative damage incurred
+            severityOld = severity
+            severity = severity*numpy.random.normal(rocMean,rocSD)*timeInterval
+            damage = damage + (severity - severityOld)
+            elapsedTime = elapsedTime + timeInterval
+
+            # Compute whether the fire is extinguished by the visit
+            if numpy.random.uniform(0,1) < svs[resourceTypes[aircraft]]:
+                extinguished = True
+                fire.setFinalSize(severity)
+                fire.setSize(0.0)
+                fire.setEnd(elapsedTime)
+
+        if not(extinguished):
+            elapsedTime = timeStep
+            fire.setSize(severity)
+
+        # Time available to relocate back to base from extinguishing
+        trem = timeStep - elapsedTime
+
+        # Compute the final positions of all aircraft for this time period
+        # given the success of fighting the fire. Also record the number of
+        # flying hours used up.
+#        cumHoursNew = numpy.copy(cumHours)
+        for aircraft in range(len(assignedAircraft)):
+            # Find location at time of extinguishing
+            visitIdxes = numpy.nonzero(visits[:,0] <= elapsedTime)
+            baseIdx = assignments[assignedAircraft[aircraft],0]
+            xInit = currLocs[assignedAircraft[aircraft]][0]
+            yInit = currLocs[assignedAircraft[aircraft]][1]
+            xBase = self.model.getStations()[0][baseIdx].getLocation()[0]
+            yBase = self.model.getStations()[0][baseIdx].getLocation()[1]
+            xFire = fire.getLocation()[0]
+            yFire = fire.getLocation()[1]
+            init2Fire = math.sqrt((xFire-xInit)**2 + (yFire-yInit)**2)
+            base2Fire = math.sqrt((xBase-xFire)**2 + (yBase-yFire)**2)
+            init2Base = math.sqrt((xInit-xBase)**2 + (yInit-yBase)**2)
+            speed = resources[resourceTypes[assignedAircraft[aircraft]]].getSpeed()
+
+            if len(visitIdxes) > 0:
+                # See how long it was since the last visit to determine
+                # location
+                finalVisitTime = visits[visitIdxes[len(visitIdxes)-1][1]]
+
+                if extinguished == True:
+                    # Aircraft will return to base
+                    if trem*speed >= base2Fire:
+                        # Aircraft diverts back to base immediately and
+                        # makes it there before the next period no matter
+                        # its position
+                        currLocs[assignedAircraft[aircraft][0]] = xBase
+                        currLocs[assignedAircraft[aircraft][1]] = yBase
+                        if elapsedTime - finalVisitTime > base2Fire/speed:
+                            # Aircraft is returning to fire so needs to turn around
+                            cumHours[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - (elapsedTime - finalVisitTime - base2Fire/speed)
+                        else:
+                            # Just let the aircraft continute back to base
+                            cumHours[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - base2Fire/speed + (elapsedTime - finalVisitTime)
+                    else:
+                        # Position of aircraft at time of extinguishing
+                        distSinceFinalVisit = speed*(elapsedTime - finalVisitTime)
+
+                        if distSinceFinalVisit > base2Fire:
+                            # Aircraft is heading to fire at the end
+                            dist2Base = distSinceFinalVisit - base2Fire
+
+                            if dist2Base/speed < trem:
+                                # Aircraft will make it back to base in time
+                                currLocs[assignedAircraft[aircraft][0]] = xBase
+                                currLocs[assignedAircraft[aircraft][1]] = yBase
+                                cumHours[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - dist2Base/speed
+                            else:
+                                # Aircraft will still be on its way at the end
+                                remDist2Base = dist2Base - trem*speed
+                                xD2B = remDist2Base/base2Fire
+                                currLocs[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
+                                currLocs[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
+                                cumHours[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
+                        else:
+                            # Aircraft is returning to base
+                            dist2Base = base2Fire - distSinceFinalVisit
+
+                            if dist2Base/speed < trem:
+                                # Aircraft will make it back to base in time
+                                currLocs[assignedAircraft[aircraft][0]] = xBase
+                                currLocs[assignedAircraft[aircraft][1]] = yBase
+                                cumHours[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - dist2Base/speed
+                            else:
+                                # Aircraft will still be on its way at the end
+                                remDist2Base = dist2Base - trem*speed
+                                xD2B = remDist2Base/base2Fire
+                                currLocs[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
+                                currLocs[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
+                                cumHours[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
+                else:
+                    # Aircraft will continue its mission
+                    # Time elapsed between final visit and end of period
+                    distSinceFinalVisit = speed*(timeStep - finalVisitTime)
+
+                    if distSinceFinalVisit > base2Fire:
+                        # Aircraft is heading back to fire
+                        dist2Base = distSinceFinalVisit - base2Fire
+
+                        xD2B = dist2Base/base2Fire
+                        currLocs[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
+                        currLocs[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
+                    else:
+                        # Aircraft is heading back to base
+                        dist2Base = base2Fire - distSinceFinalVisit
+
+                        xD2B = dist2Base/base2Fire
+                        currLocs[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
+                        currLocs[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
+
+                    cumHours[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
+            else:
+                # The aircraft has not reached the location it was sent to
+                if extinguished == True:
+                    # Aircraft will head back to base
+                    dist2Base = init2Base + speed*elapsedTime
+
+                    if trem*speed >= dist2Base:
+                        # Aircraft makes it back in time no matter what
+                        currLocs[assignedAircraft[aircraft][0]] = xBase
+                        currLocs[assignedAircraft[aircraft][1]] = yBase
+
+                        if elapsedTime - finalVisitTime > base2Fire/speed:
+                            # Aircraft is returning to fire so needs to turn around
+                            cumHours[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - (elapsedTime - finalVisitTime - base2Fire/speed)
+                        else:
+                            # Just let the aircraft continute back to base
+                            cumHoursNew[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - elapsedTime - base2Fire/speed + (elapsedTime - finalVisitTime)
+
+                    else:
+                        # Aircraft will not make it back all the way in time
+                        xD2B = dist2Base/base2Fire
+                        currLocs[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
+                        currLocs[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
+                        cumHours[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
+                else:
+                    # Aircraft will continue with its mission
+                    dist2Base = init2Base + speed*timeStep
+                    xD2B = dist2Base/base2Fire
+                    currLocs[assignedAircraft[aircraft][0]] = xBase + xD2B*(xFire - xBase)
+                    currLocs[assignedAircraft[aircraft][1]] = yBase + xD2B*(yFire - yBase)
+                    cumHours[assignedAircraft[aircraft]] = cumHours[assignedAircraft[aircraft]] - timeStep
+        
+        return damage
+        
+    @staticmethod
+    def assignNearestAvailable(model,assignments,currLocs,cumHours,resourceTypes,fireLoc,timeToFight):
+        # Get available aircraft first
+        resources = model.getRegion().getResourceTypes()
+        maxDaily = numpy.empty(2)
+        speed = numpy.empty(2)
+        speed[0] = resources[0].getSpeed()
+        speed[1] = resources[1].getSpeed()
+        maxDaily[0] = resources[0].getMaxDailyHours()
+        maxDaily[1] = resources[1].getMaxDailyHours()
+        xfire = fireLoc[0]
+        yfire = fireLoc[1]
+        
+        # Distances to fire measured in time to fire (only two aircraft atm)
+        aircraft2Fire = numpy.divide(numpy.sqrt((xfire - currLocs[:,0])**2 + (yfire - currLocs[:,1])**2),speed[0]*(resourceTypes == 0) + speed[1]*(resourceTypes == 1))
+        
+        # Tankers
+        available = numpy.nonzero(numpy.multiply(aircraft2Fire < timeToFight,numpy.multiply(aircraft2Fire + cumHours < maxDaily[0],numpy.multiply(resourceTypes == 0,assignments[0,:]==0))))
+        tankerDists = numpy.array([aircraft2Fire[available],available])
+        tankerDistsIdxSorted = numpy.argsort(tankerDists[0,:])
+        nearestTanker = tankerDistsIdxSorted[0]
+        
+        # Helicopters
+        available = numpy.nonzero(numpy.multiply(aircraft2Fire < timeToFight,numpy.multiply(aircraft2Fire + cumHours < maxDaily[1],numpy.multiply(resourceTypes == 1,assignments[0,:]==0))))
+        tankerDists = numpy.array([aircraft2Fire[available],available])
+        tankerDistsIdxSorted = numpy.argsort(tankerDists[0,:])
+        nearestHeli = tankerDistsIdxSorted[0]
+        
+        return [nearestTanker,nearestHeli]
 
     def aggregateWeatherData(self,ffdi,fireSeverityMap):
 
@@ -1099,10 +1214,12 @@ class Simulation():
 
         return [ffdiAgg,severityAgg]
 
+    @staticmethod
     def pathRecomputation(self,t,state_t,maps):
         # Return recomputed VALUES as a vector across the paths
         return 0
 
+    @staticmethod
     def multiLocLinReg(self,predictors,regressors):
         pass
 

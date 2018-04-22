@@ -30,6 +30,7 @@ def main():
     model.readInSourceData(sys.argv[1])
     model.populateParameters()
     model.configureRegion()
+    model.computeExpectedDamage()
 
     # Perform experiments
     for simulation in model.getSimulations():

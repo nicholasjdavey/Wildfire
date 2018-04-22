@@ -310,8 +310,7 @@ class WeatherGenerator():
         w = numpy.random.normal(0,1,2*regionSize)
         # Now correlate using the Cholesky decomposition of the temperature
         # covariance matrix
-        # For some reason the Cholesky decomposition does not compute nicely
-        # without adding a small increment to the diagonals
+        A = numpy.linalg.cholesky(self.tempA[time])
         B = numpy.linalg.cholesky(self.tempB[time])
         # Final random vector
         e = numpy.matmul(B,w).reshape(2*regionSize,1)
@@ -323,7 +322,7 @@ class WeatherGenerator():
         
         # Now compute the current temperature
 #        tempNow = tempPrev + self.model.getStepSize()*self.tempReversion*(tempMeans - numpy.matmul(self.tempA[time],tempPrev))+numpy.multiply(tempSDs,numpy.matmul(self.tempB[time],e))
-        tempNow = tempPrev + self.model.getStepSize()*self.tempReversion*(tempMeans - numpy.matmul(self.tempA[time],tempPrev))+numpy.multiply(tempSDs,e)
+        tempNow = tempPrev + self.model.getStepSize()*self.tempReversion*(tempMeans - numpy.matmul(A,tempPrev))+numpy.multiply(tempSDs,e)
         # Save to arrays and reverse the standardisation
         tempNowReshaped = tempNow.reshape((regionSize,2))
         tempMin[time+1] = numpy.multiply(1-rain[time+1],tempNowReshaped[:,0]*sdDryMin+meanDryMin) + numpy.multiply(rain[time+1],tempNowReshaped[:,0]*sdWetMin+meanWetMin)
@@ -331,11 +330,9 @@ class WeatherGenerator():
     
     def computeWind(self,windRegimes,windNS,windEW,time):
         # Initially, as per Aillot (2013) we do not treat wind as being a
-        # function of anything other than wind
+        # function of anything other than wind. The treatment is the same as
+        # temperature, with its own parameters input.
         regionSize = self.region.getX().size
-
-        # Random vector
-        e = numpy.random.normal(0,1,regionSize*2).reshape(2*regionSize,1)
 
         # Normalise previous time step wind in each of the two directions
         # MEANS
@@ -348,12 +345,34 @@ class WeatherGenerator():
 
         # CREATE STANDARDISED WIND
         windPrev = numpy.concatenate(((windNS[time].reshape(regionSize,1)-meanNS)/sdNS,(windEW[time].reshape(regionSize,1)-meanEW)/sdEW),axis=1).reshape(2*regionSize,1)
+        
+        # SET UP THE MODEL PARAMETERS TO COMPUTE THE WIND FOR THE NEXT PERIOD
+        windNSMean = (numpy.ones(len(windNS[time]))*(self.meanWindNS[time]-meanNS)/sdNS).reshape(regionSize,1)
+        windEWMean = (numpy.ones(len(windEW[time]))*(self.meanWindEW[time]-meanEW)/sdEW).reshape(regionSize,1)
+        windMeans = numpy.concatenate((windNSMean,windEWMean),axis=1).reshape(2*regionSize,1)
+        # Standard deviation for wind is based on the NEXT period. Once again,
+        # we use the correlated uncertainty
+        windNSSD = (numpy.ones(len(windNS[time]))*(self.windSDNS[time]/sdNS)).reshape(regionSize,1)
+        windEWSD = (numpy.ones(len(windEW[time]))*(self.windSDEW[time]/sdEW)).reshape(regionSize,1)
+        windSDs = numpy.concatenate((windNSSD,windEWSD),axis=1).reshape(2*regionSize,1)
 
         # Now compute the current wind
+        # Regime
         regimes = range(self.windRegimes)
         regimeProbs = self.windRegimeTransitions[int(windRegimes[time])]
         windRegimes[time+1] = numpy.random.choice(regimes,1,p=regimeProbs)
-        windNow = numpy.matmul(self.windA[int(windRegimes[time+1])],windPrev) + numpy.matmul(self.windB[int(windRegimes[time+1])],e)
+        
+        # Initial draws of the random variables
+        w = numpy.random.normal(0,1,2*regionSize)
+        # Correlate using Cholesky decomposition of the covariance matrix
+        A = numpy.linalg.cholesky(self.windA[int(windRegimes[time+1])])
+        B = numpy.linalg.cholesky(self.windB[int(windRegimes[time+1])])
+        # Final random vector
+        e = numpy.matmul(B,w).reshape(2*regionSize,1)
+        
+        # Finally, compute the next period wind
+        windNow = windPrev + self.model.getStepSize()*self.windReversion*(windMeans - numpy.matmul(A,windPrev))+numpy.multiply(windSDs,e)        
+#        windNow = numpy.matmul(self.windA[int(windRegimes[time+1])],windPrev) + numpy.matmul(self.windB[int(windRegimes[time+1])],e)
 
         # Save to the arrays and reverse the standardisation
         windNowReshaped = windNow.reshape((regionSize,2))
