@@ -7,9 +7,9 @@ Created on Sun Dec 10 23:32:32 2017
 
 import numpy
 import math
-import scipy
 import copy
-from pulp import *
+import pulp
+from Fire import Fire
 
 class Simulation():
     # Class for defining a simulation run
@@ -163,6 +163,7 @@ class Simulation():
 
     def initialEndogenousPath(self,ep,rc,initialMap,initialAss,initialLocs,cumHours0,resourceTypes):
         timeSteps = self.model.getTotalSteps()
+        lookahead = self.model.getLookahead()
 
         # Keep a whole map of fire in the region. We do not keep track of all
         # the randomly-generated numbers used for fire growth and success (or
@@ -204,7 +205,7 @@ class Simulation():
 
             # NESTED OPTIMISATION #############################################
             # Optimise aircraft locations given selected control and state
-            assignments[ii] = self.optimalLocations(control,fires[ii],assignments[ii],currLocs[ii],cumHours[ii],resourceTypes,ep[ii],locationProgram)
+            assignments[ii] = self.optimalLocations(control,fires[ii],assignments[ii],currLocs[ii],cumHours[ii],resourceTypes,ep[ii:(ii+lookahead-1)],locationProgram)
 
             # Given the locations found for this control, update the fire
             # severities for the next time period. We use the probabilities. We
@@ -302,11 +303,10 @@ class Simulation():
 
         return assignments
 
-    def maxCover(self,randCont,fireSeverityMap,assignmentsCurr,currLocs,cumHoursCurr,resourceTypes,ffdi):
-        # Compute the expected number of fires for each patch
-        
+    def maxCover(self,randCont,fires,assignmentsCurr,currLocs,cumHoursCurr,resourceTypes,ffdi):        
         # We only consider the maximum cover of 1 tanker and 1 helicopter for now
         maxCoverDists = numpy.empty(2)
+        lookahead = self.model.getLookahead()
 
         for aircraft in range(2):
             speed = self.model.getResourceTypes()[aircraft].getSpeed()
@@ -316,14 +316,48 @@ class Simulation():
         # We only get air bases for now
         bases = len(self.model.getRegion().getStations()[0])
         baseNodeSufficient = [None]*2
+        baseFiresSufficient = [None]*2
         baseTPrev = [sum(assignmentsCurr[resourceTypes==0,0]==jj) for jj in range(bases)]
         baseHPrev = [sum(assignmentsCurr[resourceTypes==1,0]==jj) for jj in range(bases)]
+        basesX = numpy.array([self.model.getRegion().getStations()[ii].getLocation()[0] for ii in range(len(self.model.getRegion().getPatches()))])
+        basesY = numpy.array([self.model.getRegion().getStations()[ii].getLocation()[1] for ii in range(len(self.model.getRegion().getPatches()))])
+        firesX = numpy.array([fires[ii].getLocation()[0] for ii in range(len(fires))]).reshape(len(fires),1)
+        firesY = numpy.array([fires[ii].getLocation()[1] for ii in range(len(fires))]).reshape(len(fires),1)
+        baseFireDistances = numpy.sqrt(numpy.power(numpy.tile(basesX,(len(fires),1))-numpy.tile(firesX,(1,len(basesX))),2) + numpy.power(numpy.tile(basesY,(len(fires),1))-numpy.tile(firesY,(1,len(basesY))),2))
+        expectedNewFiresPatches = numpy.zeros(len(self.model.getRegion().getPatches()))
+        
+        # Expected fires over the lookahead period
+        for time in range(lookahead):
+            for patch in range(len(self.model.getRegion().getPatches())):
+                veg = self.model.getRegion().getVegetation()[patch]
+                occurrenceProbsRange = self.model.getRegion().getVegetation()[veg].getOccurrence()
+                ffdiRange = self.model.getRegion().getVegetations[veg].getFFDIRange()
+                ffdis = ffdiRange.size
+                ffdiMinIdx = math.floor((ffdi[time][patch]-ffdiRange[0])*(ffdis-1)/(ffdiRange[ffdis-1] - ffdiRange[0]))
+                ffdiMaxIdx = ffdiMinIdx + 1
+    
+                if ffdiMinIdx < 0:
+                    ffdiMinIdx = 0
+                    ffdiMaxIdx = 1
+                elif ffdiMaxIdx >= ffdis:
+                    ffdiMinIdx = ffdis - 2
+                    ffdiMaxIdx = ffdis - 1
+    
+                xd = (ffdi[time][patch]-ffdiRange[ffdiMinIdx])/(ffdiRange[ffdiMaxIdx] - ffdiRange[ffdiMinIdx])
+                expectedNewFiresPatches[patch] = expectedNewFiresPatches[patch] + xd*occurrenceProbsRange[ffdiMinIdx] + (1-xd)*occurrenceProbsRange[ffdiMaxIdx]
+
+        
 
         for aircraft in range(2):
             baseNodeSufficient[aircraft] = self.model.getRegion().getStationPatchDistances()[0] <= maxCoverDists[aircraft]
+            baseFiresSufficient[aircraft] = baseFireDistances <= maxCoverDists[aircraft]
+
+        # Expected number of fires that can be reached by aircraft stationed at
+        # each base
+        occurrenceProbPatches = numpy.array(len(self.model.getRegion().getVegetations()))
 
         # SET UP THE LINEAR PROGRAM (using PuLP for now)
-        relocate = LpProblem("Fire Resource Relocation", LpMaximize)
+        relocate = pulp.LpProblem("Fire Resource Relocation", pulp.LpMaximize)
 
         # Decision variables
         # First, names for parameters and variables
@@ -349,17 +383,17 @@ class Simulation():
         DDemandT = ["DemandT_" + str(ii+1) for ii in range(bases)]
         DDemandH = ["DemandH_" + str(ii+1) for ii in range(bases)]
 
-        baseTVars = [LpVariable(BasesT[ii],lowBound=0,upBound=bases[ii].getMaxTankers(),cat="Integer") for ii in range(bases)]
-        baseHVars = [LpVariable(BasesH[ii],lowBound=0,upBound=bases[ii].getMaxHelicopters(),cat="Integer") for ii in range(bases)]
-        patchCoverVars = [LpVariable(PatchCovered[ii],cat="Binary") for ii in range(patches)]
-        patchCoverTVars = [LpVariable(PatchCoveredT[ii],cat="Binary") for ii in range(patches)]
-        patchCoverHVars = [LpVariable(PatchCoveredH[ii],cat="Binary") for ii in range(patches)]
-        relocTVars = [[LpVariable(RelocT[ii][jj],lowBound=0,upBound=totalTankers,cat="Integer") for ii in range(bases)] for jj in range(bases)]
-        relocHVars = [[LpVariable(RelocH[ii][jj],lowBound=0,upBound=totalHelis,cat="Integer") for ii in range(bases)] for jj in range(bases)]
-        supplyTVars = [LpVariable(DSupplyT[ii],lowBound=0,upBound=totalTankers,cat="Integer") for ii in range(bases)]
-        supplyHVars = [LpVariable(DSupplyH[ii],lowBound=0,upBound=totalHelis,cat="Integer") for ii in range(bases)]
-        demandTVars = [LpVariable(DDemandT[ii],lowBound=0,upBound=totalTankers,cat="Integer") for ii in range(bases)]
-        demandHVars = [LpVariable(DDemandH[ii],lowBound=0,upBound=totalHelis,cat="Integer") for ii in range(bases)]
+        baseTVars = [pulp.LpVariable(BasesT[ii],lowBound=0,upBound=bases[ii].getMaxTankers(),cat="Integer") for ii in range(bases)]
+        baseHVars = [pulp.LpVariable(BasesH[ii],lowBound=0,upBound=bases[ii].getMaxHelicopters(),cat="Integer") for ii in range(bases)]
+        patchCoverVars = [pulp.LpVariable(PatchCovered[ii],cat="Binary") for ii in range(patches)]
+        patchCoverTVars = [pulp.LpVariable(PatchCoveredT[ii],cat="Binary") for ii in range(patches)]
+        patchCoverHVars = [pulp.LpVariable(PatchCoveredH[ii],cat="Binary") for ii in range(patches)]
+        relocTVars = [[pulp.LpVariable(RelocT[ii][jj],lowBound=0,upBound=totalTankers,cat="Integer") for ii in range(bases)] for jj in range(bases)]
+        relocHVars = [[pulp.LpVariable(RelocH[ii][jj],lowBound=0,upBound=totalHelis,cat="Integer") for ii in range(bases)] for jj in range(bases)]
+        supplyTVars = [pulp.LpVariable(DSupplyT[ii],lowBound=0,upBound=totalTankers,cat="Integer") for ii in range(bases)]
+        supplyHVars = [pulp.LpVariable(DSupplyH[ii],lowBound=0,upBound=totalHelis,cat="Integer") for ii in range(bases)]
+        demandTVars = [pulp.LpVariable(DDemandT[ii],lowBound=0,upBound=totalTankers,cat="Integer") for ii in range(bases)]
+        demandHVars = [pulp.LpVariable(DDemandH[ii],lowBound=0,upBound=totalHelis,cat="Integer") for ii in range(bases)]
 
         # The LP uses an aggregation of the weather generator data (FFDI and FireSeverityMap)
         [ffdiAgg,fireSeverityAgg] = self.aggregateWeatherData(ffdi,fireSeverityMap)
@@ -369,19 +403,19 @@ class Simulation():
         # Instead, the objective assumes that for relocation, aircraft are
         # initially at their respective bases (even though this may not be the
         # case in reality).
-        relocate += (lpSum([lambda1*((1-lambda2)*ffdiAgg[ii] + lambda2*fireSeverityAgg[ii])*patchCoverVars[ii] for ii in range(patches)]) - lpSum([(1-lambda1)*(baseSpacingsTanker[ii][jj]*relocTVars[ii][jj] + baseSpacingsHeli[ii][jj]*relocHVars[ii][jj]) for ii in range(bases) for jj in range(bases)])), "Total location and relocation cost"
+        relocate += (pulp.lpSum([lambda1*((1-lambda2)*ffdiAgg[ii] + lambda2*fireSeverityAgg[ii])*patchCoverVars[ii] for ii in range(patches)]) - lpSum([(1-lambda1)*(baseSpacingsTanker[ii][jj]*relocTVars[ii][jj] + baseSpacingsHeli[ii][jj]*relocHVars[ii][jj]) for ii in range(bases) for jj in range(bases)])), "Total location and relocation cost"
         # Constraints
-        relocate += lpSum([baseTVars[jj] for jj in range(bases)]) == totalTankers, "Sum of tankers is total"
-        relocate += lpSum([baseHVars[jj] for jj in range(bases)]) == totalHelis, "Sum of helicopters is total"
+        relocate += pulp.lpSum([baseTVars[jj] for jj in range(bases)]) == totalTankers, "Sum of tankers is total"
+        relocate += pulp.lpSum([baseHVars[jj] for jj in range(bases)]) == totalHelis, "Sum of helicopters is total"
 
         for ii in range(patches):
             relocate += (patchCoverVars[ii] - 0.5*patchCoverTVars[ii] - 0.5*patchCoverHVars[ii]) <= 0, "Patch " + str(ii) + " covered by both aircraft"
 
         for ii in range(patches):
-            relocate += (patchCoverTVars[ii] - lpSum([baseTVars[jj]*baseNodeSufficient[0][ii,jj] for jj in range(bases)])) <= 0, "Patch " + str(ii) + " covered by at least one tanker"
+            relocate += (patchCoverTVars[ii] - pulp.lpSum([baseTVars[jj]*baseNodeSufficient[0][ii,jj] for jj in range(bases)])) <= 0, "Patch " + str(ii) + " covered by at least one tanker"
 
         for ii in range(patches):
-            relocate += (patchCoverHVars[ii] - lpSum([baseHVars[jj]*baseNodeSufficient[1][ii,jj] for jj in range(bases)])) <= 0, "Patch " + str(ii) + " covered by at least one helicopter"
+            relocate += (patchCoverHVars[ii] - pulp.lpSum([baseHVars[jj]*baseNodeSufficient[1][ii,jj] for jj in range(bases)])) <= 0, "Patch " + str(ii) + " covered by at least one helicopter"
 
         # The signs in Chow and Regan (2011), INFOR appear to be the wrong way around. Corrected here.
         for jj in range(bases):
@@ -391,10 +425,10 @@ class Simulation():
             relocate += (-demandHVars[jj] + baseHVars[jj] - baseHPrev[jj]) == 0, "Demand of helicopters by base " + str(jj)
 
         for jj in range(bases):
-            relocate += lpSum([relocTVars[jj][ii] for ii in range(bases)]) == supplyTVars[jj], "Supply flow conservation for tankers for base " + str(jj)
-            relocate += lpSum([relocHVars[jj][ii] for ii in range(bases)]) == supplyHVars[jj], "Supply flow conservation for helicopters for base " + str(jj)
-            relocate += lpSum([relocTVars[ii][jj] for ii in range(bases)]) == demandTVars[jj], "Demand flow conservation for tankers for base " + str(jj)
-            relocate += lpSum([relocHVars[ii][jj] for ii in range(bases)]) == demandHVars[jj], "Demand flow conservation for helicopters for base " + str(jj)
+            relocate += pulp.lpSum([relocTVars[jj][ii] for ii in range(bases)]) == supplyTVars[jj], "Supply flow conservation for tankers for base " + str(jj)
+            relocate += pulp.lpSum([relocHVars[jj][ii] for ii in range(bases)]) == supplyHVars[jj], "Supply flow conservation for helicopters for base " + str(jj)
+            relocate += pulp.lpSum([relocTVars[ii][jj] for ii in range(bases)]) == demandTVars[jj], "Demand flow conservation for tankers for base " + str(jj)
+            relocate += pulp.lpSum([relocHVars[ii][jj] for ii in range(bases)]) == demandHVars[jj], "Demand flow conservation for helicopters for base " + str(jj)
 
         relocate.writeLP("Relocation.lp")
         relocate.solve()
@@ -426,7 +460,7 @@ class Simulation():
                 relocs[0][base1][base2] = varsdict["RelocT_" + str(base1) + "_" + str(base2)]
                 relocs[1][base1][base2] = varsdict["RelocH_" + str(base1) + "_" + str(base2)]
 
-        assignmentsNew = self.assignmentsHeuristic(assignmentsCurr,fireSeverityMap,cumHoursCurr,currLocs,resourceTypes,baseAss,relocs,lambda2)
+        assignmentsNew = self.assignmentsHeuristic(assignmentsCurr,fires,cumHoursCurr,currLocs,resourceTypes,baseAss,relocs,lambda2)
 
         return assignmentsNew
 
@@ -743,12 +777,12 @@ class Simulation():
         for fire in firesOld:
             # Find out the aircraft assigned to this fire
             fireNew = copy.copy(fire)
-            veg = model.getRegion().getVegetation()[tuple(fire.getLocation())]
-            ffdiRange = model.getRegion().getVegetations()[veg].getFFDIRange()
-            rocMeanRange = model.getRegion().getVegetations[veg].getROCA2PerHour()[0]
-            rocSDRange = model.getRegion().getVegetations[veg].getROCA2PerHour()[1]
-            succTankerRange = model.getRegion().getVegetations[veg].getExtinguishingSuccess()[0]
-            succHeliRange = model.getRegion().getVegetations[veg].getExtinguishingSuccess()[1]
+            veg = self.model.getRegion().getVegetation()[tuple(fire.getLocation())]
+            ffdiRange = self.model.getRegion().getVegetations()[veg].getFFDIRange()
+            rocMeanRange = self.model.getRegion().getVegetations[veg].getROCA2PerHour()[0]
+            rocSDRange = self.model.getRegion().getVegetations[veg].getROCA2PerHour()[1]
+            succTankerRange = self.model.getRegion().getVegetations[veg].getExtinguishingSuccess()[0]
+            succHeliRange = self.model.getRegion().getVegetations[veg].getExtinguishingSuccess()[1]
             ffdiFire = ffdi[tuple(fire.getLocation())]
             assignedAircraft = numpy.nonzero(assignments[:,1] == fireIdx)
             damage = damage + Simulation.fightFire(self.model,fire,assignedAircraft,currLocsNew,cumHoursNew,resourceTypes,ffdiFire,veg,ffdiRange,rocMeanRange,rocSDRange,succTankerRange,succHeliRange,timeStep)
