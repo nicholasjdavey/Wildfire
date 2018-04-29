@@ -22,6 +22,7 @@ class Fire():
         self.responseEncoding = ""
         self.respondingStations = []
 
+    # All locations assumed at centre of grid cells for simplicity
     def getLocation(self):
         return self.location
 
