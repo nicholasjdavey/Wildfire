@@ -317,23 +317,44 @@ class Simulation():
         bases = len(self.model.getRegion().getStations()[0])
         baseNodeSufficient = [None]*2
         baseFiresSufficient = [None]*2
-        baseTPrev = [sum(assignmentsCurr[resourceTypes==0,0]==jj) for jj in range(bases)]
-        baseHPrev = [sum(assignmentsCurr[resourceTypes==1,0]==jj) for jj in range(bases)]
-        basesX = numpy.array([self.model.getRegion().getStations()[ii].getLocation()[0] for ii in range(len(self.model.getRegion().getPatches()))])
-        basesY = numpy.array([self.model.getRegion().getStations()[ii].getLocation()[1] for ii in range(len(self.model.getRegion().getPatches()))])
-        firesX = numpy.array([fires[ii].getLocation()[0] for ii in range(len(fires))]).reshape(len(fires),1)
-        firesY = numpy.array([fires[ii].getLocation()[1] for ii in range(len(fires))]).reshape(len(fires),1)
-        baseFireDistances = numpy.sqrt(numpy.power(numpy.tile(basesX,(len(fires),1))-numpy.tile(firesX,(1,len(basesX))),2) + numpy.power(numpy.tile(basesY,(len(fires),1))-numpy.tile(firesY,(1,len(basesY))),2))
-        expectedNewFiresPatches = numpy.zeros(len(self.model.getRegion().getPatches()))
+        baseTPrev = [sum(assignmentsCurr[resourceTypes==0,0]==jj)
+                     for jj in range(bases)]
+        baseHPrev = [sum(assignmentsCurr[resourceTypes==1,0]==jj)
+                     for jj in range(bases)]
+        basesX = numpy.array([
+                self.model.getRegion().getStations()[ii].getLocation()[0]
+                for ii in range(len(self.model.getRegion().getPatches()))])
+        basesY = numpy.array([
+                self.model.getRegion().getStations()[ii].getLocation()[1]
+                for ii in range(len(self.model.getRegion().getPatches()))])
+        firesX = numpy.array([
+                fires[ii].getLocation()[0]
+                for ii in range(len(fires))]).reshape(len(fires),1)
+        firesY = numpy.array([
+                fires[ii].getLocation()[1]
+                for ii in range(len(fires))]).reshape(len(fires),1)
+        baseFireDistances = numpy.sqrt(
+                numpy.power(numpy.tile(basesX,(len(fires),1))
+                        -numpy.tile(firesX,(1,len(basesX))),2)
+                + numpy.power(numpy.tile(basesY,(len(fires),1))
+                - numpy.tile(firesY,(1,len(basesY))),2))
+        expectedNewFiresPatches = numpy.zeros(
+                len(self.model.getRegion().getPatches()))
         
         # Expected fires over the lookahead period
         for time in range(lookahead):
             for patch in range(len(self.model.getRegion().getPatches())):
                 veg = self.model.getRegion().getVegetation()[patch]
-                occurrenceProbsRange = self.model.getRegion().getVegetation()[veg].getOccurrence()
-                ffdiRange = self.model.getRegion().getVegetations[veg].getFFDIRange()
+                occurrenceProbsRange = (
+                        self.model.getRegion().getVegetation()[veg]
+                                .getOccurrence())
+                ffdiRange = (
+                        self.model.getRegion().getVegetations[veg]
+                        .getFFDIRange())
                 ffdis = ffdiRange.size
-                ffdiMinIdx = math.floor((ffdi[time][patch]-ffdiRange[0])*(ffdis-1)/(ffdiRange[ffdis-1] - ffdiRange[0]))
+                ffdiMinIdx = math.floor(
+                        (ffdi[time][patch]-ffdiRange[0])*(ffdis-1)
+                                /(ffdiRange[ffdis-1] - ffdiRange[0]))
                 ffdiMaxIdx = ffdiMinIdx + 1
     
                 if ffdiMinIdx < 0:
@@ -343,18 +364,27 @@ class Simulation():
                     ffdiMinIdx = ffdis - 2
                     ffdiMaxIdx = ffdis - 1
     
-                xd = (ffdi[time][patch]-ffdiRange[ffdiMinIdx])/(ffdiRange[ffdiMaxIdx] - ffdiRange[ffdiMinIdx])
-                expectedNewFiresPatches[patch] = expectedNewFiresPatches[patch] + xd*occurrenceProbsRange[ffdiMinIdx] + (1-xd)*occurrenceProbsRange[ffdiMaxIdx]
+                xd = ((ffdi[time][patch] - ffdiRange[ffdiMinIdx])
+                      /(ffdiRange[ffdiMaxIdx] - ffdiRange[ffdiMinIdx]))
 
-        
+                expectedNewFiresPatches[patch] = (
+                        expectedNewFiresPatches[patch]
+                        + xd*occurrenceProbsRange[ffdiMinIdx]
+                        + (1-xd)*occurrenceProbsRange[ffdiMaxIdx])
 
         for aircraft in range(2):
-            baseNodeSufficient[aircraft] = self.model.getRegion().getStationPatchDistances()[0] <= maxCoverDists[aircraft]
-            baseFiresSufficient[aircraft] = baseFireDistances <= maxCoverDists[aircraft]
+            baseNodeSufficient[aircraft] = (
+                    self.model.getRegion().getStationPatchDistances()[0]
+                    <= maxCoverDists[aircraft])
+            baseFiresSufficient[aircraft] = (
+                    baseFireDistances <= maxCoverDists[aircraft])
 
         # Expected number of fires that can be reached by aircraft stationed at
         # each base
-        occurrenceProbPatches = numpy.array(len(self.model.getRegion().getVegetations()))
+
+        # Existing
+        accessibleFiresBaseP = numpy.matmul(baseFiresSufficient,
+                                            expectedNewFiresPatches)
 
         # SET UP THE LINEAR PROGRAM (using PuLP for now)
         relocate = pulp.LpProblem("Fire Resource Relocation", pulp.LpMaximize)
@@ -1247,6 +1277,15 @@ class Simulation():
             iterator = iterator + 1
 
         return [ffdiAgg,severityAgg]
+        
+    def expectedAccessibleFires(self,expectedNewFiresPatches,
+                                baseNodeSufficient,
+                                baseFiresSufficient):
+        
+        patches = len(expectedNewFiresPatches)
+        bases = len(self.model.getRegion().getStations()[0])
+        
+        return expectedFires
 
     @staticmethod
     def pathRecomputation(self,t,state_t,maps):
