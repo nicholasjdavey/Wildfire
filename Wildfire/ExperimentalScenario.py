@@ -7,6 +7,7 @@ Created on Sun Dec 10 23:33:07 2017
 
 import numpy
 
+
 class ExperimentalScenario():
     # Class for defining the parameters of the scenario currently being tested
     scenarios = 0
@@ -23,23 +24,23 @@ class ExperimentalScenario():
     def getSpeedMultIdx(self):
         return self.speedMultIdx
 
-    def setSpeedMultIdx(self,smi):
+    def setSpeedMultIdx(self, smi):
         self.speedMultIdx = smi
 
     def getOccProbMultIdx(self):
         return self.occProbMultIdx
 
-    def setOccProbMultIdx(self,opi):
+    def setOccProbMultIdx(self, opi):
         self.occProbMultIdx = opi
 
     def getDamIntMultIdx(self):
         return self.damIntMultIdx
 
-    def setDamIntMultIdx(self,dimi):
+    def setDamIntMultIdx(self, dimi):
         self.damIntMultIdx = dimi
 
     def getWeatherUncertMultIdx(self):
         return self.weatherUncertMultIdx
 
-    def setWeatherUncertMultIdx(self,wumi):
+    def setWeatherUncertMultIdx(self, wumi):
         self.weatherUncertMultIdx = wumi

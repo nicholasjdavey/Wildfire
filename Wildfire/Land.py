@@ -8,6 +8,7 @@ Created on Sun Dec 10 23:35:51 2017
 import numpy
 from Resource import Resource
 
+
 class Land(Resource):
     # Class for defining fire trucks
 
@@ -16,6 +17,6 @@ class Land(Resource):
 
     def getCrewSize(self):
         return self.crewSize
-        
-    def setCrewSize(self,s):
+
+    def setCrewSize(self, s):
         self.crewSize = s

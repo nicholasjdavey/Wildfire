@@ -8,6 +8,7 @@ Created on Sun Dec 10 23:35:32 2017
 import numpy
 from Station import Station
 
+
 class Base(Station):
     # Class for managing land bases for fire trucks
 
@@ -19,12 +20,12 @@ class Base(Station):
 
     def getLandResources(self):
         return self.landResources
-        
-    def setLandResources(self,l):
+
+    def setLandResources(self, l):
         self.landResources = l
-        
+
     def getMaxResources(self):
         return self.maxResources
-        
-    def setMaxResources(self,m):
+
+    def setMaxResources(self, m):
         self.maxResources = m

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import numpy
+import sys
 
 from Model import Model
 from Region import Region
@@ -18,8 +20,7 @@ from Heli import Heli
 from Land import Land
 from Resource import Resource
 import Utility
-import numpy
-import sys
+
 
 def main():
     # Create the model

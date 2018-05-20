@@ -6,8 +6,10 @@ Created on Sun Dec 10 23:35:45 2017
 """
 
 import numpy
+
 from Resource import Resource
 from datetime import timedelta
+
 
 class Heli(Resource):
     # Class for defining helicopter support resources
@@ -17,16 +19,15 @@ class Heli(Resource):
         Resource.__init__(self)
         self.flyingHOurs = timedelta(hours = 0)
         self.maxDailyHours = timedelta(hours = 0)
-        
+
     def getFlyingHours(self):
         return self.flyingHours
-        
-    def setFlyingHours(self,h):
+
+    def setFlyingHours(self, h):
         self.flyingHours = h
-        
+
     def getMaxDailyHours(self):
         return self.maxDailyHours
-        
-    def setMaxDailyHours(self,d):
+
+    def setMaxDailyHours(self, d):
         self.maxDailyHours = d
-        
