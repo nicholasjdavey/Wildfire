@@ -409,11 +409,23 @@ class Simulation():
 
         # Expected number of fires that can be reached by aircraft stationed at
         # each base
-        accessibleFiresBaseP = numpy.matmul(baseFiresSufficient,
-                                            expectedNewFiresPatches)
+        # Potential
+        accessibleFiresBaseP = [None]*2
+        accessibleFiresBaseE = [None]*2
+
+        for ii in range(2):
+            accessibleFiresBaseP[ii] = numpy.matmul(baseNodeSufficient[ii],
+                                                    expectedNewFiresPatches)
+            accessibleFiresBaseE[ii] = numpy.sum(baseFiresSufficient[ii],
+                                                 axis=0)
 
         # SET UP THE LINEAR PROGRAM (using PuLP for now)
         relocate = pulp.LpProblem("Fire Resource Relocation", pulp.LpMaximize)
+
+        # INSTANTIATE THE SOLVER (GUROBI FOR NOW)
+        solver = pulp.GUROBI()
+        relocate.setSolver(solver)
+        relocate.solver.buildSolverModel(relocate)
 
         # Parameters and variables
         patches = baseNodeSufficient[0].shape[0]
@@ -534,7 +546,14 @@ class Simulation():
                       pulp.lpSum([lambda2 * lambda1 *
                                   fireSeverityAgg[ii] *
                                   X1_T_l[ii]
-                                  for ii in range(patches)])),
+                                  for ii in range(patches)]) -
+                      pulp.lpSum([[(1 - lambda2) *
+                                   (baseSpacingsTanker[j1,j2] *
+                                    Y_Tank_T_j1j2[j1,j2] +
+                                    baseSpacingsHeli[j1,j2] *
+                                    Y_Heli_T_j1j2[j1,j2])
+                                   for j1 in range(len(bases))]
+                                  for j2 in range(len(bases))])),
                      "Total location and relocation cost over horizon")
 
         # Constraints #########################################################
@@ -547,71 +566,90 @@ class Simulation():
                      "Sum of helicopters is total")
 
         for ii in range(patches):
-            relocate += ((patchCoverVars[ii] -
-                          0.5*patchCoverTVars[ii] -
-                          0.5*patchCoverHVars[ii]) <=
-                         0,
-                         "Patch " + str(ii) + " covered by both aircraft")
-
-        for ii in range(patches):
             relocate += ((X1_T_i[ii] -
                           pulp.lpSum([X2_Tank_T_j[jj] *
                                      baseNodeSufficient[0][ii, jj] /
-                                     sum([accessibleFiresBaseP[t, jj]
-                                          for t in range(lookahead)])
+                                     (sum([accessibleFiresBaseP[t, jj]
+                                           for t in range(lookahead)]) +
+                                      accessibleFiresBaseE[jj])
                                      for jj in range(bases)])) <= 0,
                          "Patch " + str(ii) +
                          " covered by at least one tanker")
 
         for ii in range(patches):
             relocate += ((X1_T_i[ii] -
-                          pulp.lpSum([baseHVars[jj] *
-                                      baseNodeSufficient[1][ii, jj]
-                                      for jj in range(bases)])) <= 0,
+                          pulp.lpSum([X2_Heli_T_j[jj] *
+                                     baseNodeSufficient[0][ii, jj] /
+                                     (sum([accessibleFiresBaseP[t, jj]
+                                           for t in range(lookahead)]) +
+                                      accessibleFiresBaseE[jj])
+                                     for jj in range(bases)])) <= 0,
                          "Patch " + str(ii) +
+                         " covered by at least one helicopter")
+
+        for ii in range(len(fires)):
+            relocate += ((X1_T_i[ii] -
+                          pulp.lpSum([X2_Tank_T_j[jj] *
+                                     baseFiresSufficient[0][ii, jj] /
+                                     (sum([accessibleFiresBaseP[t, jj]
+                                           for t in range(lookahead)]) +
+                                      accessibleFiresBaseE[jj])
+                                     for jj in range(bases)])) <= 0,
+                         "Fire " + str(ii) +
+                         " covered by at least one tanker")
+
+        for ii in range(len(fires)):
+            relocate += ((X1_T_i[ii] -
+                          pulp.lpSum([X2_Heli_T_j[jj] *
+                                     baseFiresSufficient[0][ii, jj] /
+                                     (sum([accessibleFiresBaseP[t, jj]
+                                           for t in range(lookahead)]) +
+                                      accessibleFiresBaseE[jj])
+                                     for jj in range(bases)])) <= 0,
+                         "Fire " + str(ii) +
                          " covered by at least one helicopter")
 
         # The signs in Chow and Regan (2011), INFOR appear to be the wrong way
         # around. Corrected here.
         for jj in range(bases):
-            relocate += ((-supplyTVars[jj] - baseTVars[jj] + baseTPrev[jj]) ==
+            relocate += ((-S_Tank_j[jj] - X2_Tank_T_j[jj] + baseTPrev[jj]) ==
                          0,
                          "Supply of tankers from base " + str(jj))
 
-            relocate += ((-supplyHVars[jj] - baseHVars[jj] + baseHPrev[jj]) ==
+            relocate += ((-S_Heli_j[jj] - X2_Heli_T_j[jj] + baseHPrev[jj]) ==
                          0,
                          "Supply of helicopters from base " + str(jj))
 
-            relocate += ((-demandTVars[jj] + baseTVars[jj] - baseTPrev[jj]) ==
+            relocate += ((-D_Tank_j[jj] + X2_Tank_T_j[jj] - baseTPrev[jj]) ==
                          0,
                          "Demand of tankers by base " + str(jj))
 
-            relocate += ((-demandHVars[jj] + baseHVars[jj] - baseHPrev[jj]) ==
+            relocate += ((-D_Heli_j[jj] + X2_Heli_T_j[jj] - baseHPrev[jj]) ==
                          0,
                          "Demand of helicopters by base " + str(jj))
 
         for jj in range(bases):
-            relocate += (pulp.lpSum([relocTVars[jj][ii]
+            relocate += (pulp.lpSum([Y_Tank_T_j1j2[jj][ii]
                                      for ii in range(bases)]) ==
-                         supplyTVars[jj],
+                         S_Tank_j[jj],
                          "Supply flow conservation for tankers for base " +
                          str(jj))
 
-            relocate += (pulp.lpSum([relocHVars[jj][ii]
+            relocate += (pulp.lpSum([Y_Heli_T_j1j2[jj][ii]
                                      for ii in range(bases)]) ==
-                         supplyHVars[jj],
+                         S_Heli_j[jj],
                          "Supply flow conservation for helicopters for base " +
                          str(jj))
 
-            relocate += (pulp.lpSum([relocTVars[ii][jj]
+            relocate += (pulp.lpSum([Y_Tank_T_j1j2[ii][jj]
                                      for ii in range(bases)]) ==
-                         demandTVars[jj],
+                         D_Tank_j[jj],
                          "Demand flow conservation for tankers for base " +
                          str(jj))
 
-            relocate += (pulp.lpSum([relocHVars[ii][jj]
+            relocate += (pulp.lpSum([Y_Heli_T_j1j2[ii][jj]
                                      for ii in range(bases)]) ==
-                         demandHVars[jj],
+                         D_Heli_j[jj],
                          "Demand flow conservation for helicopters for base " +
                          str(jj))
 
@@ -631,9 +669,9 @@ class Simulation():
         baseAss = numpy.empty([bases, 2])
         for base in range(bases):
             # Tankers
-            baseAss[base, 0] = varsdict['BaseT_' + str(base)]
+            baseAss[base, 0] = varsdict['X2_Tank_T_' + str(base+1)]
             # Helicopters
-            baseAss[base, 1] = varsdict['BaseH_' + str(base)]
+            baseAss[base, 1] = varsdict['X2_Heli_T_' + str(base+1)]
 
         # Relocations
         relocs = []
@@ -642,9 +680,9 @@ class Simulation():
 
         for base1 in range(bases):
             for base2 in range(bases):
-                relocs[0][base1][base2] = varsdict["RelocT_" + str(base1) +
+                relocs[0][base1][base2] = varsdict["Y_Tank_T_" + str(base1) +
                                                    "_" + str(base2)]
-                relocs[1][base1][base2] = varsdict["RelocH_" + str(base1) +
+                relocs[1][base1][base2] = varsdict["Y_Heli_T_" + str(base1) +
                                                    "_" + str(base2)]
 
         assignmentsNew = self.assignmentsHeuristic(assignmentsCurr, fires,
@@ -654,11 +692,12 @@ class Simulation():
 
         return assignmentsNew
 
-    def pCenter(self, randCont, fireSeverityMap, assignmentsCurr, currLocs,
+    def pCenter(self, randCont, fires, assignmentsCurr, currLocs,
                 cumHoursCurr, resourceTypes, ffdi):
         # This is the second type of relocation program. Like the Max Cover
         # formulation, we only compute aggregate values, not assignments of
         # individual aircraft.
+        lookahead = self.model.getLookahead()
 
         # We only get air bases for now
         bases = len(self.model.getRegion().getStations[0])
@@ -896,9 +935,9 @@ class Simulation():
                       currLocs, cumHoursCurr, resourceTypes, ffdi):
         pass
 
-    def assignmentsHeuristic(self, assignmentCurr, fireSeverityMap,
-                             cumHoursCurr, currLocs, resourceTypes,
-                             baseAssignments, relocs, lambda2):
+    def assignmentsHeuristic(self, assignmentsCurr, fires, cumHoursCurr,
+                             currLocs, resourceTypes, baseAssignments, relocs,
+                             lambda2):
         # This is a simple greedy heuristic whereby an upper limit is first
         # decided for all fires (the same for each fire).
         # Max aircraft to be allocated to any fire (we upper limit set as 5 of
@@ -910,12 +949,11 @@ class Simulation():
         # FIRST ASSIGN AIRCRAFT TO FIRES ######################################
         assignmentsNew = numpy.zeros(assignmentsCurr.shape)
         kMax = lambda2*4+1
-        idx = numpy.nonzero(fireSeverityMap)
         bases = len(self.model.getRegion().getStations()[0])
 
         # Compute the distances between aircraft and the fires. We only want
         # the closest aircraft with enough hours to fight the fire
-        dists2Fire = self.currPos2Fire(currLocs, fireSeverityMap)
+        dists2Fire = self.currPos2Fire(currLocs, fires)
 
         # Next, sort the fires by severity and start assigning aircraft to them
         # in order (i.e. fill demand for most severe fires first)
@@ -1077,21 +1115,20 @@ class Simulation():
 
         return assignmentsNew
 
-    def currPos2Fire(self, currLocs, fireSeverityMap):
+    def currPos2Fire(self, currLocs, fires):
         # Computes the distance between each aircraft and each fire
-        fires = numpy.nonzero(fireSeverityMap)
 
-        xFire = numpy.array([self.model.getRegion().getX()[fires[fire]]
-                             for fire in range(fires)])
+        xFire = numpy.array([fires[fire].getLocation()[0]
+                             for fire in range(len(fires))])
 
-        yFire = numpy.array([self.model.getRegion().getY()[fires[fire]]
-                             for fire in range(fires)])
+        yFire = numpy.array([fires[fire].getLocation()[1]
+                             for fire in range(len(fires))])
 
         xAircraft = numpy.array([currLocs[aircraft][0]
-                                 for aircraft in currlocs.shape[0]])
+                                 for aircraft in currLocs.shape[0]])
 
         yAircraft = numpy.array([currLocs[aircraft][1]
-                                 for aircraft in currlocs.shape[0]])
+                                 for aircraft in currLocs.shape[0]])
 
         noFires = xFire.shape
         noAircraft = xAircraft.shape
