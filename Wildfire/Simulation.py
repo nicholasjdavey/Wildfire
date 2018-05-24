@@ -335,6 +335,7 @@ class Simulation():
         maxCoverDists = numpy.empty(2)
         lookahead = self.model.getLookahead()
         patches = self.model.getRegion().getPatches()
+        bases = self.model.getRegion().getStations()
 
         for aircraft in range(2):
             speed = self.model.getResourceTypes()[aircraft].getSpeed()
@@ -342,19 +343,18 @@ class Simulation():
             maxCoverDists[aircraft] = speed*maxTime
 
         # We only get air bases for now
-        bases = len(self.model.getRegion().getStations()[0])
         baseNodeSufficient = [None]*2
         baseFiresSufficient = [None]*2
         baseTPrev = [sum(assignmentsCurr[resourceTypes == 0, 0] == jj)
-                     for jj in range(bases)]
+                     for jj in range(len(bases))]
         baseHPrev = [sum(assignmentsCurr[resourceTypes == 1, 0] == jj)
-                     for jj in range(bases)]
+                     for jj in range(len(bases))]
         basesX = numpy.array([
                 self.model.getRegion().getStations()[ii].getLocation()[0]
                 for ii in range(len(self.model.getRegion().getPatches()))])
         basesY = numpy.array([
                 self.model.getRegion().getStations()[ii].getLocation()[1]
-                for ii in range(len(self.model.getRegion().getPatches()))])
+                for ii in range(len(patches))])
         firesX = numpy.array([
                 fires[ii].getLocation()[0]
                 for ii in range(len(fires))]).reshape(len(fires), 1)
@@ -428,8 +428,6 @@ class Simulation():
         relocate.solver.buildSolverModel(relocate)
 
         # Parameters and variables
-        patches = baseNodeSufficient[0].shape[0]
-        bases = baseNodeSufficient[0].shape[1]
         totalTankers = numpy.sum(resourceTypes == 0)
         totalHelis = numpy.sum(resourceTypes == 1)
         lambda1 = self.model.getControls()[randCont].getLambda1()
@@ -438,43 +436,45 @@ class Simulation():
 
         # Decision Variables ##################################################
         # Patch cover variables
-        X1_T_i_Vars = ["X1_T_Patch_" + str(ii+1) for ii in range(patches)]
+        X1_T_i_Vars = ["X1_T_Patch_" + str(ii+1) for ii in range(len(patches))]
 
         # Fire cover variables
         X1_T_l_Vars = ["X1_T_Fire_" + str(ll+1) for ll in range(len(fires))]
 
         # Base assignment variables - Tankers
-        X2_Tank_T_j_Vars = ["X2_Tank_T_" + str(jj+1) for jj in range(bases)]
+        X2_Tank_T_j_Vars = ["X2_Tank_T_" + str(jj+1)
+                            for jj in range(len(bases))]
 
         # Base assignment variables - Helicopters
-        X2_Heli_T_j_Vars = ["X2_Heli_T_" + str(jj+1) for jj in range(bases)]
+        X2_Heli_T_j_Vars = ["X2_Heli_T_" + str(jj+1)
+                            for jj in range(len(bases))]
 
         # Relocation between bases - Tankers
         Y_Tank_T_j1j2_Vars = [["Y_Tank_T_" + str(j1+1) + "_" + str(j2+1)
-                               for j1 in range(bases)]
-                              for j2 in range(bases)]
+                               for j1 in range(len(bases))]
+                              for j2 in range(len(bases))]
 
         # Relocation between bases - Helicopters
         Y_Heli_T_j1j2_Vars = [["Y_Heli_T_" + str(j1+1) + "_" + str(j2+1)
-                               for j1 in range(bases)]
-                              for j2 in range(bases)]
+                               for j1 in range(len(bases))]
+                              for j2 in range(len(bases))]
 
         # Demand of tankers at each base
-        D_Tank_j_Vars = ["D_Tank_" + str(jj+1) for jj in range(bases)]
+        D_Tank_j_Vars = ["D_Tank_" + str(jj+1) for jj in range(len(bases))]
 
         # Demand of helicopters at each base
-        D_Heli_j_Vars = ["D_Heli" + str(jj+1) for jj in range(bases)]
+        D_Heli_j_Vars = ["D_Heli" + str(jj+1) for jj in range(len(bases))]
 
         # Supply of tankers from each base
-        S_Tank_j_Vars = ["S_Tank_" + str(jj+1) for jj in range(bases)]
+        S_Tank_j_Vars = ["S_Tank_" + str(jj+1) for jj in range(len(bases))]
 
         # Supply of helicopters from each base
-        S_Heli_j_Vars = ["S_Heli_" + str(jj+1) for jj in range(bases)]
+        S_Heli_j_Vars = ["S_Heli_" + str(jj+1) for jj in range(len(bases))]
 
         # Create the LP variables for use in PULP #############################
         X1_T_i = [pulp.LpVariable(X1_T_i_Vars[ii],
                                   cat="Binary")
-                  for ii in range(patches)]
+                  for ii in range(len(patches))]
 
         X1_T_l = [pulp.LpVariable(X1_T_l_Vars[ll],
                                   cat="Binary")
@@ -483,50 +483,50 @@ class Simulation():
         X2_Tank_T_j = [pulp.LpVariable(X2_Tank_T_j_Vars[jj],
                                        lowBound=0,
                                        upBound=bases[jj].getMaxTankers())
-                       for jj in range(bases)]
+                       for jj in range(len(bases))]
 
         X2_Heli_T_j = [pulp.LpVariable(X2_Heli_T_j_Vars[jj],
                                        lowBound=0,
                                        upBound=bases[jj].getMaxHelicopters())
-                       for jj in range(bases)]
+                       for jj in range(len(bases))]
 
         Y_Tank_T_j1j2 = [[pulp.LpVariable(Y_Tank_T_j1j2_Vars[j1][j2],
                                           lowBound=0,
                                           upBound=totalTankers,
                                           cat="Integer")
-                          for j1 in range(bases)]
-                         for j2 in range(bases)]
+                          for j1 in range(len(bases))]
+                         for j2 in range(len(bases))]
 
         Y_Heli_T_j1j2 = [[pulp.LpVariable(Y_Heli_T_j1j2_Vars[j1][j2],
                                           lowBound=0,
                                           upBound=totalHelis,
                                           cat="Integer")
-                          for j1 in range(bases)]
-                         for j2 in range(bases)]
+                          for j1 in range(len(bases))]
+                         for j2 in range(len(bases))]
 
         D_Tank_j = [pulp.LpVariable(D_Tank_j_Vars[jj],
                                     lowBound=0,
                                     upBound=totalTankers,
                                     cat="Integer")
-                    for jj in range(bases)]
+                    for jj in range(len(bases))]
 
         D_Heli_j = [pulp.LpVariable(D_Heli_j_Vars[jj],
                                     lowBound=0,
                                     upBound=totalHelis,
                                     cat="Integer")
-                    for jj in range(bases)]
+                    for jj in range(len(bases))]
 
         S_Tank_j = [pulp.LpVariable(S_Tank_j_Vars[jj],
                                     lowBound=0,
                                     upBound=totalTankers,
                                     cat="Integer")
-                    for jj in range(bases)]
+                    for jj in range(len(bases))]
 
         S_Heli_j = [pulp.LpVariable(S_Heli_j_Vars[jj],
                                     lowBound=0,
                                     upBound=totalHelis,
                                     cat="Integer")
-                    for jj in range(bases)]
+                    for jj in range(len(bases))]
 
         # The LP uses an aggregation of the weather generator data (FFDI and
         # FireSeverityMap)
@@ -539,12 +539,12 @@ class Simulation():
         # though this may not be the case in reality).
         relocate += ((pulp.lpSum([[lambda2 * (1 - lambda1) *
                                    ffdiAgg[t][ii] * X1_T_i[ii]
-                                   for ii in range(patches)]
+                                   for ii in range(len(patches))]
                                   for t in range(lookahead)]) +
                       pulp.lpSum([lambda2 * lambda1 *
                                   fireSeverityAgg[ii] *
                                   X1_T_l[ii]
-                                  for ii in range(patches)]) -
+                                  for ii in range(len(patches))]) -
                       pulp.lpSum([[(1 - lambda2) *
                                    (baseDistances[j1, j2] *
                                     Y_Tank_T_j1j2[j1, j2] +
@@ -556,32 +556,32 @@ class Simulation():
 
         # Constraints #########################################################
         relocate += (pulp.lpSum([X2_Tank_T_j[jj]
-                                for jj in range(bases)]) == totalTankers,
+                                for jj in range(len(bases))]) == totalTankers,
                      "Sum of tankers is total")
 
         relocate += (pulp.lpSum([X2_Heli_T_j[jj]
-                                 for jj in range(bases)]) == totalHelis,
+                                 for jj in range(len(bases))]) == totalHelis,
                      "Sum of helicopters is total")
 
-        for ii in range(patches):
+        for ii in range(len(patches)):
             relocate += ((X1_T_i[ii] -
                           pulp.lpSum([X2_Tank_T_j[jj] *
                                      baseNodeSufficient[0][ii, jj] /
                                      (sum([accessibleFiresBaseP[0][t, jj]
                                            for t in range(lookahead)]) +
                                       accessibleFiresBaseE[jj])
-                                     for jj in range(bases)])) <= 0,
+                                     for jj in range(len(bases))])) <= 0,
                          "Patch " + str(ii) +
                          " covered by at least one tanker")
 
-        for ii in range(patches):
+        for ii in range(len(patches)):
             relocate += ((X1_T_i[ii] -
                           pulp.lpSum([X2_Heli_T_j[jj] *
                                      baseNodeSufficient[1][ii, jj] /
                                      (sum([accessibleFiresBaseP[1][t, jj]
                                            for t in range(lookahead)]) +
                                       accessibleFiresBaseE[jj])
-                                     for jj in range(bases)])) <= 0,
+                                     for jj in range(len(bases))])) <= 0,
                          "Patch " + str(ii) +
                          " covered by at least one helicopter")
 
@@ -592,7 +592,7 @@ class Simulation():
                                      (sum([accessibleFiresBaseP[0][t, jj]
                                            for t in range(lookahead)]) +
                                       accessibleFiresBaseE[jj])
-                                     for jj in range(bases)])) <= 0,
+                                     for jj in range(len(bases))])) <= 0,
                          "Fire " + str(ii) +
                          " covered by at least one tanker")
 
@@ -603,13 +603,13 @@ class Simulation():
                                      (sum([accessibleFiresBaseP[1][t, jj]
                                            for t in range(lookahead)]) +
                                       accessibleFiresBaseE[jj])
-                                     for jj in range(bases)])) <= 0,
+                                     for jj in range(len(bases))])) <= 0,
                          "Fire " + str(ii) +
                          " covered by at least one helicopter")
 
         # The signs in Chow and Regan (2011), INFOR appear to be the wrong way
         # around. Corrected here.
-        for jj in range(bases):
+        for jj in range(len(bases)):
             relocate += ((-S_Tank_j[jj] - X2_Tank_T_j[jj] + baseTPrev[jj]) ==
                          0,
                          "Supply of tankers from base " + str(jj))
@@ -626,27 +626,27 @@ class Simulation():
                          0,
                          "Demand of helicopters by base " + str(jj))
 
-        for jj in range(bases):
+        for jj in range(len(bases)):
             relocate += (pulp.lpSum([Y_Tank_T_j1j2[jj][j2]
-                                     for j2 in range(bases)]) ==
+                                     for j2 in range(len(bases))]) ==
                          S_Tank_j[jj],
                          "Supply flow conservation for tankers for base " +
                          str(jj))
 
             relocate += (pulp.lpSum([Y_Heli_T_j1j2[jj][j2]
-                                     for j2 in range(bases)]) ==
+                                     for j2 in range(len(bases))]) ==
                          S_Heli_j[jj],
                          "Supply flow conservation for helicopters for base " +
                          str(jj))
 
             relocate += (pulp.lpSum([Y_Tank_T_j1j2[j1][jj]
-                                     for j1 in range(bases)]) ==
+                                     for j1 in range(len(bases))]) ==
                          D_Tank_j[jj],
                          "Demand flow conservation for tankers for base " +
                          str(jj))
 
             relocate += (pulp.lpSum([Y_Heli_T_j1j2[j1][jj]
-                                     for j1 in range(bases)]) ==
+                                     for j1 in range(len(bases))]) ==
                          D_Heli_j[jj],
                          "Demand flow conservation for helicopters for base " +
                          str(jj))
@@ -665,7 +665,7 @@ class Simulation():
 
         # Base assignments
         baseAss = numpy.empty([bases, 2])
-        for base in range(bases):
+        for base in range(len(bases)):
             # Tankers
             baseAss[base, 0] = varsdict['X2_Tank_T_' + str(base+1)]
             # Helicopters
@@ -673,11 +673,11 @@ class Simulation():
 
         # Relocations
         relocs = []
-        relocs.append(numpy.empty([bases, bases]))
-        relocs.append(numpy.empty([bases, bases]))
+        relocs.append(numpy.empty([len(bases), len(bases)]))
+        relocs.append(numpy.empty([len(bases), len(bases)]))
 
-        for base1 in range(bases):
-            for base2 in range(bases):
+        for base1 in range(len(bases)):
+            for base2 in range(len(bases)):
                 relocs[0][base1][base2] = varsdict["Y_Tank_T_" + str(base1) +
                                                    "_" + str(base2)]
                 relocs[1][base1][base2] = varsdict["Y_Heli_T_" + str(base1) +
@@ -698,16 +698,15 @@ class Simulation():
         lookahead = self.model.getLookahead()
 
         # We only get air bases for now
-        bases = len(self.model.getRegion().getStations[0])
+        bases = self.model.getRegion().getStations
         baseTPrev = [sum(assignmentsCurr[resourceTypes == 0, 0] == jj)
-                     for jj in range(bases)]
+                     for jj in range(len(bases))]
         baseHPrev = [sum(assignmentsCurr[resourceTypes == 1, 0] == jj)
-                     for jj in range(bases)]
+                     for jj in range(len(bases))]
 
         # Decision variables
         # First, names for parameters and variables
-        patches = len(self.model.getRegion().getPatches())
-        bases = len(self.model.getRegion().getStations()[0])
+        patches = self.model.getRegion().getPatches()
         totalTankers = numpy.sum(resourceTypes == 0)
         totalHelis = numpy.sum(resourceTypes == 1)
         lambda1 = self.model.getControls()[randCont].getLambda1()
@@ -717,15 +716,15 @@ class Simulation():
                               .getStationPatchDistances()[0])
 
         baseTPrev = [sum(assignmentsCurr[resourceTypes == 0, 0] == jj)
-                     for jj in range(bases)]
+                     for jj in range(len(bases))]
         baseHPrev = [sum(assignmentsCurr[resourceTypes == 1, 0] == jj)
-                     for jj in range(bases)]
+                     for jj in range(len(bases))]
         basesX = numpy.array([
                 self.model.getRegion().getStations()[ii].getLocation()[0]
-                for ii in range(len(self.model.getRegion().getPatches()))])
+                for ii in range(len(patches))])
         basesY = numpy.array([
                 self.model.getRegion().getStations()[ii].getLocation()[1]
-                for ii in range(len(self.model.getRegion().getPatches()))])
+                for ii in range(len(patches))])
         firesX = numpy.array([
                 fires[ii].getLocation()[0]
                 for ii in range(len(fires))]).reshape(len(fires), 1)
@@ -748,81 +747,83 @@ class Simulation():
 
         # Decision Variables ##################################################
         # Base assignment variables - Tankers
-        X2_Tank_T_j_Vars = ["X2_Tank_T_" + str(jj+1) for jj in range(bases)]
+        X2_Tank_T_j_Vars = ["X2_Tank_T_" + str(jj+1)
+                            for jj in range(len(bases))]
 
         # Base assignment variables - Helicopters
-        X2_Heli_T_j_Vars = ["X2_Heli_T_" + str(jj+1) for jj in range(bases)]
+        X2_Heli_T_j_Vars = ["X2_Heli_T_" + str(jj+1)
+                            for jj in range(len(bases))]
 
         # Relocation between bases - Tankers
         Y_Tank_T_j1j2_Vars = [["Y_Tank_T_" + str(j1+1) + "_" + str(j2+1)
-                               for j1 in range(bases)]
-                              for j2 in range(bases)]
+                               for j1 in range(len(bases))]
+                              for j2 in range(len(bases))]
 
         # Relocation between bases - Helicopters
         Y_Heli_T_j1j2_Vars = [["Y_Heli_T_" + str(j1+1) + "_" + str(j2+1)
-                               for j1 in range(bases)]
-                              for j2 in range(bases)]
+                               for j1 in range(len(bases))]
+                              for j2 in range(len(bases))]
 
         # Demand of tankers at each base
-        D_Tank_j_Vars = ["D_Tank_" + str(jj+1) for jj in range(bases)]
+        D_Tank_j_Vars = ["D_Tank_" + str(jj+1) for jj in range(len(bases))]
 
         # Demand of helicopters at each base
-        D_Heli_j_Vars = ["D_Heli" + str(jj+1) for jj in range(bases)]
+        D_Heli_j_Vars = ["D_Heli" + str(jj+1) for jj in range(len(bases))]
 
         # Supply of tankers from each base
-        S_Tank_j_Vars = ["S_Tank_" + str(jj+1) for jj in range(bases)]
+        S_Tank_j_Vars = ["S_Tank_" + str(jj+1) for jj in range(len(bases))]
 
         # Supply of helicopters from each base
-        S_Heli_j_Vars = ["S_Heli_" + str(jj+1) for jj in range(bases)]
+        S_Heli_j_Vars = ["S_Heli_" + str(jj+1) for jj in range(len(bases))]
 
         # Create the LP variables for use in PULP #############################
         X2_Tank_T_j = [pulp.LpVariable(X2_Tank_T_j_Vars[jj],
                                        lowBound=0,
                                        upBound=bases[jj].getMaxTankers())
-                       for jj in range(bases)]
+                       for jj in range(len(bases))]
 
         X2_Heli_T_j = [pulp.LpVariable(X2_Heli_T_j_Vars[jj],
                                        lowBound=0,
                                        upBound=bases[jj].getMaxHelicopters())
-                       for jj in range(bases)]
+                       for jj in range(len(bases))]
 
         Y_Tank_T_j1j2 = [[pulp.LpVariable(Y_Tank_T_j1j2_Vars[j1][j2],
                                           lowBound=0,
                                           upBound=totalTankers,
                                           cat="Integer")
-                          for j1 in range(bases)]
-                         for j2 in range(bases)]
+                          for j1 in range(len(bases))]
+                         for j2 in range(len(bases))]
 
         Y_Heli_T_j1j2 = [[pulp.LpVariable(Y_Heli_T_j1j2_Vars[j1][j2],
                                           lowBound=0,
                                           upBound=totalHelis,
                                           cat="Integer")
-                          for j1 in range(bases)]
-                         for j2 in range(bases)]
+                          for j1 in range(len(bases))]
+                         for j2 in range(len(bases))]
 
         D_Tank_j = [pulp.LpVariable(D_Tank_j_Vars[jj],
                                     lowBound=0,
                                     upBound=totalTankers,
                                     cat="Integer")
-                    for jj in range(bases)]
+                    for jj in range(len(bases))]
 
         D_Heli_j = [pulp.LpVariable(D_Heli_j_Vars[jj],
                                     lowBound=0,
                                     upBound=totalHelis,
                                     cat="Integer")
-                    for jj in range(bases)]
+                    for jj in range(len(bases))]
 
         S_Tank_j = [pulp.LpVariable(S_Tank_j_Vars[jj],
                                     lowBound=0,
                                     upBound=totalTankers,
                                     cat="Integer")
-                    for jj in range(bases)]
+                    for jj in range(len(bases))]
 
         S_Heli_j = [pulp.LpVariable(S_Heli_j_Vars[jj],
                                     lowBound=0,
                                     upBound=totalHelis,
                                     cat="Integer")
-                    for jj in range(bases)]
+                    for jj in range(len(bases))]
 
         # The LP uses an aggregation of the weather generator data (FFDI and
         # FireSeverityMap)
@@ -839,15 +840,15 @@ class Simulation():
                                     lambda2 * (1 - lambda1) * ffdiAgg[t][ii] *
                                     basePatchDistances[ii, jj] *
                                     X2_Heli_T_j[jj]
-                                    for jj in range(bases)]
-                                   for ii in range(patches)]
+                                    for jj in range(len(bases))]
+                                   for ii in range(len(patches))]
                                   for t in range(lookahead)]) +
                       pulp.lpSum([[lambda2 * lambda1 * fireSeverityAgg[ll] *
                                    baseFireDistances[ll, jj] *
                                    X2_Tank_T_j[jj] +
                                    lambda2 * lambda1 * fireSeverityAgg[ll] *
                                    baseFireDistances[ll, jj]
-                                   for jj in range(bases)]
+                                   for jj in range(len(bases))]
                                   for ll in range(fires)]) +
                       pulp.lpSum([[(1 - lambda2) *
                                    (baseDistances[j1, j2] *
@@ -858,18 +859,18 @@ class Simulation():
                                   for j2 in range(len(bases))])),
                      "Total location and relocation cost over horizon")
 
-        # Constraints
+        # Constraints #########################################################
         relocate += (pulp.lpSum([X2_Tank_T_j[jj]
-                                for jj in range(bases)]) == totalTankers,
+                                for jj in range(len(bases))]) == totalTankers,
                      "Sum of tankers is total")
 
         relocate += (pulp.lpSum([X2_Heli_T_j[jj]
-                                 for jj in range(bases)]) == totalHelis,
+                                 for jj in range(len(bases))]) == totalHelis,
                      "Sum of helicopters is total")
 
         # The signs in Chow and Regan (2011), INFOR appear to be the wrong way
         # around. Corrected here.
-        for jj in range(bases):
+        for jj in range(len(bases)):
             relocate += ((-S_Tank_j[jj] - X2_Tank_T_j[jj] + baseTPrev[jj]) ==
                          0,
                          "Supply of tankers from base " + str(jj))
@@ -886,27 +887,27 @@ class Simulation():
                          0,
                          "Demand of helicopters by base " + str(jj))
 
-        for jj in range(bases):
+        for jj in range(len(bases)):
             relocate += (pulp.lpSum([Y_Tank_T_j1j2[jj][j2]
-                                     for j2 in range(bases)]) ==
+                                     for j2 in range(len(bases))]) ==
                          S_Tank_j[jj],
                          "Supply flow conservation for tankers for base " +
                          str(jj))
 
             relocate += (pulp.lpSum([Y_Heli_T_j1j2[jj][j2]
-                                     for j2 in range(bases)]) ==
+                                     for j2 in range(len(bases))]) ==
                          S_Heli_j[jj],
                          "Supply flow conservation for helicopters for base " +
                          str(jj))
 
             relocate += (pulp.lpSum([Y_Tank_T_j1j2[j1][jj]
-                                     for j1 in range(bases)]) ==
+                                     for j1 in range(len(bases))]) ==
                          D_Tank_j[jj],
                          "Demand flow conservation for tankers for base " +
                          str(jj))
 
             relocate += (pulp.lpSum([Y_Heli_T_j1j2[j1][jj]
-                                     for j1 in range(bases)]) ==
+                                     for j1 in range(len(bases))]) ==
                          D_Heli_j[jj],
                          "Demand flow conservation for helicopters for base " +
                          str(jj))
@@ -921,7 +922,7 @@ class Simulation():
 
         # Base assignments
         baseAss = numpy.empty([bases, 2])
-        for base in range(bases):
+        for base in range(len(bases)):
             # Tankers
             baseAss[base, 0] = varsdict['X2_Tank_T_' + str(base)]
             # Helicopters
@@ -929,11 +930,11 @@ class Simulation():
 
         # Relocations
         relocs = []
-        relocs.append(numpy.empty([bases, bases]))
-        relocs.append(numpy.empty([bases, bases]))
+        relocs.append(numpy.empty([len(bases), len(bases)]))
+        relocs.append(numpy.empty([len(bases), len(bases)]))
 
-        for base1 in range(bases):
-            for base2 in range(bases):
+        for base1 in range(len(bases)):
+            for base2 in range(len(bases)):
                 relocs[0][base1][base2] = varsdict["Y_Tank_T_" + str(base1) +
                                                    "_" + str(base2)]
                 relocs[1][base1][base2] = varsdict["Y_Heli_T_" + str(base1) +
@@ -946,20 +947,54 @@ class Simulation():
 
         return assignmentsNew
 
-    def assignmentOne(self, randCont, fireSeverityMap, assignmentsCurr,
-                      currLocs, cumHoursCurr, resourceTypes, ffdi):
-        bases = len(self.model.getRegion().getStations()[0])
-        patches = len(self.model.getRegion().getPatches())
+    def assignmentOne(self, randCont, fires, assignmentsCurr, currLocs,
+                      cumHoursCurr, resourceTypes, ffdi):
+
+        lookahead = self.model.getLookahead()
+        patches = self.model.getRegion().getPatches()
 
         # We need threshold for early and late attacks
         maxCoverDists = numpy.empty(2)
+        speed = numpy.zero(2)
 
         for aircraft in range(2):
-            speed = self.model.getResourceTypes()[aircraft].getSpeed()
+            speed[aircraft] = (self.model.getResourceTypes()[aircraft]
+                               .getSpeed())
             maxTime = self.model.getCoverTime()/60
-            maxCoverDists[aircraft] = speed*maxTime
+            maxCoverDists[aircraft] = speed[aircraft]*maxTime
 
-        # Previous period locations (binary)
+         # We only get air bases for now
+        bases = len(self.model.getRegion().getStations()[0])
+        baseNodeSufficient = [None]*2
+        baseFiresSufficient = [None]*2
+        baseTPrev = [sum(assignmentsCurr[resourceTypes == 0, 0] == jj)
+                     for jj in range(bases)]
+        baseHPrev = [sum(assignmentsCurr[resourceTypes == 1, 0] == jj)
+                     for jj in range(bases)]
+        basesX = numpy.array([
+                self.model.getRegion().getStations()[ii].getLocation()[0]
+                for ii in range(len(self.model.getRegion().getPatches()))])
+        basesY = numpy.array([
+                self.model.getRegion().getStations()[ii].getLocation()[1]
+                for ii in range(len(self.model.getRegion().getPatches()))])
+        firesX = numpy.array([
+                fires[ii].getLocation()[0]
+                for ii in range(len(fires))]).reshape(len(fires), 1)
+        firesY = numpy.array([
+                fires[ii].getLocation()[1]
+                for ii in range(len(fires))]).reshape(len(fires), 1)
+        baseFireDistances = numpy.sqrt(
+                numpy.power(numpy.tile(basesX, (len(fires), 1)) -
+                            numpy.tile(firesX, (1, len(basesX))), 2) +
+                numpy.power(numpy.tile(basesY, (len(fires), 1)) -
+                            numpy.tile(firesY, (1, len(basesY))), 2))
+
+        for aircraft in range(2):
+            baseNodeSufficient[aircraft] = (
+                    self.model.getRegion().getStationPatchDistances()[0] <=
+                    maxCoverDists[aircraft])
+            baseFiresSufficient[aircraft] = (
+                    baseFireDistances <= maxCoverDists[aircraft])
 
         # Configurations (any combination of [0,1,2+][e|l][T|H])
         # Arrangement is
@@ -974,18 +1009,116 @@ class Simulation():
         # Expected damage vs. configuration for each patch (Existing fires,
         # Phi_E)
         # Precomputed values
+        # We need to get the corresponding FFDI index of the actual FFDIs at
+        # each location at each time step within the expected damage matrices
+        # that are stored in memory from earlier. The first index of the below
+        # two arrays is the configuration, while the remaining indices are the
+        # FFDIs at each time period in the lookahead.
+        # Expected damage vs. configuration for each patch (Potential fires,
+        # Phi_P):
+
         # EXISTING FIRES
+        expDE = self.model.getRegion().getExpDE()
 
         # POTENTIAL FIRES
-
-        # Expected damage vs. configuration for each patch (Potential fires,
-        # Phi_P)
+        expDP = self.model.getRegion().getExpDP()
 
         # Travel times aircraft to fires
 
         # Travel times aircraft to bases
 
-        pass
+        # SET UP THE LINEAR PROGRAM (using PuLP for now)
+        relocate = pulp.LpProblem("Fire Resource Relocation", pulp.LpMaximize)
+
+        # INSTANTIATE THE SOLVER (GUROBI FOR NOW)
+        solver = pulp.GUROBI()
+        relocate.setSolver(solver)
+        relocate.solver.buildSolverModel(relocate)
+
+        # Parameters and variables
+        totalTankers = numpy.sum(resourceTypes == 0)
+        totalHelis = numpy.sum(resourceTypes == 1)
+        lambda1 = self.model.getControls()[randCont].getLambda1()
+        lambda2 = self.model.getControls()[randCont].getLambda2()
+
+        # Decision Variables ##################################################
+        # Patch selected config at time t variables
+        Delta_P_i_mtp_Vars = [[["Delta_P_" + str(ii+1) + "_" +
+                                str(t+1) + "_" + str(m+1)
+                                for ii in range(len(patches))]
+                               for t in range(lookahead)]
+                              for m in range(81)]
+
+        # Fire selected config at time t variables
+        Delta_E_l_mtp_Vars = [[["Delta_E_" + str(ll+1) + "_" +
+                                str(t+1) + "_" + str(m+1)
+                                for ll in range(len(fires))]
+                               for t in range(lookahead)]
+                              for m in range(81)]
+
+        # Relocation of aircraft k to location j - Tankers
+        Z1_Tank_jk_Vars = [["Z1_Tank_JK_" + str(jj+1) + "_" + str(kk+1)
+                            for jj in range(len(bases))]
+                           for kk in range(totalTankers)]
+
+        # Relocation of aircraft k to location j - Helicopters
+        Z1_Heli_jk_Vars = [["Z1_Tank_JK_" + str(kk+1) + "_" + str(jj+1)
+                            for jj in range(len(bases))]
+                           for kk in range(totalHelis)]
+
+        # Aircraft k stationed at base j to tackle fire l - Tankers
+        Z3_Tank_jkl_Vars = [[["Z2_Tank_JKL_" + str(jj+1) + "_" + str(kk+1) +
+                              "_" + str(ll+1)
+                              for jj in range(len(bases))]
+                             for kk in range(totalTankers)]
+                            for ll in range(len(fires))]
+
+        # Aircraft k stationed at base j to tackle fire l - Helicopters
+        Z3_Heli_jkl_Vars = [[["Z3_Heli_JKL_" + str(jj+1) + "_" + str(kk+1) +
+                              "_" + str(ll+1)
+                              for jj in range(len(bases))]
+                             for kk in range(len(totalHelis))]
+                            for ll in range(len(fires))]
+
+        # Create the LP variables for use in PULP #############################
+        Delta_P_im = [[[pulp.LpVariable(Delta_P_i_mtp_Vars[ii, t, m],
+                                        cat="Binary")
+                        for ii in range(len(patches))]
+                       for t in range(lookahead)]
+                      for m in range(81)]
+
+        Delta_E_lm = [[[pulp.LpVariable(Delta_E_l_mtp_Vars[ii, t, m],
+                                        cat="Binary")
+                        for ii in range(len(fires))]
+                       for t in range(lookahead)]
+                      for m in range(81)]
+
+        Z1_Tank_jk = [[pulp.LpVariable(Z1_Tank_jk_Vars[jj, kk],
+                                       cat="Binary")
+                       for jj in range(len(bases))]
+                      for kk in range(totalTankers)]
+
+        Z1_Heli_jk = [[pulp.LpVariable(Z1_Heli_jk_Vars[jj, kk],
+                                       cat="Binary")
+                       for jj in range(len(bases))]
+                      for kk in range(totalHelis)]
+
+        Z2_Tank_jkl = [[[pulp.LpVariable(Z2_Tank_jkl_Vars[jj, kk, ll],
+                                         cat="Binary")
+                         for jj in range(len(bases))]
+                        for kk in range(totalTankers)]
+                       for ll in range(len(fires))]
+
+        Z2_Heli_jkl = [[[pulp.LpVariable(Z2_Heli_jkl_Vars[jj, kk, ll],
+                                         cat="Binary")
+                         for jj in range(len(bases))]
+                        for kk in range(totalHelis)]
+                       for ll in range(len(fires))]
+
+    [expDP_imtp,expDE_lmte] = self.expectedDamages()
+
+    # Objective ###############################################################
+    relocate += ((pulp.lpSum()))
 
     # This is the main assignment problem we solve as it allows us to account
     # for positions of aircraft, their proximities to fires
