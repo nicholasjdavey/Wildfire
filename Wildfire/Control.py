@@ -15,6 +15,9 @@ class Control():
         # Constructs an instance
         lambda1 = 0.5
         lambda2 = 0.5
+        eta1 = 1
+        eta2 = 1
+        eta3 = 1
 
     def getLambda1(self):
         return self.lambda1
@@ -27,3 +30,21 @@ class Control():
 
     def setLambda2(self, l2):
         self.lambda2 = l2
+
+    def getEta1(self):
+        return self.eta1
+
+    def setEta1(self, eta):
+        self.eta1 = eta
+
+    def getEta2(self):
+        return self.eta2
+
+    def setEta2(self, eta):
+        self.eta2 = eta
+
+    def getEta3(self):
+        return self.eta3
+
+    def setEta3(self, eta):
+        self.eta3 = eta

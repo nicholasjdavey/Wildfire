@@ -88,6 +88,7 @@ class Simulation():
         # Generate exogenous forward paths for weather and fire starts and save
         # The forward paths are just the Danger Indices at each location
         exogenousPaths = self.forwardPaths()
+        self.model.computeExpectedDamageStatistical()
 
         # Generate random control paths and store
         randCont = self.randomControls()
@@ -147,33 +148,33 @@ class Simulation():
         region = self.model.getRegion()
         regionSize = region.getX().size
         timeSteps = self.model.getTotalSteps()
+        lookahead = self.model.getLookahead()
 
-        rain = numpy.empty([timeSteps+1, regionSize])
+        rain = numpy.empty([timeSteps+1+lookahead, regionSize])
         rain[0] = region.getRain()
-        precipitation = numpy.empty([timeSteps+1, regionSize])
+        precipitation = numpy.empty([timeSteps+1+lookahead, regionSize])
         precipitation[0] = region.getHumidity()
-        temperatureMin = numpy.empty([timeSteps+1, regionSize])
+        temperatureMin = numpy.empty([timeSteps+1+lookahead, regionSize])
         temperatureMin[0] = region.getTemperatureMin()
-        temperatureMax = numpy.empty([timeSteps+1, regionSize])
+        temperatureMax = numpy.empty([timeSteps+1+lookahead, regionSize])
         temperatureMax[0] = region.getTemperatureMax()
-        windNS = numpy.empty([timeSteps+1, regionSize])
+        windNS = numpy.empty([timeSteps+1+lookahead, regionSize])
         windNS[0] = region.getWindN()
-        windEW = numpy.empty([timeSteps+1, regionSize])
+        windEW = numpy.empty([timeSteps+1+lookahead, regionSize])
         windEW[0] = region.getWindE()
-        FFDI = numpy.empty([timeSteps+1, regionSize])
+        FFDI = numpy.empty([timeSteps+1+lookahead, regionSize])
         FFDI[0] = region.getDangerIndex()
-        windRegimes = numpy.empty([timeSteps+1])
+        windRegimes = numpy.empty([timeSteps+1+lookahead])
         windRegimes[0] = region.getWindRegime()
 
         wg = region.getWeatherGenerator()
 
         # Simulate the path forward from time zero to the end
-        for ii in range(timeSteps):
+        for ii in range(timeSteps+lookahead):
             # Compute weather
             wg.computeWeather(rain, precipitation, temperatureMin,
                               temperatureMax, windRegimes, windNS, windEW,
                               FFDI, ii)
-            pass
 
         return FFDI
 
@@ -337,6 +338,11 @@ class Simulation():
         patches = self.model.getRegion().getPatches()
         bases = self.model.getRegion().getStations()
         speed = numpy.empty(2)
+        totalTankers = numpy.sum(resourceTypes == 0)
+        totalHelis = numpy.sum(resourceTypes == 1)
+        lambda1 = self.model.getControls()[randCont].getLambda1()
+        lambda2 = self.model.getControls()[randCont].getLambda2()
+        baseDistances = self.model.getRegion().getStationDistances()
 
         for aircraft in range(2):
             speed[aircraft] = (self.model.getResourceTypes()[aircraft]
@@ -347,6 +353,7 @@ class Simulation():
         # We only get air bases for now
         baseNodeSufficient = [None]*2
         baseFiresSufficient = [None]*2
+        baseRelocTimes = [None]*2
         baseTPrev = [sum(assignmentsCurr[resourceTypes == 0, 0] == jj)
                      for jj in range(len(bases))]
         baseHPrev = [sum(assignmentsCurr[resourceTypes == 1, 0] == jj)
@@ -408,6 +415,7 @@ class Simulation():
                     maxCoverDists[aircraft])
             baseFiresSufficient[aircraft] = (
                     baseFireDistances <= maxCoverDists[aircraft])
+            baseRelocTimes[aircraft] = baseDistances[aircraft]/speed[aircraft]
 
         # Expected number of fires that can be reached by aircraft stationed at
         # each base
@@ -541,10 +549,10 @@ class Simulation():
                                   X1_T_l[ii]
                                   for ii in range(len(patches))]) -
                       pulp.lpSum([[(1 - lambda2) *
-                                   (baseDistances[j1, j2] *
+                                   (baseRelocTimes[0][j1, j2] *
                                     Y_Tank_T_j1j2[j1, j2] +
-                                    baseDistances[j1, j2] *
-                                    Y_Heli_T_j1j2[j1, j2])
+                                    baseRelocTimes[j1, j2] *
+                                    Y_Heli_T_j1j2[0][j1, j2])
                                    for j1 in range(len(bases))]
                                   for j2 in range(len(bases))])),
                      "Total location and relocation cost over horizon")
@@ -691,17 +699,9 @@ class Simulation():
         # formulation, we only compute aggregate values, not assignments of
         # individual aircraft.
         lookahead = self.model.getLookahead()
-
-        # We only get air bases for now
-        bases = self.model.getRegion().getStations
-        baseTPrev = [sum(assignmentsCurr[resourceTypes == 0, 0] == jj)
-                     for jj in range(len(bases))]
-        baseHPrev = [sum(assignmentsCurr[resourceTypes == 1, 0] == jj)
-                     for jj in range(len(bases))]
-
-        # Decision variables
-        # First, names for parameters and variables
         patches = self.model.getRegion().getPatches()
+        bases = self.model.getRegion().getStations
+        speed = numpy.empty(2)
         totalTankers = numpy.sum(resourceTypes == 0)
         totalHelis = numpy.sum(resourceTypes == 1)
         lambda1 = self.model.getControls()[randCont].getLambda1()
@@ -709,7 +709,20 @@ class Simulation():
         baseDistances = self.model.getRegion().getStationDistances()[0]
         basePatchDistances = (self.model.getRegion()
                               .getStationPatchDistances()[0])
+        baseRelocTimes = [None]*2
 
+        for aircraft in range(2):
+            speed[aircraft] = (self.model.getResourceTypes()[aircraft]
+                               .getSpeed())
+            baseRelocTimes[aircraft] = baseDistances[aircraft]/speed[aircraft]
+
+        # We only get air bases for now
+        baseTPrev = [sum(assignmentsCurr[resourceTypes == 0, 0] == jj)
+                     for jj in range(len(bases))]
+        baseHPrev = [sum(assignmentsCurr[resourceTypes == 1, 0] == jj)
+                     for jj in range(len(bases))]
+
+        # Decision variables
         baseTPrev = [sum(assignmentsCurr[resourceTypes == 0, 0] == jj)
                      for jj in range(len(bases))]
         baseHPrev = [sum(assignmentsCurr[resourceTypes == 1, 0] == jj)
@@ -846,9 +859,9 @@ class Simulation():
                                    for jj in range(len(bases))]
                                   for ll in range(fires)]) +
                       pulp.lpSum([[(1 - lambda2) *
-                                   (baseDistances[j1, j2] *
+                                   (baseRelocTimes[0][j1, j2] *
                                     Y_Tank_T_j1j2[j1, j2] +
-                                    baseDistances[j1, j2] *
+                                    baseRelocTimes[1][j1, j2] *
                                     Y_Heli_T_j1j2[j1, j2])
                                    for j1 in range(len(bases))]
                                   for j2 in range(len(bases))])),
@@ -957,24 +970,27 @@ class Simulation():
         # We need threshold for early and late attacks
         maxCoverDists = numpy.empty(2)
         speed = numpy.zero(2)
+        maxHours = numpy.zero(2)
         maxDistLookahead = numpy.zero(2)
+        cumHours = [None]*2
 
         for aircraft in range(2):
+            maxHours[aircraft] = (self.model.getResourceTypes()[aircraft]
+                                  .getMaxDailyHours())
             speed[aircraft] = (self.model.getResourceTypes()[aircraft]
                                .getSpeed())
             maxTime = self.model.getCoverTime()/60
             maxCoverDists[aircraft] = speed[aircraft]*maxTime
-            maxDistLookahead[aircraft] =
+            maxDistLookahead[aircraft] = speed[aircraft]
+            cumHours[aircraft] = [cumHoursCurr[ii]
+                                  for ii in range(len(resourceTypes))
+                                  if resourceTypes[ii] == aircraft]
 
         # We only get air bases for now
         baseNodeSufficient = [None]*2
         baseFiresSufficient = [None]*2
         baseAircraftSufficient = [None]*2
         aircraftFiresSufficient = [None]*2
-        baseTPrev = [sum(assignmentsCurr[resourceTypes == 0, 0] == jj)
-                     for jj in range(len(bases))]
-        baseHPrev = [sum(assignmentsCurr[resourceTypes == 1, 0] == jj)
-                     for jj in range(len(bases))]
         basesX = numpy.array([
                 self.model.getRegion().getStations()[ii].getLocation()[0]
                 for ii in range(len(patches))])
@@ -1009,23 +1025,23 @@ class Simulation():
                 numpy.power(numpy.tile(basesY, (len(fires), 1)) -
                             numpy.tile(firesY, (1, len(basesY))), 2))
         baseAircraftDistances = [None]*2
-        baseAircraftDistances[0] = numpy.sqrt(
+        baseAircraftDistances[0] = (1/speed[0])*numpy.sqrt(
                 numpy.power(numpy.tile(basesX, (len(totalTankers), 1)) -
                             numpy.tile(tankersX, (1, len(basesX))), 2) +
                 numpy.power(numpy.tile(basesY, (len(totalTankers), 1)) -
                             numpy.tile(tankersY, (1, len(basesX))), 2))
-        baseAircraftDistances[1] = numpy.sqrt(
+        baseAircraftDistances[1] = (1/speed[1])*numpy.sqrt(
                 numpy.power(numpy.tile(basesX, (len(totalHelis), 1)) -
                             numpy.tile(helisX, (1, len(basesX))), 2) +
                 numpy.power(numpy.tile(basesY, (len(totalHelis), 1)) -
                             numpy.tile(helisY, (1, len(basesX))), 2))
         aircraftFireDistances = [None]*2
-        aircraftFireDistances[0] = numpy.sqrt(
+        aircraftFireDistances[0] = (1/speed[0])*numpy.sqrt(
                 numpy.power(numpy.tile(firesX, (len(totalTankers), 1)) -
                             numpy.tile(tankersX, (1, len(firesX))), 2) +
                 numpy.power(numpy.tile(firesY, (len(totalTankers), 1)) -
                             numpy.tile(tankersY, (1, len(firesY))), 2))
-        aircraftFireDistances[1] = numpy.sqrt(
+        aircraftFireDistances[1] = (1/speed[1])*numpy.sqrt(
                 numpy.power(numpy.tile(firesX, (len(totalHelis), 1)) -
                             numpy.tile(helisX, (1, len(firesX))), 2) +
                 numpy.power(numpy.tile(firesY, (len(totalHelis), 1)) -
@@ -1044,7 +1060,7 @@ class Simulation():
 
             baseAircraftSufficient[aircraft] = (
                     baseAircraftDistances[aircraft] <=
-                    maxCoverDists[aircraft])
+                    speed[aircraft]*stepSize*lookahead)
 
         # Configurations (any combination of [0,1,2+][e|l][T|H])
         # Arrangement is
@@ -1073,9 +1089,9 @@ class Simulation():
         # POTENTIAL FIRES
         expDP = self.model.getRegion().getExpDP()
 
-        # Travel times aircraft to fires
-
-        # Travel times aircraft to bases
+        # Expected damage coefficients
+        [expDP_im, expDE_lm] = self.expectedDamages(expDE, expDP, ffdi, fires,
+                                                    config)
 
         # SET UP THE LINEAR PROGRAM (using PuLP for now)
         relocate = pulp.LpProblem("Fire Resource Relocation", pulp.LpMaximize)
@@ -1106,7 +1122,7 @@ class Simulation():
                            for kk in range(totalTankers)]
 
         # Relocation of aircraft k to location j - Helicopters
-        Z1_Heli_jk_Vars = [["Z1_Tank_JK_" + str(kk+1) + "_" + str(jj+1)
+        Z1_Heli_jk_Vars = [["Z1_Tank_JK_" + str(jj+1) + "_" + str(kk+1)
                             for jj in range(len(bases))]
                            for kk in range(totalHelis)]
 
@@ -1159,8 +1175,6 @@ class Simulation():
                         for kk in range(totalHelis)]
                        for ll in range(len(fires))]
 
-        [expDP_im,expDE_lm] = self.expectedDamages()
-
         # Objective ###########################################################
         relocate += ((pulp.lpSum([[lambda2*(1 - lambda1)*expDP_im[ii, mm] *
                                    Delta_P_im[ii, mm]
@@ -1190,7 +1204,8 @@ class Simulation():
                 relocate += (Delta_E_lm[ll, mm] <=
                              (1 if config[mm, 0] == 0 else
                               (1.0/config[mm, 0]) *
-                              sum([sum([aircraftFiresSufficient[0][kk, ll]
+                              sum([sum([aircraftFiresSufficient[0][kk, ll] *
+                                        Z2_Tank_jkl[jj, kk, ll]
                                         for kk in range(totalTankers)])
                                    for jj in range(len(bases))])),
                              "Correct number of early tankers for fire config")
@@ -1200,7 +1215,8 @@ class Simulation():
                 relocate += (Delta_E_lm[ll, mm] <=
                              (1 if config[mm, 2] == 0 else
                               (1.0/config[mm, 2]) *
-                              sum([sum([aircraftFiresSufficient[1][kk, ll]
+                              sum([sum([aircraftFiresSufficient[1][kk, ll] *
+                                        Z2_Heli_jkl[jj, kk, ll]
                                         for kk in range(totalHelis)])
                                    for jj in range(len(bases))])),
                              "Correct number of early helis for fire config")
@@ -1210,7 +1226,9 @@ class Simulation():
                 relocate += (Delta_E_lm[ll, mm] <=
                              (1 if config[mm, 1] == 0 else
                               (1.0/config[mm, 1]) *
-                              sum([sum([1 - aircraftFiresSufficient[0][kk, ll]
+                              sum([sum([(1 -
+                                         aircraftFiresSufficient[0][kk, ll]) *
+                                        Z2_Tank_jkl[jj, kk, ll]
                                         for kk in range(totalTankers)])
                                    for jj in range(len(bases))])),
                              "Correct number of late tankers for fire config")
@@ -1220,7 +1238,9 @@ class Simulation():
                 relocate += (Delta_E_lm[ll, mm] <=
                              (1 if config[mm, 3] == 0 else
                               (1.0/config[mm, 3]) *
-                              sum([sum([1 - aircraftFiresSufficient[1][kk, ll]
+                              sum([sum([(1 -
+                                         aircraftFiresSufficient[1][kk, ll]) *
+                                        Z2_Heli_jkl[jj, kk, ll]
                                         for kk in range(totalHelis)])
                                    for jj in range(len(bases))])),
                              "Correct number of late helis for fire config")
@@ -1243,6 +1263,492 @@ class Simulation():
         for ii in range(len(patches)):
             for mm in range(config.shape[0]):
                 relocate += (Delta_P_im[ii, mm] <=
+                             (1 if config[mm, 2] == 0 else
+                              (1.0/config[mm, 2]) *
+                              sum([sum([baseNodeSufficient[1][ii, jj] *
+                                        (Z1_Heli_jk[jj, kk] -
+                                         sum([Z2_Heli_jkl[jj, kk, ll]
+                                              for ll in range(len(fires))]))
+                                        for kk in range(totalHelis)])
+                                   for jj in range(len(bases))])),
+                             "Correct number of early helis for potential "
+                             "fires config")
+
+        for ii in range(len(patches)):
+            for mm in range(config.shape[0]):
+                relocate += (Delta_P_im[ii, mm] <=
+                             (1 if config[mm, 1] == 0 else
+                              (1.0/config[mm, 1]) *
+                              sum([sum([(1 - baseNodeSufficient[0][ii, jj]) *
+                                        (Z1_Tank_jk[jj, kk] -
+                                         sum([Z2_Tank_jkl[jj, kk, ll]
+                                              for ll in range(len(fires))]))
+                                        for kk in range(totalTankers)])
+                                   for jj in range(len(bases))])),
+                             "Correct number of late tankers for potential "
+                             "fires config")
+
+        for ii in range(len(patches)):
+            for mm in range(config.shape[0]):
+                relocate += (Delta_P_im[ii, mm] <=
+                             (1 if config[mm, 3] == 0 else
+                              (1.0/config[mm, 3]) *
+                              sum([sum([(1 - baseNodeSufficient[1][ii, jj]) *
+                                        (Z1_Heli_jk[jj, kk] -
+                                         sum([Z2_Heli_jkl[jj, kk, ll]
+                                              for ll in range(len(fires))]))
+                                        for kk in range(totalHelis)])
+                                   for jj in range(len(bases))])),
+                             "Correct number of late helis for potential "
+                             "fires config")
+
+        # Possible assignment to fire based on stationing at base
+        for jj in range(len(bases)):
+            for kk in range(totalTankers):
+                for ll in range(len(fires)):
+                    relocate += (Z2_Tank_jkl[jj, kk, ll] <= Z1_Tank_jk[jj, kk],
+                                 "Possible assignment to fires based on base "
+                                 "where stationed - Tankers")
+
+        for jj in range(len(bases)):
+            for kk in range(totalHelis):
+                for ll in range(len(fires)):
+                    relocate += (Z2_Heli_jkl[jj, kk, ll] <= Z1_Heli_jk[jj, kk],
+                                 "Possible assignment to fires based on base "
+                                 "where stationed - Helis")
+
+        # Base relocations only possible if achievable in lookahead period
+        for jj in range(len(bases)):
+            for kk in range(totalTankers):
+                relocate += (Z1_Heli_jk[jj, kk] <=
+                             baseAircraftSufficient[0][jj, kk],
+                             "Base relocations only possible if achievable in "
+                             "lookahead period - Tankers")
+
+        for jj in range(len(bases)):
+            for kk in range(totalTankers):
+                relocate += (Z1_Heli_jk[jj, kk] <=
+                             baseAircraftSufficient[0][jj, kk],
+                             "Base relocations only possible if achievable in "
+                             "lookahead period - Helis")
+
+        # All aircraft assigned to a base
+        for kk in range(totalTankers):
+            relocate += (sum([Z1_Tank_jk[jj, kk]
+                              for jj in range(len(bases))]) == 1,
+                         "All tankers assigned to one and only one base")
+
+        for kk in range(totalHelis):
+            relocate += (sum([Z1_Heli_jk[jj, kk]
+                              for jj in range(len(bases))]) == 1,
+                         "All helis assigned to one and only one base")
+
+        # All aircraft assigned to at most one fire
+        for jj in range(len(bases)):
+            for kk in range(totalTankers):
+                relocate += (sum([Z2_Tank_jkl[jj, kk, ll]
+                                  for ll in range(len(fires))]) == 1,
+                             "All tankers assigned to one and only one base")
+
+        for jj in range(len(bases)):
+            for kk in range(totalHelis):
+                relocate += (sum([Z2_Heli_jkl[jj, kk, ll]
+                                  for ll in range(len(fires))]) == 1,
+                             "All helis assigned to one and only one base")
+
+        # All fires assigned one and only one configuration
+        for ll in range(len(fires)):
+            relocate += (sum([Delta_E_lm[ll, mm]
+                              for mm in range(config.shape[0])]),
+                         "Each fire assigned only one configuration")
+
+        # All patches assigned one and only one configuration
+        for ii in range(len(patches)):
+            relocate += (sum([Delta_P_im[ii, mm]
+                              for mm in range(config.shape[0])]),
+                         "Each fire assigned only one configuration")
+
+        # Limit on aircraft hours
+        for kk in range(totalTankers):
+            relocate += (maxHours[0] >= (
+                    sum([sum([aircraftFireDistances[0][kk, ll] *
+                             Z2_Tank_jkl[jj, kk, ll]
+                             for jj in range(len(bases))])
+                         for ll in range(len(fires))]) +
+                    sum([baseAircraftDistances[0][jj, kk]
+                         for jj in range(len(bases))]) +
+                    cumHours[0][kk]),
+                    "Limit on aircraft horus - Tankers")
+
+        for kk in range(totalHelis):
+            relocate += (maxHours[1] >= (
+                    sum([sum([aircraftFireDistances[1][kk, ll] *
+                             Z2_Tank_jkl[jj, kk, ll]
+                             for jj in range(len(bases))])
+                         for ll in range(len(fires))]) +
+                    sum([baseAircraftDistances[1][jj, kk]
+                         for jj in range(len(bases))]) +
+                    cumHours[1][kk]),
+                    "Limit on aircraft horus - Helis")
+
+        relocate.writeLP("Relocation.lp")
+        relocate.solve()
+
+        # Extract the optimal values for the variables
+        varsdict = {}
+        for var in relocate.variables():
+            varsdict[var.name] = var.varValue
+
+        baseAss = [None]*2
+        baseAss[0] = numpy.zeros(totalTankers)
+        baseAss[1] = numpy.zeros(totalHelis)
+        fireAss = [None]*2
+        fireAss[0] = numpy.zeros(totalTankers)
+        fireAss[1] = numpy.zeros(totalHelis)
+
+        # Tanker assignments
+        for kk in range(totalTankers):
+            baseAssignmentsK = numpy.array(
+                    [varsdict['Z1_Tank_JK_' + str(jj+1) + "_" + str(kk+1)]
+                     for jj in range(len(bases))])
+            baseAss[0][kk] = baseAssignmentsK.index(1)
+
+            fireAssignmentsK = numpy.array(
+                    [varsdict['Z2_Tank_JKL_' + str(baseAss[0][kk]+1) + "_" +
+                              str(kk+1) + "_" + str(ll+1)]
+                     for ll in range(len(fires))])
+
+            if fireAssignmentsK.sum() > 0:
+                fireAss[0][kk] = fireAssignmentsK.index(1)
+
+        # Helicopter assignments
+        for kk in range(totalHelis):
+            baseAssignmentsK = numpy.array(
+                    [varsdict['Z1_Heli_JK_' + str(jj+1) + "_" + str(kk+1)]
+                     for jj in range(len(bases))])
+            baseAss[1][kk] = baseAssignmentsK.index(1)
+
+            fireAssignmentsK = numpy.array(
+                    [varsdict['Z2_Heli_JKL_' + str(baseAss[1][kk]+1) + "_" +
+                              str(kk+1) + "_" + str(ll+1)]
+                     for ll in range(len(fires))])
+
+            if fireAssignmentsK.sum() > 0:
+                fireAss[1][kk] = fireAssignmentsK.index(1)
+
+        tankerIdxes = [ii for ii in range(len(resourceTypes))
+                       if resourceTypes[ii] == 0]
+        heliIdxes = [ii for ii in range(len(resourceTypes))
+                     if resourceTypes[ii] == 1]
+
+        assignmentsNew = numpy.zeros(assignmentsCurr.shape)
+
+        # Base assignments
+        assignmentsNew[tankerIdxes, 0] = baseAss[0]
+        assignmentsNew[tankerIdxes, 1] = fireAss[0]
+
+        # Fire assignments
+        assignmentsNew[heliIdxes, 0] = baseAss[1]
+        assignmentsNew[heliIdxes, 1] = fireAss[1]
+
+        return assignmentsNew
+
+    def assignmentTwo(self, randCont, fires, assignmentsCurr,
+                      currLocs, cumHoursCurr, resourceTypes, ffdi):
+        # This is the main assignment problem we solve as it allows us to
+        # account for positions of aircraft, their proximities to fires
+        lookahead = self.model.getLookahead()
+        stepSize = self.model.getStepSize()
+        relocThreshold = self.model.getRelocationThreshold()
+        patches = self.model.getRegion().getPatches()
+        bases = self.model.getRegion().getStations()
+        totalTankers = numpy.sum(resourceTypes == 0)
+        totalHelis = numpy.sum(resourceTypes == 1)
+        eta1 = self.model.getControls()[randCont].getEta1()
+        eta2 = self.model.getControls()[randCont].getEta2()
+        eta3 = self.model.getControls()[randCont].getEta3()
+
+        # We need threshold for early and late attacks
+        maxCoverDists = numpy.empty(2)
+        maxReloc = numpy.empty(2)
+        speed = numpy.zero(2)
+        maxHours = numpy.zero(2)
+        maxDistLookahead = numpy.zero(2)
+        cumHours = [None]*2
+        currentLocs = [None]*2
+
+        for aircraft in range(2):
+            maxHours[aircraft] = (self.model.getResourceTypes()[aircraft]
+                                  .getMaxDailyHours())
+            speed[aircraft] = (self.model.getResourceTypes()[aircraft]
+                               .getSpeed())
+            maxTime = self.model.getCoverTime()/60
+            maxCoverDists[aircraft] = speed[aircraft]*maxTime
+            maxReloc[aircraft] = speed[aircraft]*relocThreshold
+            maxDistLookahead[aircraft] = speed[aircraft]
+            cumHours[aircraft] = [cumHoursCurr[ii]
+                                  for ii in range(len(resourceTypes))
+                                  if resourceTypes[ii] == aircraft]
+            currentLocs[aircraft] = [currLocs[ii]
+                                     for ii in range(len(resourceTypes))
+                                     if resourceTypes[ii] == aircraft]
+
+        # We only get air bases for now
+        baseNodeSufficient = [None]*2
+        baseFiresSufficient = [None]*2
+        baseAircraftSufficient = [None]*2
+        baseAircraftThresh = [None]*2
+        aircraftFiresSufficient = [None]*2
+        basesX = numpy.array([
+                self.model.getRegion().getStations()[ii].getLocation()[0]
+                for ii in range(len(patches))])
+        basesY = numpy.array([
+                self.model.getRegion().getStations()[ii].getLocation()[1]
+                for ii in range(len(patches))])
+        firesX = numpy.array([
+                fires[ii].getLocation()[0]
+                for ii in range(len(fires))]).reshape(len(fires), 1)
+        firesY = numpy.array([
+                fires[ii].getLocation()[1]
+                for ii in range(len(fires))]).reshape(len(fires), 1)
+        tankersX = numpy.array([
+                currLocs[ii, 0]
+                for ii in range(len(resourceTypes))
+                if resourceTypes[ii] == 0])
+        tankersY = numpy.array([
+                currLocs[ii, 1]
+                for ii in range(len(resourceTypes))
+                if resourceTypes[ii] == 0])
+        helisX = numpy.array([
+                currLocs[ii, 0]
+                for ii in range(len(resourceTypes))
+                if resourceTypes[ii] == 1])
+        helisY = numpy.array([
+                currLocs[ii, 1]
+                for ii in range(len(resourceTypes))
+                if resourceTypes[ii] == 1])
+        baseFireDistances = numpy.sqrt(
+                numpy.power(numpy.tile(basesX, (len(fires), 1)) -
+                            numpy.tile(firesX, (1, len(basesX))), 2) +
+                numpy.power(numpy.tile(basesY, (len(fires), 1)) -
+                            numpy.tile(firesY, (1, len(basesY))), 2))
+        baseAircraftDistances = [None]*2
+        baseAircraftDistances[0] = (1/speed[0])*numpy.sqrt(
+                numpy.power(numpy.tile(basesX, (len(totalTankers), 1)) -
+                            numpy.tile(tankersX, (1, len(basesX))), 2) +
+                numpy.power(numpy.tile(basesY, (len(totalTankers), 1)) -
+                            numpy.tile(tankersY, (1, len(basesX))), 2))
+        baseAircraftDistances[1] = (1/speed[1])*numpy.sqrt(
+                numpy.power(numpy.tile(basesX, (len(totalHelis), 1)) -
+                            numpy.tile(helisX, (1, len(basesX))), 2) +
+                numpy.power(numpy.tile(basesY, (len(totalHelis), 1)) -
+                            numpy.tile(helisY, (1, len(basesX))), 2))
+        aircraftFireDistances = [None]*2
+        aircraftFireDistances[0] = (1/speed[0])*numpy.sqrt(
+                numpy.power(numpy.tile(firesX, (len(totalTankers), 1)) -
+                            numpy.tile(tankersX, (1, len(firesX))), 2) +
+                numpy.power(numpy.tile(firesY, (len(totalTankers), 1)) -
+                            numpy.tile(tankersY, (1, len(firesY))), 2))
+        aircraftFireDistances[1] = (1/speed[1])*numpy.sqrt(
+                numpy.power(numpy.tile(firesX, (len(totalHelis), 1)) -
+                            numpy.tile(helisX, (1, len(firesX))), 2) +
+                numpy.power(numpy.tile(firesY, (len(totalHelis), 1)) -
+                            numpy.tile(helisY, (1, len(firesY))), 2))
+
+        for aircraft in range(2):
+            baseNodeSufficient[aircraft] = (
+                    self.model.getRegion().getStationPatchDistances()[0] <=
+                    maxCoverDists[aircraft])
+            baseFiresSufficient[aircraft] = (
+                    baseFireDistances <= maxCoverDists[aircraft])
+
+            aircraftFiresSufficient[aircraft] = (
+                    aircraftFireDistances[aircraft] <=
+                    maxCoverDists[aircraft])
+
+            baseAircraftSufficient[aircraft] = (
+                    baseAircraftDistances[aircraft] <=
+                    speed[aircraft]*stepSize*lookahead)
+
+            baseAircraftThresh[aircraft] = (
+                    baseAircraftDistances[aircraft] <=
+                    maxReloc[aircraft])
+
+        # Configurations (any combination of [0,1,2+][e|l][T|H])
+        # Arrangement is
+        # TE|TL|HE|HL
+        submat = numpy.array(range(0, 3)).reshape((3, 1))
+        config = numpy.empty([81, 4])
+
+        for ii in range(4):
+            config[:, ii] = numpy.tile(numpy.repeat(submat, 3**(3 - ii),
+                                       axis=0), (3**ii, 1)).flatten()
+
+        # Expected damage vs. configuration for each patch (Existing fires,
+        # Phi_E)
+        # Precomputed values
+        # We need to get the corresponding FFDI index of the actual FFDIs at
+        # each location at each time step within the expected damage matrices
+        # that are stored in memory from earlier. The first index of the below
+        # two arrays is the configuration, while the remaining indices are the
+        # FFDIs at each time period in the lookahead.
+        # Expected damage vs. configuration for each patch (Potential fires,
+        # Phi_P):
+
+        # EXISTING FIRES
+        expDE = self.model.getRegion().getExpDE()
+
+        # POTENTIAL FIRES
+        expDP = self.model.getRegion().getExpDP()
+
+        # Expected damage coefficients
+        [expDP_im, expDE_lm] = self.expectedDamages(expDE, expDP, ffdi, fires,
+                                                    config)
+
+        # SET UP THE LINEAR PROGRAM (using PuLP for now)
+        relocate = pulp.LpProblem("Fire Resource Relocation", pulp.LpMaximize)
+
+        # INSTANTIATE THE SOLVER (GUROBI FOR NOW)
+        solver = pulp.GUROBI()
+        relocate.setSolver(solver)
+        relocate.solver.buildSolverModel(relocate)
+
+        # Decision Variables ##################################################
+        # Patch selected config at time t variables
+        Delta_P_im_Vars = [[["Delta_P_" + str(ii+1) + "_" +
+                             str(t+1) + "_" + str(m+1)
+                             for ii in range(len(patches))]
+                            for t in range(lookahead)]
+                           for m in range(config.shape[0])]
+
+        # Fire selected config at time t variables
+        Delta_E_lm_Vars = [[["Delta_E_" + str(ll+1) + "_" +
+                             str(t+1) + "_" + str(m+1)
+                             for ll in range(len(fires))]
+                            for t in range(lookahead)]
+                           for m in range(config.shape[0])]
+
+        # Relocation of aircraft k to location j - Tankers
+        Z1_Tank_jk_Vars = [["Z1_Tank_JK_" + str(jj+1) + "_" + str(kk+1)
+                            for jj in range(len(bases))]
+                           for kk in range(totalTankers)]
+
+        # Relocation of aircraft k to location j - Helicopters
+        Z1_Heli_jk_Vars = [["Z1_Tank_JK_" + str(jj+1) + "_" + str(kk+1)
+                            for jj in range(len(bases))]
+                           for kk in range(totalHelis)]
+
+        # Aircraft k stationed at base j to tackle fire l - Tankers
+        Z2_Tank_jkl_Vars = [[["Z2_Tank_JKL_" + str(jj+1) + "_" + str(kk+1) +
+                              "_" + str(ll+1)
+                              for jj in range(len(bases))]
+                             for kk in range(totalTankers)]
+                            for ll in range(len(fires))]
+
+        # Aircraft k stationed at base j to tackle fire l - Helicopters
+        Z2_Heli_jkl_Vars = [[["Z2_Heli_JKL_" + str(jj+1) + "_" + str(kk+1) +
+                              "_" + str(ll+1)
+                              for jj in range(len(bases))]
+                             for kk in range(len(totalHelis))]
+                            for ll in range(len(fires))]
+
+        # Create the LP variables for use in PULP #############################
+        Delta_P_im = [[[pulp.LpVariable(Delta_P_im_Vars[ii, t, m],
+                                        cat="Binary")
+                        for ii in range(len(patches))]
+                       for t in range(lookahead)]
+                      for m in range(config.shape[0])]
+
+        Delta_E_lm = [[[pulp.LpVariable(Delta_E_lm_Vars[ii, t, m],
+                                        cat="Binary")
+                        for ii in range(len(fires))]
+                       for t in range(lookahead)]
+                      for m in range(config.shape[0])]
+
+        Z1_Tank_jk = [[pulp.LpVariable(Z1_Tank_jk_Vars[jj, kk],
+                                       cat="Binary")
+                       for jj in range(len(bases))]
+                      for kk in range(totalTankers)]
+
+        Z1_Heli_jk = [[pulp.LpVariable(Z1_Heli_jk_Vars[jj, kk],
+                                       cat="Binary")
+                       for jj in range(len(bases))]
+                      for kk in range(totalHelis)]
+
+        Z2_Tank_jkl = [[[pulp.LpVariable(Z2_Tank_jkl_Vars[jj, kk, ll],
+                                         cat="Binary")
+                         for jj in range(len(bases))]
+                        for kk in range(totalTankers)]
+                       for ll in range(len(fires))]
+
+        Z2_Heli_jkl = [[[pulp.LpVariable(Z2_Heli_jkl_Vars[jj, kk, ll],
+                                         cat="Binary")
+                         for jj in range(len(bases))]
+                        for kk in range(totalHelis)]
+                       for ll in range(len(fires))]
+
+        # Objective ###########################################################
+        relocate += ((pulp.lpSum([[expDP_im[ii, mm]*Delta_P_im[ii, mm]
+                                   for ii in range(len(patches))]
+                                  for mm in range(config.shape[0])]) +
+                      pulp.lpSum([[expDE_lm[ll, mm]*Delta_E_lm[ll, mm]
+                                   for ll in range(len(fires))]
+                                  for mm in range(config.shape[0])])),
+                     "Total weighted expected damage and relocation costs "
+                     "over horizon")
+
+        # Constraints #########################################################
+        # Existing fire config activation
+        for ll in range(len(fires)):
+            for mm in range(config.shape[0]):
+                relocate += (Delta_E_lm[ll, mm] <=
+                             (1 if config[mm, 0] == 0 else
+                              (1.0/config[mm, 0]) *
+                              sum([sum([aircraftFiresSufficient[0][kk, ll] *
+                                        Z2_Tank_jkl[jj, kk, ll]
+                                        for kk in range(totalTankers)])
+                                   for jj in range(len(bases))])),
+                             "Correct number of early tankers for fire config")
+
+        for ll in range(len(fires)):
+            for mm in range(config.shape[0]):
+                relocate += (Delta_E_lm[ll, mm] <=
+                             (1 if config[mm, 2] == 0 else
+                              (1.0/config[mm, 2]) *
+                              sum([sum([aircraftFiresSufficient[1][kk, ll] *
+                                        Z2_Heli_jkl[jj, kk, ll]
+                                        for kk in range(totalHelis)])
+                                   for jj in range(len(bases))])),
+                             "Correct number of early helis for fire config")
+
+        for ll in range(len(fires)):
+            for mm in range(config.shape[0]):
+                relocate += (Delta_E_lm[ll, mm] <=
+                             (1 if config[mm, 1] == 0 else
+                              (1.0/config[mm, 1]) *
+                              sum([sum([(1 -
+                                         aircraftFiresSufficient[0][kk, ll]) *
+                                        Z2_Tank_jkl[jj, kk, ll]
+                                        for kk in range(totalTankers)])
+                                   for jj in range(len(bases))])),
+                             "Correct number of late tankers for fire config")
+
+        for ll in range(len(fires)):
+            for mm in range(config.shape[0]):
+                relocate += (Delta_E_lm[ll, mm] <=
+                             (1 if config[mm, 3] == 0 else
+                              (1.0/config[mm, 3]) *
+                              sum([sum([(1 -
+                                         aircraftFiresSufficient[1][kk, ll]) *
+                                        Z2_Heli_jkl[jj, kk, ll]
+                                        for kk in range(totalHelis)])
+                                   for jj in range(len(bases))])),
+                             "Correct number of late helis for fire config")
+
+        # Potential fires config activation
+        for ii in range(len(patches)):
+            for mm in range(config.shape[0]):
+                relocate += (Delta_P_im[ii, mm] <=
                              (1 if config[mm, 0] == 0 else
                               (1.0/config[mm, 0]) *
                               sum([sum([baseNodeSufficient[0][ii, jj] *
@@ -1254,11 +1760,257 @@ class Simulation():
                              "Correct number of early tankers for potential "
                              "fires config")
 
-    # This is the main assignment problem we solve as it allows us to account
-    # for positions of aircraft, their proximities to fires
-    def assignmentTwo(self, randCont, fireSeverityMap, assignmentsCurr,
-                      currLocs, cumHoursCurr, resourceTypes, ffdi):
-        pass
+        for ii in range(len(patches)):
+            for mm in range(config.shape[0]):
+                relocate += (Delta_P_im[ii, mm] <=
+                             (1 if config[mm, 2] == 0 else
+                              (1.0/config[mm, 2]) *
+                              sum([sum([baseNodeSufficient[1][ii, jj] *
+                                        (Z1_Heli_jk[jj, kk] -
+                                         sum([Z2_Heli_jkl[jj, kk, ll]
+                                              for ll in range(len(fires))]))
+                                        for kk in range(totalHelis)])
+                                   for jj in range(len(bases))])),
+                             "Correct number of early helis for potential "
+                             "fires config")
+
+        for ii in range(len(patches)):
+            for mm in range(config.shape[0]):
+                relocate += (Delta_P_im[ii, mm] <=
+                             (1 if config[mm, 1] == 0 else
+                              (1.0/config[mm, 1]) *
+                              sum([sum([(1 - baseNodeSufficient[0][ii, jj]) *
+                                        (Z1_Tank_jk[jj, kk] -
+                                         sum([Z2_Tank_jkl[jj, kk, ll]
+                                              for ll in range(len(fires))]))
+                                        for kk in range(totalTankers)])
+                                   for jj in range(len(bases))])),
+                             "Correct number of late tankers for potential "
+                             "fires config")
+
+        for ii in range(len(patches)):
+            for mm in range(config.shape[0]):
+                relocate += (Delta_P_im[ii, mm] <=
+                             (1 if config[mm, 3] == 0 else
+                              (1.0/config[mm, 3]) *
+                              sum([sum([(1 - baseNodeSufficient[1][ii, jj]) *
+                                        (Z1_Heli_jk[jj, kk] -
+                                         sum([Z2_Heli_jkl[jj, kk, ll]
+                                              for ll in range(len(fires))]))
+                                        for kk in range(totalHelis)])
+                                   for jj in range(len(bases))])),
+                             "Correct number of late helis for potential "
+                             "fires config")
+
+        # Possible assignment to fire based on stationing at base
+        for jj in range(len(bases)):
+            for kk in range(totalTankers):
+                for ll in range(len(fires)):
+                    relocate += (Z2_Tank_jkl[jj, kk, ll] <= Z1_Tank_jk[jj, kk],
+                                 "Possible assignment to fires based on base "
+                                 "where stationed - Tankers")
+
+        for jj in range(len(bases)):
+            for kk in range(totalHelis):
+                for ll in range(len(fires)):
+                    relocate += (Z2_Heli_jkl[jj, kk, ll] <= Z1_Heli_jk[jj, kk],
+                                 "Possible assignment to fires based on base "
+                                 "where stationed - Helis")
+
+        # Base relocations only possible if achievable in lookahead period
+        for jj in range(len(bases)):
+            for kk in range(totalTankers):
+                relocate += (Z1_Heli_jk[jj, kk] <=
+                             baseAircraftSufficient[0][jj, kk],
+                             "Base relocations only possible if achievable in "
+                             "lookahead period - Tankers")
+
+        for jj in range(len(bases)):
+            for kk in range(totalTankers):
+                relocate += (Z1_Heli_jk[jj, kk] <=
+                             baseAircraftSufficient[0][jj, kk],
+                             "Base relocations only possible if achievable in "
+                             "lookahead period - Helis")
+
+        # All aircraft assigned to a base
+        for kk in range(totalTankers):
+            relocate += (sum([Z1_Tank_jk[jj, kk]
+                              for jj in range(len(bases))]) == 1,
+                         "All tankers assigned to one and only one base")
+
+        for kk in range(totalHelis):
+            relocate += (sum([Z1_Heli_jk[jj, kk]
+                              for jj in range(len(bases))]) == 1,
+                         "All helis assigned to one and only one base")
+
+        # All aircraft assigned to at most one fire
+        for jj in range(len(bases)):
+            for kk in range(totalTankers):
+                relocate += (sum([Z2_Tank_jkl[jj, kk, ll]
+                                  for ll in range(len(fires))]) == 1,
+                             "All tankers assigned to one and only one base")
+
+        for jj in range(len(bases)):
+            for kk in range(totalHelis):
+                relocate += (sum([Z2_Heli_jkl[jj, kk, ll]
+                                  for ll in range(len(fires))]) == 1,
+                             "All helis assigned to one and only one base")
+
+        # All fires assigned one and only one configuration
+        for ll in range(len(fires)):
+            relocate += (sum([Delta_E_lm[ll, mm]
+                              for mm in range(config.shape[0])]),
+                         "Each fire assigned only one configuration")
+
+        # All patches assigned one and only one configuration
+        for ii in range(len(patches)):
+            relocate += (sum([Delta_P_im[ii, mm]
+                              for mm in range(config.shape[0])]),
+                         "Each fire assigned only one configuration")
+
+        # Limit on aircraft hours
+        for kk in range(totalTankers):
+            relocate += (maxHours[0] >= (
+                    sum([sum([aircraftFireDistances[0][kk, ll] *
+                             Z2_Tank_jkl[jj, kk, ll]
+                             for jj in range(len(bases))])
+                         for ll in range(len(fires))]) +
+                    sum([baseAircraftDistances[0][jj, kk]
+                         for jj in range(len(bases))]) +
+                    cumHours[0][kk]),
+                    "Limit on aircraft hours - Tankers")
+
+        for kk in range(totalHelis):
+            relocate += (maxHours[1] >= (
+                    sum([sum([aircraftFireDistances[1][kk, ll] *
+                             Z2_Tank_jkl[jj, kk, ll]
+                             for jj in range(len(bases))])
+                         for ll in range(len(fires))]) +
+                    sum([baseAircraftDistances[1][jj, kk]
+                         for jj in range(len(bases))]) +
+                    cumHours[1][kk]),
+                    "Limit on aircraft hours - Helis")
+
+        # Limit on availability for fight fire
+        for jj in range(len(bases)):
+            for kk in range(totalTankers):
+                for ll in range(len(fires)):
+                    relocate += (Z2_Tank_jkl[jj, kk, ll] <=
+                                 eta1 + aircraftFiresSufficient[0][kk, ll],
+                                 "Limit on aircraft fighting fire - Tankers")
+
+        for jj in range(len(bases)):
+            for kk in range(totalHelis):
+                for ll in range(len(fires)):
+                    relocate += (Z2_Heli_jkl[jj, kk, ll] <=
+                                 eta1 + aircraftFiresSufficient[1][kk, ll],
+                                 "Limit on aircraft fighting fire - Helis")
+
+        # Limit on aircraft relocations
+        for jj in range(len(bases)):
+            for kk in range(totalTankers):
+                relocate += (Z1_Tank_jk[jj, kk] <=
+                             eta2*baseAircraftThresh[0][jj, kk] + eta3 +
+                             (currentLocs[0][kk] == (jj+1)),
+                             "Limit on aircraft relocations - Tankers")
+
+        for jj in range(len(bases)):
+            for kk in range(totalHelis):
+                relocate += (Z1_Heli_jk[jj, kk] <=
+                             eta2*baseAircraftThresh[1][jj, kk] + eta3 +
+                             (currentLocs[1][kk] == (jj+1)),
+                             "Limit on aircraft relocations - Helis")
+
+        relocate.writeLP("Relocation.lp")
+        relocate.solve()
+
+        # Extract the optimal values for the variables
+        varsdict = {}
+        for var in relocate.variables():
+            varsdict[var.name] = var.varValue
+
+        baseAss = [None]*2
+        baseAss[0] = numpy.zeros(totalTankers)
+        baseAss[1] = numpy.zeros(totalHelis)
+        fireAss = [None]*2
+        fireAss[0] = numpy.zeros(totalTankers)
+        fireAss[1] = numpy.zeros(totalHelis)
+
+        # Tanker assignments
+        for kk in range(totalTankers):
+            baseAssignmentsK = numpy.array(
+                    [varsdict['Z1_Tank_JK_' + str(jj+1) + "_" + str(kk+1)]
+                     for jj in range(len(bases))])
+            baseAss[0][kk] = baseAssignmentsK.index(1)
+
+            fireAssignmentsK = numpy.array(
+                    [varsdict['Z2_Tank_JKL_' + str(baseAss[0][kk]+1) + "_" +
+                              str(kk+1) + "_" + str(ll+1)]
+                     for ll in range(len(fires))])
+
+            if fireAssignmentsK.sum() > 0:
+                fireAss[0][kk] = fireAssignmentsK.index(1)
+
+        # Helicopter assignments
+        for kk in range(totalHelis):
+            baseAssignmentsK = numpy.array(
+                    [varsdict['Z1_Heli_JK_' + str(jj+1) + "_" + str(kk+1)]
+                     for jj in range(len(bases))])
+            baseAss[1][kk] = baseAssignmentsK.index(1)
+
+            fireAssignmentsK = numpy.array(
+                    [varsdict['Z2_Heli_JKL_' + str(baseAss[1][kk]+1) + "_" +
+                              str(kk+1) + "_" + str(ll+1)]
+                     for ll in range(len(fires))])
+
+            if fireAssignmentsK.sum() > 0:
+                fireAss[1][kk] = fireAssignmentsK.index(1)
+
+        tankerIdxes = [ii for ii in range(len(resourceTypes))
+                       if resourceTypes[ii] == 0]
+        heliIdxes = [ii for ii in range(len(resourceTypes))
+                     if resourceTypes[ii] == 1]
+
+        assignmentsNew = numpy.zeros(assignmentsCurr.shape)
+
+        # Base assignments
+        assignmentsNew[tankerIdxes, 0] = baseAss[0]
+        assignmentsNew[tankerIdxes, 1] = fireAss[0]
+
+        # Fire assignments
+        assignmentsNew[heliIdxes, 0] = baseAss[1]
+        assignmentsNew[heliIdxes, 1] = fireAss[1]
+
+        return assignmentsNew
+
+    def expectedDamages(self, expDE, expDP, ffdi, fires, config):
+        # FFDI contains the FFDI in every patch at each time step in the
+        # lookahead. Here, we find the index of the FFDI bin to which each of
+        # these data points belongs.
+        timeSteps = self.model.getTotalSteps()
+        lookahead = self.model.getLookahead()
+        ffdiBins = self.model.getRegion().getFFDIRange()
+        patches = self.model.getPatches()
+
+        expDP_im = numpy.empty([len(patches), config.shape[0]])
+        expDE_lm = numpy.empty([len(fires), config.shape[0]])
+
+        for ii in len(patches):
+            ffdiPath = [numpy.where(ffdiBins <= ffdi[tt][ii])[0][-1]
+                        for tt in range(lookahead)]
+
+            for mm in config.shape[0]:
+                index = ffdiPath.append(mm)
+                expDP_im[ii, mm] = expDP[index]
+
+        for ll in len(fires):
+            ffdiPath = [numpy.where(ffdiBins <=
+                        ffdi[tt][tuple(fires[ll].getLocation())])[0][-1]
+                        for tt in range(lookahead)]
+
+            for mm in config.shape[0]:
+                index = ffdiPath.append(mm)
+                expDE_lm[ll, mm] = expDE[index]
 
     def assignmentsHeuristic(self, assignmentsCurr, fires, cumHoursCurr,
                              currLocs, resourceTypes, baseAssignments, relocs,
@@ -1612,17 +2364,17 @@ class Simulation():
             # start of the next fire
             for fireIdx in range(len(newFireObjs)):
                 fire = newFireObjs[fireIdx]
-                veg = (model.getRegion().getVegetation()[tuple(
+                veg = (self.model.getRegion().getVegetation()[tuple(
                     fire.getLocation())])
-                ffdiRange = (model.getRegion().getVegetations()[veg]
+                ffdiRange = (self.model.getRegion().getVegetations()[veg]
                              .getFFDIRange())
-                rocMeanRange = (model.getRegion().getVegetations[veg]
+                rocMeanRange = (self.model.getRegion().getVegetations[veg]
                                 .getROCA2PerHour()[0])
-                rocSDRange = (model.getRegion().getVegetations[veg]
+                rocSDRange = (self.model.getRegion().getVegetations[veg]
                               .getROCA2PerHour()[1])
-                succTankerRange = (model.getRegion().getVegetations[veg]
+                succTankerRange = (self.model.getRegion().getVegetations[veg]
                                    .getExtinguishingSuccess()[0])
-                succHeliRange = (model.getRegion().getVegetations[veg]
+                succHeliRange = (self.model.getRegion().getVegetations[veg]
                                  .getExtinguishingSuccess()[1])
                 ffdiFire = ffdi[tuple(fire.getLocation())]
 

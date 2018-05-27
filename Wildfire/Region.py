@@ -7,13 +7,13 @@ Created on Sun Dec 10 23:10:43 2017
 
 import numpy
 
-from Process import Process
 
 class Region():
     # Class for defining a study region
 
     def __init__(self):
         # Constructs an instance
+        self.ffdiRange = numpy.empty(0)
         self.patches = []
         self.stations = []
         self.x = numpy.empty([0, 0])
@@ -48,6 +48,12 @@ class Region():
         self.name = ""
         self.expectedDamagePotential = numpy.empty([0, 0])
         self.expectedDamageExisting = numpy.empty([0, 0])
+
+    def getFFDIRange(self):
+        return self.ffdiRange
+
+    def setFFDIRange(self, r):
+        self.ffdiRange = r
 
     def getPatches(self):
         return self.patches
