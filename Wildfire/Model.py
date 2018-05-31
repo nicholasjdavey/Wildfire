@@ -9,6 +9,7 @@ import numpy
 import math
 import csv
 import copy
+import time
 
 from Control import Control
 from Patch import Patch
@@ -685,13 +686,20 @@ class Model():
             iterator = 3
             test = True
 
-            occW2W = numpy.empty([len(self.region.getX()), self.totalSteps])
-            occD2W = numpy.empty([len(self.region.getX()), self.totalSteps])
+            occW2W = numpy.empty([len(self.region.getX()), self.totalSteps +
+                                  self.lookahead])
+            occD2W = numpy.empty([len(self.region.getX()), self.totalSteps +
+                                  self.lookahead])
 
             for ii in range(len(self.region.getX())):
-                for jj in range(self.totalSteps):
-                    occD2W[ii, jj] = float(rows[ii + iterator][2*(jj+1)-1])
-                    occW2W[ii, jj] = float(rows[ii + iterator][2*(jj+1)])
+                occD2W[ii] = numpy.array(
+                        rows[iterator + ii][1:((self.totalSteps +
+                                                self.lookahead)*2 + 1):2],
+                        dtype=float)
+                occD2W[ii] = numpy.array(
+                        rows[iterator + ii][2:((self.totalSteps +
+                                                self.lookahead)*2 + 2):2],
+                        dtype=float)
 
             wg.setWetProbT0Wet(occW2W)
             wg.setWetProbT0Dry(occD2W)
@@ -703,8 +711,9 @@ class Model():
                                   len(self.region.getX())])
 
             for ii in range(len(self.region.getX())):
-                for jj in range(len(self.region.getX())):
-                    occCov[ii, jj] = float(rows[iterator + ii][jj+1])
+                occCov[ii] = numpy.array(
+                        rows[iterator + ii][1:(len(self.region.getX())+1)],
+                        dtype=float)
 
             wg.setWetOccurrenceCovariance(occCov)
 
@@ -715,46 +724,57 @@ class Model():
                                            len(self.region.getX())])
 
             for ii in range(len(self.region.getX())):
-                for jj in range(len(self.region.getX())):
-                    precipAmountCov[ii, jj] = float(rows[iterator + ii][jj+1])
+                precipAmountCov[ii, :] = numpy.array(
+                        rows[iterator + ii][1:(len(self.region.getX())+1)],
+                        dtype=float)
 
             wg.setPrecipAmountCovariance(precipAmountCov)
 
             iterator = iterator + 3 + len(self.region.getX())
 
             # Precipitation amount parameters
-            alphas = numpy.empty([self.totalSteps])
-
-            for ii in range(self.totalSteps):
-                alphas[ii] = float(rows[iterator][2*ii+1])
+            alphas = numpy.array(
+                    rows[iterator][1:((self.totalSteps +
+                                      self.lookahead)*2 + 1):2],
+                    dtype=float)
 
             wg.setPrecipAlpha(alphas)
 
             iterator = iterator + 2
 
             betas = []
-            betas.append(numpy.empty([self.totalSteps,
+            betas.append(numpy.empty([self.totalSteps + self.lookahead,
                                       len(self.region.getX())]))
-            betas.append(numpy.empty([self.totalSteps,
+            betas.append(numpy.empty([self.totalSteps + self.lookahead,
                                       len(self.region.getX())]))
 
             for ii in range(len(self.region.getX())):
-                for jj in range(self.totalSteps):
-                    betas[0][jj][ii] = float(rows[iterator+ii][jj*2+1])
-                    betas[1][jj][ii] = float(rows[iterator+ii][jj*2+2])
+                betas[0][:, ii] = numpy.array(
+                        rows[iterator + ii][1:((self.totalSteps +
+                                                self.lookahead)*2 + 1):2],
+                        dtype=float)
+                betas[1][:, ii] = numpy.array(
+                        rows[iterator + ii][2:((self.totalSteps +
+                                                self.lookahead)*2 + 2):2],
+                        dtype=float)
 
             wg.setPrecipBetas(betas)
 
             iterator = iterator + 3 + len(self.region.getX())
 
-            remainingMean = numpy.empty(self.totalSteps)
-            remainingSD = numpy.empty(self.totalSteps)
-            precipCont = numpy.empty(self.totalSteps)
+            remainingMean = numpy.empty(self.totalSteps + self.lookahead)
+            remainingSD = numpy.empty(self.totalSteps + self.lookahead)
+            precipCont = numpy.empty(self.totalSteps + self.lookahead)
 
-            for ii in range(self.totalSteps):
-                remainingMean[ii] = float(rows[iterator][ii+1])
-                remainingSD[ii] = float(rows[iterator+1][ii+1])
-                precipCont[ii] = float(rows[iterator+2][ii+1])
+            remainingMean = numpy.array(
+                    rows[iterator][1:(self.totalSteps + self.lookahead + 1)],
+                    dtype=float)
+            remainingSD = numpy.array(
+                    rows[iterator+1][1:(self.totalSteps + self.lookahead + 1)],
+                    dtype=float)
+            precipCont = numpy.array(
+                    rows[iterator+2][1:(self.totalSteps + self.lookahead + 1)],
+                    dtype=float)
 
             wg.setHumidityReductionMean(remainingMean)
             wg.setHumidityReductionSD(remainingSD)
@@ -766,27 +786,38 @@ class Model():
                                                 len(self.region.getX())])
 
             for ii in range(len(self.region.getX())):
-                for jj in range(len(self.region.getX())):
-                    humidityCorrelations[ii][jj] = float(rows[iterator + ii][
-                                                         jj+1])
+                humidityCorrelations[ii] = numpy.array(
+                        rows[iterator + ii][1:(len(self.region.getX())+1)],
+                        dtype=float)
 
             iterator = iterator + 2 + len(self.region.getX())
 
             # Temperature parameters
             # Means and Standard Deviations
-            meanTempWet = numpy.empty([self.totalSteps])
-            meanTempDry = numpy.empty([self.totalSteps])
-            tempSDWet = numpy.empty([self.totalSteps])
-            tempSDDry = numpy.empty([self.totalSteps])
+            meanTempWet = numpy.empty([self.totalSteps + self.lookahead])
+            meanTempDry = numpy.empty([self.totalSteps + self.lookahead])
+            tempSDWet = numpy.empty([self.totalSteps + self.lookahead])
+            tempSDDry = numpy.empty([self.totalSteps + self.lookahead])
 
             wg.setTempReversion(float(rows[iterator][1]))
-            iterator = iterator + 2
+            iterator = iterator + 1
 
-            for ii in range(self.totalSteps):
-                meanTempWet[ii] = float(rows[iterator][ii*4+1])
-                meanTempDry[ii] = float(rows[iterator][ii*4+2])
-                tempSDWet[ii] = float(rows[iterator][ii*4+3])
-                tempSDDry[ii] = float(rows[iterator][ii*4+4])
+            meanTempWet = numpy.array(
+                    rows[iterator][1:((self.totalSteps +
+                                   self.lookahead)*4 + 1):4],
+                    dtype=float)
+            meanTempDry = numpy.array(
+                    rows[iterator][2:((self.totalSteps +
+                                   self.lookahead)*4 + 2):4],
+                    dtype=float)
+            tempSDWet = numpy.array(
+                    rows[iterator][3:((self.totalSteps +
+                                   self.lookahead)*4 + 3):4],
+                    dtype=float)
+            tempSDDry = numpy.array(
+                    rows[iterator][4:((self.totalSteps +
+                                   self.lookahead)*4 + 4):4],
+                    dtype=float)
 
             wg.setTempMeanWet(meanTempWet)
             wg.setTempMeanDry(meanTempDry)
@@ -795,14 +826,15 @@ class Model():
 
             iterator = iterator + 2
 
-            tempAlphas = []
-            for ii in range(self.totalSteps):
+            tempAlphas = [None]*(self.totalSteps + self.lookahead)
+
+            for ii in range(self.totalSteps + self.lookahead):
                 ta = numpy.zeros([2*len(self.region.getX()),
                                   2*len(self.region.getX())])
-                tempAlphas.append(ta)
+                tempAlphas[ii] = ta
 
             for ii in range(len(self.region.getX())):
-                for jj in range(self.totalSteps):
+                for jj in range(self.totalSteps + self.lookahead):
                     tempAlphas[jj][2*ii][ii*2] = (
                         float(rows[iterator+ii][jj*4+1]))
                     tempAlphas[jj][2*ii][ii*2+1] = (
@@ -816,18 +848,18 @@ class Model():
 
             iterator = iterator + 3 + len(self.region.getX())
 
-            tempBetas = []
-            for ii in range(self.totalSteps):
+            tempBetas = [None]*(self.totalSteps + self.lookahead)
+            for ii in range(self.totalSteps + self.lookahead):
                 tb = numpy.zeros([2*len(self.region.getX()),
                                   2*len(self.region.getX())])
 
                 for jj in range(2*len(self.region.getX())):
-                    for kk in range(2*len(self.region.getX())):
-                        tb[jj][kk] = float(rows[iterator+jj][kk+2])
-                        if abs(tb[jj][kk]) > 1:
-                            tb[jj][kk] = 0.0
+                    tb[jj] = numpy.array(
+                            rows[iterator + jj][
+                                    2:(len(self.region.getX())*2 + 2)],
+                            dtype=float)
 
-                tempBetas.append(tb)
+                tempBetas[ii] = tb
                 iterator = iterator + 2*len(self.region.getX())
 
             wg.setTempB(tempBetas)
@@ -848,22 +880,27 @@ class Model():
 
             wg.setWindRegimeTransitions(regimeTransitions)
 
-            iterator = iterator + wg.getWindRegimes() + 2
-
-            # Means and Standard Deviations
-            meanWindNS = numpy.empty([self.totalSteps])
-            meanWindEW = numpy.empty([self.totalSteps])
-            windSDNS = numpy.empty([self.totalSteps])
-            windSDEW = numpy.empty([self.totalSteps])
+            iterator = iterator + wg.getWindRegimes() + 3
 
             wg.setWindReversion(float(rows[iterator][1]))
-            iterator = iterator + 2
+            iterator = iterator + 1
 
-            for ii in range(self.totalSteps):
-                meanWindNS[ii] = float(rows[iterator][ii*4+1])
-                meanWindEW[ii] = float(rows[iterator][ii*4+2])
-                windSDNS[ii] = float(rows[iterator][ii*4+3])
-                windSDEW[ii] = float(rows[iterator][ii*4+4])
+            meanWindNS = numpy.array(
+                    rows[iterator][1:((self.totalSteps +
+                                       self.lookahead)*4 + 1):4],
+                    dtype=float)
+            meanWindEW = numpy.array(
+                    rows[iterator][2:((self.totalSteps +
+                                       self.lookahead)*4 + 2):4],
+                    dtype=float)
+            windSDNS = numpy.array(
+                    rows[iterator][3:((self.totalSteps +
+                                       self.lookahead)*4 + 3):4],
+                    dtype=float)
+            windSDEW = numpy.array(
+                    rows[iterator][4:((self.totalSteps +
+                                       self.lookahead)*4 + 4):4],
+                    dtype=float)
 
             wg.setWindMeanNS(meanWindNS)
             wg.setWindMeanEW(meanWindEW)
@@ -872,19 +909,19 @@ class Model():
 
             iterator = iterator + 2
 
-            windAlphas = []
+            windAlphas = [None]*wg.getWindRegimes()
 
             for ii in range(wg.getWindRegimes()):
                 wa = numpy.zeros([2*len(self.region.getX()),
                                   2*len(self.region.getX())])
 
                 for jj in range(2*len(self.region.getX())):
-                    for kk in range(2*len(self.region.getX())):
-                        wa[jj][kk] = float(rows[iterator+jj][kk+2])
-                        if abs(wa[jj][kk]) > 1:
-                            wa[jj][kk] = 0.0
+                    wa[jj] = numpy.array(
+                            rows[iterator + jj][2:(2*len(self.region.getX()) +
+                                                   2)],
+                            dtype=float)
 
-                windAlphas.append(wa)
+                windAlphas[ii] = wa
 
                 iterator = iterator + 2*len(self.region.getX())
 
@@ -892,19 +929,19 @@ class Model():
 
             iterator = iterator + 3
 
-            windBetas = []
+            windBetas = [None]*wg.getWindRegimes()
 
             for ii in range(wg.getWindRegimes()):
                 wb = numpy.zeros([2*len(self.region.getX()),
                                   2*len(self.region.getX())])
 
                 for jj in range(2*len(self.region.getX())):
-                    for kk in range(2*len(self.region.getX())):
-                        wb[jj][kk] = float(rows[iterator+jj][kk+2])
-                        if abs(wb[jj][kk]) > 1:
-                            wb[jj][kk] = 0.0
+                    wb[jj] = numpy.array(
+                            rows[iterator + jj][2:(2*len(self.region.getX()) +
+                                                   2)],
+                            dtype=float)
 
-                windBetas.append(wb)
+                windBetas[ii] = wb
 
                 iterator = iterator + 2*len(self.region.getX())
 
