@@ -340,7 +340,8 @@ class WeatherGenerator():
                                       (tempMin[time] - meanDryMin) /
                                       sdDryMin) +
                        numpy.multiply(rain[time],
-                                      (tempMin[time] - meanWetMin) / sdWetMin))
+                                      (tempMin[time] - meanWetMin) /
+                                      sdWetMin))
                       .reshape(regionSize, 1))
 
         tempMaxStd = ((numpy.multiply(1 - rain[time],
@@ -386,8 +387,8 @@ class WeatherGenerator():
         # scale based on the ratio of the size of these random numbers relative
         # to their appropriate standard deviations (depending on whether the
         # location is wet or dry this period).
-        tempMinSD = ((numpy.multiply(1 - rain[time+1],
-                                     numpy.ones(len(rain[time+1])) *
+        tempMinSD = ((numpy.multiply(1 - rain[time],
+                                     numpy.ones(len(rain[time])) *
                                      self.tempSDDry[time] / sdDryMin) +
                       numpy.multiply(rain[time],
                                      numpy.ones(len(rain[time])) *

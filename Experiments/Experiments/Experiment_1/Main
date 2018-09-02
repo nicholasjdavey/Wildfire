@@ -83,9 +83,9 @@ Weather Uncertainty        : 1
 Time Steps                 : 15
 Step Size (Hours)          : 1
 Daylight Hours Per Day     : 15
-ROV Paths                  : 5
+ROV Paths                  : 10
 Relocation LP Method       : 0
 Lookahead                  : 5
 Cover Time (minutes)       : 20
-MC Paths (where needed)    : 2000
+MC Paths (where needed)    : 100
 Time discount factor       : 0.7

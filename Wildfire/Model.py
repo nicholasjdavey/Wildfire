@@ -601,7 +601,7 @@ class Model():
                     x[ii] = float(rows[iterator][1])
                     y[ii] = float(rows[iterator][2])
                     z[ii] = float(rows[iterator][3])
-                    veg[ii] = int(rows[iterator][4])
+                    veg[ii] = int(rows[iterator][4]) - 1
                     north[ii] = int(rows[iterator][5])
                     south[ii] = int(rows[iterator][6])
                     east[ii] = int(rows[iterator][7])
@@ -696,7 +696,7 @@ class Model():
                         rows[iterator + ii][1:((self.totalSteps +
                                                 self.lookahead)*2 + 1):2],
                         dtype=float)
-                occD2W[ii] = numpy.array(
+                occW2W[ii] = numpy.array(
                         rows[iterator + ii][2:((self.totalSteps +
                                                 self.lookahead)*2 + 2):2],
                         dtype=float)
@@ -800,7 +800,7 @@ class Model():
             tempSDDry = numpy.empty([self.totalSteps + self.lookahead])
 
             wg.setTempReversion(float(rows[iterator][1]))
-            iterator = iterator + 1
+            iterator = iterator + 2
 
             meanTempWet = numpy.array(
                     rows[iterator][1:((self.totalSteps +
@@ -880,10 +880,10 @@ class Model():
 
             wg.setWindRegimeTransitions(regimeTransitions)
 
-            iterator = iterator + wg.getWindRegimes() + 3
+            iterator = iterator + wg.getWindRegimes() + 2
 
             wg.setWindReversion(float(rows[iterator][1]))
-            iterator = iterator + 1
+            iterator = iterator + 2
 
             meanWindNS = numpy.array(
                     rows[iterator][1:((self.totalSteps +

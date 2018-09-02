@@ -9,6 +9,10 @@ import numpy
 import math
 import copy
 import pulp
+import os
+import time
+import multiprocessing as mp
+
 from Fire import Fire
 
 
@@ -88,7 +92,7 @@ class Simulation():
         # Generate exogenous forward paths for weather and fire starts and save
         # The forward paths are just the Danger Indices at each location
         exogenousPaths = self.forwardPaths()
-        self.model.computeExpectedDamageStatistical()
+        self.model.computeExpectedDamageStatistical(exogenousPaths)
 
         # Generate random control paths and store
         randCont = self.randomControls()
@@ -104,13 +108,37 @@ class Simulation():
                            damageMaps)
 
     def forwardPaths(self):
+        os.system("taskset -p 0xff %d" % os.getpid())
         # We don't need to store the precipitation, wind, and temperature
         # matrices over time. We only need the resulting danger index
 
-        paths = []
+        paths = [None]*self.model.getROVPaths()
 
-        for path in range(self.model.getROVPaths()):
-            paths.append(self.initialForwardPath())
+#        start = time.time()
+#        with mp.Pool(processes=len(os.sched_getaffinity(0))) as pool:
+#            r = pool.map_async(self.initialForwardPath,
+#                               range(self.model.getROVPaths()))
+#            r.wait()
+#        print(time.time() - start)
+
+#        start = time.time()
+#        with mp.Pool(processes=5) as pool:
+#            future_res = [pool.apply_async(self.initialForwardPath)
+#                          for _ in range(self.model.getROVPaths())]
+#
+#            paths = [f.get() for f in future_res]
+#        print(time.time() - start)
+
+#        start = time.time()
+#        paths = jl.Parallel(n_jobs=8)(
+#            jl.delayed(self.initialForwardPath
+#                       for ii in range(self.model.getROVPaths())))
+#        print(time.time() - start)
+
+#        start = time.time()
+        for pathNo in range(self.model.getROVPaths()):
+            paths[pathNo] = self.initialForwardPath()
+#        print(time.time() - start)
 
         return paths
 
@@ -150,21 +178,21 @@ class Simulation():
         timeSteps = self.model.getTotalSteps()
         lookahead = self.model.getLookahead()
 
-        rain = numpy.empty([timeSteps+1+lookahead, regionSize])
+        rain = numpy.zeros([timeSteps+1+lookahead, regionSize])
         rain[0] = region.getRain()
-        precipitation = numpy.empty([timeSteps+1+lookahead, regionSize])
+        precipitation = numpy.zeros([timeSteps+1+lookahead, regionSize])
         precipitation[0] = region.getHumidity()
-        temperatureMin = numpy.empty([timeSteps+1+lookahead, regionSize])
+        temperatureMin = numpy.zeros([timeSteps+1+lookahead, regionSize])
         temperatureMin[0] = region.getTemperatureMin()
-        temperatureMax = numpy.empty([timeSteps+1+lookahead, regionSize])
+        temperatureMax = numpy.zeros([timeSteps+1+lookahead, regionSize])
         temperatureMax[0] = region.getTemperatureMax()
-        windNS = numpy.empty([timeSteps+1+lookahead, regionSize])
+        windNS = numpy.zeros([timeSteps+1+lookahead, regionSize])
         windNS[0] = region.getWindN()
-        windEW = numpy.empty([timeSteps+1+lookahead, regionSize])
+        windEW = numpy.zeros([timeSteps+1+lookahead, regionSize])
         windEW[0] = region.getWindE()
-        FFDI = numpy.empty([timeSteps+1+lookahead, regionSize])
+        FFDI = numpy.zeros([timeSteps+1+lookahead, regionSize])
         FFDI[0] = region.getDangerIndex()
-        windRegimes = numpy.empty([timeSteps+1+lookahead])
+        windRegimes = numpy.zeros([timeSteps+1+lookahead])
         windRegimes[0] = region.getWindRegime()
 
         wg = region.getWeatherGenerator()
@@ -194,7 +222,7 @@ class Simulation():
         assignments = [None]*(timeSteps+1)
         currLocs = [None]*(timeSteps+1)
         cumHours = [None]*(timeSteps+1)
-        cumDamage = numpy.empty(timeSteps+1)
+        cumDamage = numpy.zeros(timeSteps+1)
         # Initial cumulative damage is zero (we don't care what happened prior
         # to our study period).
         cumDamage[0] = 0.0
@@ -203,7 +231,7 @@ class Simulation():
         currLocs[0] = initialLocs
         cumHours[0] = cumHours0
 
-        fires = [None]*(self.model.getTimeSteps()+1)
+        fires = [None]*(self.model.getTotalSteps()+1)
         fires[0] = initialFires
 
         for ii in range(timeSteps):
@@ -219,7 +247,7 @@ class Simulation():
                 currLocs[ii],
                 cumHours[ii],
                 resourceTypes,
-                ep[ii:(ii + lookahead - 1)],
+                ep[ii:(ii + lookahead)],
                 locationProgram)
 
             # Given the locations found for this control, update the fire
@@ -245,7 +273,7 @@ class Simulation():
         initialLocations = []
         resourceTypes = []
         cumHours = []
-        resources = self.model.getRegion().getResourceTypes()
+        resources = self.model.getResourceTypes()
 
         for airStrip in self.model.getRegion().getStations()[0]:
             currentTankers = airStrip.getAirTankers()
@@ -285,8 +313,8 @@ class Simulation():
         return [initialFires, initialAss, initialLocations, cumHours,
                 resourceTypes]
 
-    def comparator(self, ffdi, time):
-        comparators = numpy.empty(self.region.getX().size(), 1)
+    def comparator(self, ffdi, tt):
+        comparators = numpy.zeros(self.region.getX().size(), 1)
         # Serial
         for ii in range(self.region.getX().size):
             # Linear interpolation. Assume ffdis evenly spaced
@@ -294,7 +322,7 @@ class Simulation():
             ffdiRange = self.region.getVegetations[veg].getFFDIRange()
             occurrenceProbs = self.region.getVegetations[veg].getOccurrence()
             ffdis = ffdiRange.size
-            ffdiMinIdx = math.floor((ffdi[time][ii] - ffdiRange[0])*(ffdis-1) /
+            ffdiMinIdx = math.floor((ffdi[tt][ii] - ffdiRange[0])*(ffdis-1) /
                                     (ffdiRange[ffdis] - ffdiRange[0]))
             ffdiMaxIdx = ffdiMinIdx + 1
 
@@ -305,7 +333,7 @@ class Simulation():
                 ffdiMinIdx = ffdis - 2
                 ffdiMaxIdx = ffdis - 1
 
-            xd = ((ffdi[time][ii] - ffdiRange[ffdiMinIdx]) /
+            xd = ((ffdi[tt][ii] - ffdiRange[ffdiMinIdx]) /
                   (ffdiRange[ffdiMaxIdx] - ffdiRange[ffdiMinIdx]))
 
             comparators[ii] = (xd * occurrenceProbs[ffdiMinIdx] +
@@ -333,11 +361,11 @@ class Simulation():
                  cumHoursCurr, resourceTypes, ffdi):
         # We only consider the maximum cover of 1 tanker and 1 helicopter for
         # now
-        maxCoverDists = numpy.empty(2)
+        maxCoverDists = numpy.zeros(2)
         lookahead = self.model.getLookahead()
         patches = self.model.getRegion().getPatches()
         bases = self.model.getRegion().getStations()
-        speed = numpy.empty(2)
+        speed = numpy.zeros(2)
         totalTankers = numpy.sum(resourceTypes == 0)
         totalHelis = numpy.sum(resourceTypes == 1)
         lambda1 = self.model.getControls()[randCont].getLambda1()
@@ -359,11 +387,11 @@ class Simulation():
         baseHPrev = [sum(assignmentsCurr[resourceTypes == 1, 0] == jj)
                      for jj in range(len(bases))]
         basesX = numpy.array([
-                self.model.getRegion().getStations()[ii].getLocation()[0]
-                for ii in range(len(self.model.getRegion().getPatches()))])
+                self.model.getRegion().getStations()[0][ii].getLocation()[0]
+                for ii in range(len(bases))])
         basesY = numpy.array([
-                self.model.getRegion().getStations()[ii].getLocation()[1]
-                for ii in range(len(patches))])
+                self.model.getRegion().getStations()[0][ii].getLocation()[1]
+                for ii in range(len(bases))])
         firesX = numpy.array([
                 fires[ii].getLocation()[0]
                 for ii in range(len(fires))]).reshape(len(fires), 1)
@@ -379,18 +407,18 @@ class Simulation():
         expectedNewFiresPatches = numpy.zeros([lookahead, len(patches)])
 
         # Expected fires over the lookahead period
-        for time in range(lookahead):
+        for tt in range(lookahead):
             for patch in range(len(patches)):
-                veg = self.model.getRegion().getVegetation()[patch]
+                veg = int(self.model.getRegion().getVegetation()[patch])
                 occurrenceProbsRange = (
-                    self.model.getRegion().getVegetation()[veg]
+                    self.model.getRegion().getVegetations()[veg]
                         .getOccurrence())
                 ffdiRange = (
-                        self.model.getRegion().getVegetations[veg]
+                        self.model.getRegion().getVegetations()[veg]
                         .getFFDIRange())
                 ffdis = ffdiRange.size
                 ffdiMinIdx = math.floor(
-                    (ffdi[time][patch] - ffdiRange[0])*(ffdis-1) /
+                    (ffdi[tt][patch] - ffdiRange[0])*(ffdis-1) /
                     (ffdiRange[ffdis-1] - ffdiRange[0]))
                 ffdiMaxIdx = ffdiMinIdx + 1
 
@@ -401,11 +429,11 @@ class Simulation():
                     ffdiMinIdx = ffdis - 2
                     ffdiMaxIdx = ffdis - 1
 
-                xd = ((ffdi[time][patch] - ffdiRange[ffdiMinIdx]) /
+                xd = ((ffdi[tt][patch] - ffdiRange[ffdiMinIdx]) /
                       (ffdiRange[ffdiMaxIdx] - ffdiRange[ffdiMinIdx]))
 
-                expectedNewFiresPatches[time, patch] = (
-                        expectedNewFiresPatches[time, patch] +
+                expectedNewFiresPatches[tt, patch] = (
+                        expectedNewFiresPatches[tt, patch] +
                         xd*occurrenceProbsRange[ffdiMinIdx] +
                         (1 - xd)*occurrenceProbsRange[ffdiMaxIdx])
 
@@ -424,8 +452,9 @@ class Simulation():
         accessibleFiresBaseE = [None]*2
 
         for ii in range(2):
-            accessibleFiresBaseP[ii] = numpy.matmul(baseNodeSufficient[ii],
-                                                    expectedNewFiresPatches)
+            accessibleFiresBaseP[ii] = numpy.matmul(
+                    expectedNewFiresPatches.sum(axis=0),
+                    baseNodeSufficient[ii])
             accessibleFiresBaseE[ii] = numpy.sum(baseFiresSufficient[ii],
                                                  axis=0)
 
@@ -667,7 +696,7 @@ class Simulation():
             varsdict[var.name] = var.varValue
 
         # Base assignments
-        baseAss = numpy.empty([bases, 2])
+        baseAss = numpy.zeros([bases, 2])
         for base in range(len(bases)):
             # Tankers
             baseAss[base, 0] = varsdict['X2_Tank_T_' + str(base+1)]
@@ -676,8 +705,8 @@ class Simulation():
 
         # Relocations
         relocs = []
-        relocs.append(numpy.empty([len(bases), len(bases)]))
-        relocs.append(numpy.empty([len(bases), len(bases)]))
+        relocs.append(numpy.zeros([len(bases), len(bases)]))
+        relocs.append(numpy.zeros([len(bases), len(bases)]))
 
         for base1 in range(len(bases)):
             for base2 in range(len(bases)):
@@ -701,7 +730,7 @@ class Simulation():
         lookahead = self.model.getLookahead()
         patches = self.model.getRegion().getPatches()
         bases = self.model.getRegion().getStations
-        speed = numpy.empty(2)
+        speed = numpy.zeros(2)
         totalTankers = numpy.sum(resourceTypes == 0)
         totalHelis = numpy.sum(resourceTypes == 1)
         lambda1 = self.model.getControls()[randCont].getLambda1()
@@ -929,7 +958,7 @@ class Simulation():
             varsdict[var.name] = var.varValue
 
         # Base assignments
-        baseAss = numpy.empty([bases, 2])
+        baseAss = numpy.zeros([bases, 2])
         for base in range(len(bases)):
             # Tankers
             baseAss[base, 0] = varsdict['X2_Tank_T_' + str(base)]
@@ -938,8 +967,8 @@ class Simulation():
 
         # Relocations
         relocs = []
-        relocs.append(numpy.empty([len(bases), len(bases)]))
-        relocs.append(numpy.empty([len(bases), len(bases)]))
+        relocs.append(numpy.zeros([len(bases), len(bases)]))
+        relocs.append(numpy.zeros([len(bases), len(bases)]))
 
         for base1 in range(len(bases)):
             for base2 in range(len(bases)):
@@ -968,7 +997,7 @@ class Simulation():
         lambda2 = self.model.getControls()[randCont].getLambda2()
 
         # We need threshold for early and late attacks
-        maxCoverDists = numpy.empty(2)
+        maxCoverDists = numpy.zeros(2)
         speed = numpy.zero(2)
         maxHours = numpy.zero(2)
         maxDistLookahead = numpy.zero(2)
@@ -1066,7 +1095,7 @@ class Simulation():
         # Arrangement is
         # TE|TL|HE|HL
         submat = numpy.array(range(0, 3)).reshape((3, 1))
-        config = numpy.empty([81, 4])
+        config = numpy.zeros([81, 4])
 
         for ii in range(4):
             config[:, ii] = numpy.tile(numpy.repeat(submat, 3**(3 - ii),
@@ -1469,8 +1498,8 @@ class Simulation():
         eta3 = self.model.getControls()[randCont].getEta3()
 
         # We need threshold for early and late attacks
-        maxCoverDists = numpy.empty(2)
-        maxReloc = numpy.empty(2)
+        maxCoverDists = numpy.zeros(2)
+        maxReloc = numpy.zeros(2)
         speed = numpy.zero(2)
         maxHours = numpy.zero(2)
         maxDistLookahead = numpy.zero(2)
@@ -1578,7 +1607,7 @@ class Simulation():
         # Arrangement is
         # TE|TL|HE|HL
         submat = numpy.array(range(0, 3)).reshape((3, 1))
-        config = numpy.empty([81, 4])
+        config = numpy.zeros([81, 4])
 
         for ii in range(4):
             config[:, ii] = numpy.tile(numpy.repeat(submat, 3**(3 - ii),
@@ -1992,8 +2021,8 @@ class Simulation():
         ffdiBins = self.model.getRegion().getFFDIRange()
         patches = self.model.getPatches()
 
-        expDP_im = numpy.empty([len(patches), config.shape[0]])
-        expDE_lm = numpy.empty([len(fires), config.shape[0]])
+        expDP_im = numpy.zeros([len(patches), config.shape[0]])
+        expDE_lm = numpy.zeros([len(fires), config.shape[0]])
 
         for ii in len(patches):
             ffdiPath = [numpy.where(ffdiBins <= ffdi[tt][ii])[0][-1]
@@ -2156,7 +2185,7 @@ class Simulation():
         # distance, in which case we can assign another one tanker and one
         # helicopter.
         # Travel speeds of the two types of aircraft
-        travelSpeeds = numpy.empty(2)
+        travelSpeeds = numpy.zeros(2)
 
         for aircraft in range(2):
             travelSpeeds[aircraft] = (self.modelGetResourceTypes()[aircraft]
@@ -2309,7 +2338,7 @@ class Simulation():
                                len(occurrenceProbPatches))))).astype(int)
 
         totalNewFires = noFiresPerPatch.sum()
-        newFires = numpy.empty(totalNewFires)
+        newFires = numpy.zeros(totalNewFires)
         iterator = 0
         nonZeroPatches = numpy.nonzero(noFiresPerPatch)
 
@@ -2488,7 +2517,7 @@ class Simulation():
 
         # Extinguishing success for each type of aircraft. We only have
         # tankers and helicopters for now.
-        svs = numpy.empty(2)
+        svs = numpy.zeros(2)
         svs[0] = (xd*succTankerRange[ffdiMinIdx] + (1 - xd) *
                   succTankerRange[ffdiMaxIdx])
         svs[1] = (xd*succHeliRange[ffdiMinIdx] + (1 - xd) *
@@ -2773,8 +2802,8 @@ class Simulation():
                                resourceTypes, fireLoc, timeToFight):
         # Get available aircraft first
         resources = model.getRegion().getResourceTypes()
-        maxDaily = numpy.empty(2)
-        speed = numpy.empty(2)
+        maxDaily = numpy.zeros(2)
+        speed = numpy.zeros(2)
         speed[0] = resources[0].getSpeed()
         speed[1] = resources[1].getSpeed()
         maxDaily[0] = resources[0].getMaxDailyHours()
@@ -2824,7 +2853,7 @@ class Simulation():
 
         for t in range(lookahead):
             iterator = 0
-            ffdiAgg[t] = numpy.empty(patches)
+            ffdiAgg[t] = numpy.zeros(patches)
 
             for patch in self.model.getRegion().getPatches():
                 ffdiAgg[t][iterator] = (sum([ffdi[ii-1]
