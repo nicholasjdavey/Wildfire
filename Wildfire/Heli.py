@@ -5,8 +5,6 @@ Created on Sun Dec 10 23:35:45 2017
 @author: davey
 """
 
-import numpy
-
 from Resource import Resource
 from datetime import timedelta
 
@@ -17,7 +15,7 @@ class Heli(Resource):
     def __init__(self):
         # Constructs an instance
         Resource.__init__(self)
-        self.flyingHOurs = timedelta(hours = 0)
+        self.flyingHours = timedelta(hours = 0)
         self.maxDailyHours = timedelta(hours = 0)
 
     def getFlyingHours(self):

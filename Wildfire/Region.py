@@ -42,6 +42,7 @@ class Region():
         self.expectedExistingDamage = []
         self.fires = []
         self.vegetations = []
+        self.resources = []
         self.airTankers = []
         self.helicopters = []
         self.firetrucks = []
@@ -204,6 +205,12 @@ class Region():
 
     def setVegetations(self, v):
         self.vegetations = v
+
+    def getResources(self):
+        return self.resources
+
+    def setResources(self, r):
+        self.resources = r
 
     def getAirTankers(self):
         return self.airTankers

@@ -5,18 +5,16 @@ Created on Sun Dec 10 23:33:07 2017
 @author: davey
 """
 
-import numpy
-
 
 class VariableParameters():
     # Class for defining the parameters of the scenario currently being tested
 
     def __init__(self):
         # Constructs an instance
-        speedMultipliers = []
-        occurrenceProbMultipliers = []
-        damageIntensityMultipliers = []
-        weatherUncertMultipliers = []
+        self.speedMultipliers = []
+        self.occurrenceProbMultipliers = []
+        self.damageIntensityMultipliers = []
+        self.weatherUncertMultipliers = []
 
     def getSpeedMultipliers(self):
         return self.speedMultipliers

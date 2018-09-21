@@ -29,6 +29,7 @@ Aircraft Bases Data File  : Experiments/Input_Data/Regions/Region_1/Bases
 ## AIRCRAFT DATA
 ###############################################################################
 # Add as many lines as needed for each aircraft type. Provide the source file.
+Configurations DataFile   : Experiments/Input_Data/Aircraft/Configurations.csv
 Number of Aircraft Used   : 2
 Aircraft 1                : Experiments/Input_Data/Aircraft/Tanker
 Aircraft 2                : Experiments/Input_Data/Aircraft/Helicopter
@@ -37,20 +38,17 @@ Aircraft 2                : Experiments/Input_Data/Aircraft/Helicopter
 ## FIRETRUCK DATA
 ###############################################################################
 # Add as many lines as needed for each firetruck type. Provide the source file.
-Number of Aircraft Used   : 1
+Number of Landcraft Used  : 1
 Firetruck 1               : Experiments/Input_Data/Land/Truck
 
 ###############################################################################
-## OCCURRENCE DATA
+## PROBABILITIES
 ###############################################################################
-## VEGETATION AND WEATHER JOINT FIRE PROBABILITY
-Source File               : Experiments/Input_Data/Regions/Region_1/Probabilities/Occurrence.csv
-
-###############################################################################
-## EXPECTED DAMAGE DATA - (NOT USED FOR NOW)
-###############################################################################
-## CONFIGURATION, TIMELINESS, VEGETATION JOINT PROBABILITY
-Source File                : Experiments/Input_Data/Regions/Region_1/Probabilities/Expected_Damage.csv
+## VEGETATION AND WEATHER JOINT FIRE PROBABILITIES
+VEGETATIONS               : 3
+Vegetation 1              : Experiments/Input_Data/Regions/Region_1/Probabilities/Vegetation1.csv
+Vegetation 2              : Experiments/Input_Data/Regions/Region_1/Probabilities/Vegetation2.csv
+Vegetation 3              : Experiments/Input_Data/Regions/Region_1/Probabilities/Vegetation3.csv
 
 ###############################################################################
 ## CONFIGURATION DATA
@@ -87,5 +85,7 @@ ROV Paths                  : 10
 Relocation LP Method       : 0
 Lookahead                  : 5
 Cover Time (minutes)       : 20
-MC Paths (where needed)    : 100
+Monte Carlo Paths          : 100
 Time discount factor       : 0.7
+Algorithm (1=MPC, 2=ROV)   : 1
+Used Configurations        : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10

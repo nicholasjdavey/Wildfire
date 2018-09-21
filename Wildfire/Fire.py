@@ -22,6 +22,7 @@ class Fire():
         self.finalSize = 0.0
         self.responseEncoding = ""
         self.respondingStations = []
+        self.patchID = 0
 
     # All locations assumed at centre of grid cells for simplicity
     def getLocation(self):
@@ -71,3 +72,28 @@ class Fire():
 
     def setRespondingStations(self, r):
         self.respondingStations = r
+
+    def getPatchID(self):
+        return self.patchID
+
+    def setPatchID(self, pid):
+        self.patchID = pid
+
+    def growFire(self, model, ffdi, random=False):
+        vegetation = model.getRegion().getVegetations()[
+                model.getRegion().getPatches()[self.patchID]
+                .getVegetations()[0][0]]
+
+        grMean = numpy.interp(ffdi,
+                              vegetation.getFFDIRange(),
+                              vegetation.getROCA2PerHourMean())
+
+        if random:
+            grSD = max(0,
+                       numpy.interp(ffdi,
+                                vegetation.getFFDIRange(),
+                                vegetation.getROCA2PerHourSD()))
+        else:
+            grSD = 0
+
+        self.size = self.size*(1 + grMean + grSD)

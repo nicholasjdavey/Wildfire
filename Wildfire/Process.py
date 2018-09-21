@@ -5,8 +5,6 @@ Created on Sun Dec 10 23:34:50 2017
 @author: davey
 """
 
-import numpy
-
 class Process():
     # Class for managing stochastic processes (mean-reverting atm)
 

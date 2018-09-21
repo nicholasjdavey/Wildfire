@@ -8,8 +8,6 @@ Created on Sun Dec 10 23:10:43 2017
 import numpy
 import scipy.stats
 
-from Process import Process
-
 
 class WeatherGenerator():
     # Class for defining a weather generator for creating the exogenous paths.

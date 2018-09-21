@@ -9,7 +9,6 @@ import numpy
 import math
 import csv
 import copy
-import time
 
 from Control import Control
 from Patch import Patch
@@ -37,17 +36,20 @@ class Model():
         self.xDataFile = ""
         self.yDataFile = ""
         self.zDataFile = ""
-        self.vegetationDatafile = ""
         self.weatherDataFile = ""
         self.basesDataFile = ""
         self.occurrenceDataFile = ""
         self.exDamageDataFile = ""
+        self.configurationsDataFile = ""
         self.aircraftDataFiles = []
         self.landcraftDataFiles = []
+        self.vegetationDatafiles = []
         self.simulations = []
         self.resourceTypes = []
         self.variableParameters = None
         self.controls = []
+        self.configurations = {}
+        self.usefulConfigurations = []
         self.region = None
         self.stepSize = 0
         self.totalSteps = 0
@@ -58,6 +60,8 @@ class Model():
         self.lookahead = 0
         self.coverTime = 0
         self.mcPaths = 0
+        self.discountFactor = 0
+        self.algo = 0
 
     def getROVPaths(self):
         return self.rovPaths
@@ -113,11 +117,11 @@ class Model():
     def setZDataFile(self, z):
         self.zDataFile = z
 
-    def getVegetationDataFile(self):
-        return self.vegetationDataFile
+    def getVegetationDataFiles(self):
+        return self.vegetationDataFiles
 
-    def setVegetationDataFile(self, v):
-        self.vegetationDataFile
+    def setVegetationDataFiles(self, v):
+        self.vegetationDataFiles
 
     def getWeatherDataFile(self):
         return self.weatherDataFile
@@ -142,6 +146,12 @@ class Model():
 
     def setExDamageDataFile(self, e):
         self.exDamageDataFile = e
+
+    def getConfigurationsDataFile(self):
+        return self.configurationsDataFile
+
+    def setConfigurationsDataFile(self, f):
+        self.configurationsDataFile = f
 
     def getAircraftDataFiles(self):
         return self.aircraftDataFiles
@@ -179,6 +189,18 @@ class Model():
     def setControls(self, c):
         self.controls = c
 
+    def getConfigurations(self):
+        return self.configurations
+
+    def setConfigurations(self, c):
+        self.configurations = c
+
+    def getUsefulConfigurations(self):
+        return self.usefulConfigurations
+
+    def setUsefulConfigurations(self, uc):
+        self.usefulConfigurations = uc
+
     def getRegion(self):
         return self.region
 
@@ -209,6 +231,18 @@ class Model():
     def setMCPaths(self, p):
         self.mcPaths = p
 
+    def getDiscountFactor(self):
+        return self.discountFactor
+
+    def setDiscountFactor(self, f):
+        self.discounteFactor = f
+
+    def getAlgo(self):
+        return self.algo
+
+    def setAlgo(self, a):
+        self.algo = a
+
     def readInSourceData(self, filename):
         # First read the raw source files
         self.inputfile = filename
@@ -221,36 +255,42 @@ class Model():
         self.valueDataFile = contents[17].split(":")[1].strip()
         self.weatherDataFile = contents[20].split(":")[1].strip()
         self.basesDataFile = contents[25].split(":")[1].strip()
+        self.configurationsDataFile = contents[31].split(":")[1].strip()
 
-        noAircraft = int(contents[31].split(":")[1].strip())
+        noAircraft = int(contents[32].split(":")[1].strip())
         aircraftData = []
 
         for ii in range(noAircraft):
-            aircraftData.append(contents[32 + ii].split(":")[1].strip())
+            aircraftData.append(contents[33 + ii].split(":")[1].strip())
 
         self.aircraftDataFiles = aircraftData
 
-        noLandcraft = int(contents[37+noAircraft].split(":")[1].strip())
+        noLandcraft = int(contents[38+noAircraft].split(":")[1].strip())
         landcraftData = []
 
         for ii in range(noLandcraft):
-            landcraftData.append(contents[38 + noAircraft + ii].split(":")[1]
+            landcraftData.append(contents[39 + noAircraft + ii].split(":")[1]
                                  .strip())
 
         self.landcraftDataFiles = landcraftData
 
-        self.occurrenceDataFile = (contents[43 + noAircraft + noLandcraft]
+        noVegetations = int(contents[44 + noAircraft + noLandcraft]
+                            .split(":")[1].strip())
+        vegetationsData = []
+
+        for ii in range(noVegetations):
+            vegetationsData.append(contents[45 + noAircraft + noLandcraft]
                                    .split(":")[1].strip())
-        self.exDamageDataFile = (contents[49 + noAircraft + noLandcraft]
-                                 .split(":")[1].strip())
+
+        self.vegetationDataFiles = vegetationsData
 
         # These controls are not used for the fourth type of linear program
-        noControls = int(contents[66 + noAircraft + noLandcraft].split(":")[1]
+        noControls = int(contents[64 + noAircraft + noLandcraft].split(":")[1]
                          .strip())
 
         for ii in range(noControls):
             control = Control()
-            varsStr = (contents[68 + noAircraft + noLandcraft + ii]
+            varsStr = (contents[66 + noAircraft + noLandcraft + ii]
                        .split(":")[1])
             lambda1 = float(varsStr.split()[0].strip())
             lambda2 = float(varsStr.split()[1].strip())
@@ -260,62 +300,83 @@ class Model():
 
         varParams = VariableParameters()
 
-        varsStr = (contents[71 + noAircraft + noLandcraft + noControls]
+        varsStr = (contents[69 + noAircraft + noLandcraft + noControls]
                    .split(":")[1].strip())
         varsStrs = varsStr.split(",")
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setSpeedMultipliers(varsFloat)
 
-        varsStr = (contents[72 + noAircraft + noLandcraft + noControls]
+        varsStr = (contents[70 + noAircraft + noLandcraft + noControls]
                    .split(":")[1].strip())
         varsStrs = varsStr.split(",")
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setOccurrenceProbMultipliers(varsFloat)
 
-        varsStr = (contents[73 + noAircraft + noLandcraft + noControls]
+        varsStr = (contents[71 + noAircraft + noLandcraft + noControls]
                    .split(":")[1].strip())
         varsStrs = varsStr.split(",")
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setDamageIntensityMultipliers(varsFloat)
 
-        varsStr = (contents[74 + noAircraft + noLandcraft + noControls]
+        varsStr = (contents[72 + noAircraft + noLandcraft + noControls]
                    .split(":")[1].strip())
         varsStrs = varsStr.split(",")
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setWeatherUncertMultipliers(varsFloat)
 
-        self.totalSteps = int(contents[75 + noAircraft + noLandcraft +
+        self.totalSteps = int(contents[73 + noAircraft + noLandcraft +
                                        noControls]
                               .split(":")[1]
                               .strip())
 
-        self.stepSize = float(contents[76 + noAircraft + noLandcraft +
+        self.stepSize = float(contents[74 + noAircraft + noLandcraft +
                                        noControls]
                               .split(":")[1].strip())
-        self.hoursPerDay = float(contents[77 + noAircraft + noLandcraft +
+        self.hoursPerDay = float(contents[75 + noAircraft + noLandcraft +
                                           noControls]
                                  .split(":")[1]
                                  .strip())
 
-        self.rovPaths = int(contents[78 + noAircraft + noLandcraft +
+        self.rovPaths = int(contents[76 + noAircraft + noLandcraft +
                                      noControls]
                             .split(":")[1]
                             .strip())
 
-        self.nestedOptMethod = int(contents[79 + noAircraft + noLandcraft +
+        self.nestedOptMethod = int(contents[77 + noAircraft + noLandcraft +
                                             noControls]
                                    .split(":")[1]
                                    .strip())
 
-        self.lookahead = int(contents[80 + noAircraft + noLandcraft +
+        self.lookahead = int(contents[78 + noAircraft + noLandcraft +
                                       noControls]
                              .split(":")[1]
                              .strip())
 
-        self.coverTime = float(contents[81 + noAircraft + noLandcraft +
+        self.coverTime = float(contents[79 + noAircraft + noLandcraft +
                                         noControls]
                                .split(":")[1]
                                .strip())
+
+        self.mcPaths = float(contents[80 + noAircraft + noLandcraft +
+                                      noControls]
+                             .split(":")[1]
+                             .strip())
+
+        self.discountFactor = float(contents[81 + noAircraft + noLandcraft +
+                                             noControls]
+                                    .split(":")[1]
+                                    .strip())
+
+        self.algo = float(contents[82 + noAircraft + noLandcraft +
+                                   noControls]
+                          .split(":")[1]
+                          .strip())
+
+        usefulConfigs = (contents[83 + noAircraft + noLandcraft + noControls]
+                         .split(":")[1].strip())
+        usefulConfigsSplit = usefulConfigs.split(",")
+        self.usefulConfigurations = [int(usefulConfigsSplit[ii])
+                                     for ii in range(len(usefulConfigsSplit))]
 
         self.variableParameters = varParams
 
@@ -395,67 +456,103 @@ class Model():
 
         self.resourceTypes = resources
 
-        # Vegetation details
-        vegetations = []
-        with open("../" + self.occurrenceDataFile) as vp:
-            reader = csv.reader(vp)
+        # Configurations
+        with open("../" + self.configurationsDataFile) as cf:
+            reader = csv.reader(cf)
             rows = [r for r in reader]
 
+            # For now we only have tankers and heliconfigurationsDataFilecopters and early and late
+            # hence we only have four components of the encoding:
+            # TE HE TL HL
             iterator = 2
+            configCount = 1
             while iterator < len(rows):
-                vegetation = Vegetation()
-                iterator = iterator + 1
-                vegetation.setName(rows[iterator][2])
-                iterator = iterator + 1
-                vegetation.setFlammability(rows[iterator][2])
-                iterator = iterator + 1
-                vegetation.setFFDIRange(
-                    numpy.array([float(col)
-                                 for col in
-                                 rows[iterator][3:(len(rows[iterator]) - 3)]]))
+                config = [float(rows[iterator][ii]) for ii in range(1, 5)]
+                self.configurations[configCount] = config
+                configCount += 1
 
-                iterator = iterator + 1
-                vegetation.setOccurrence(
-                    numpy.array([float(col)
-                                 for col in
-                                 rows[iterator][3:(len(rows[iterator]) - 3)]]))
+                iterator += 1
 
-                iterator = iterator + 1
-                rocMean = numpy.array([float(col)
-                                       for col in
-                                       rows[iterator][3:(len(rows[iterator]) -
-                                                         3)]])
+        # Vegetation details
+        vegetations = []
+        for ii in range(len(self.vegetationDataFiles)):
+            with open("../" + self.vegetationDataFiles[ii]) as vp:
+                reader = csv.reader(vp)
+                rows = [r for r in reader]
 
-                iterator = iterator + 1
-                rocSD = numpy.array([float(col)
+                iterator = 0
+                while iterator < len(rows):
+                    vegetation = Vegetation()
+                    vegetation.setName(rows[iterator][1])
+                    iterator = iterator + 1
+                    vegetation.setFlammability(rows[iterator][2])
+                    iterator = iterator + 1
+
+                    vegetation.setFFDIRange(
+                        numpy.array([float(col)
                                      for col in
-                                     rows[iterator][3:(len(rows[iterator]) -
-                                                       3)]])
+                                     rows[iterator][3:(len(rows[iterator]) - 3)]]))
 
-                vegetation.setROCA2PerHour(numpy.array([rocMean, rocSD]))
-                iterator = iterator + 2
-                test = True
-                successes = []
-                # The first half of the rows for the success are initial
-                # successes.
-                # The second half are the successes for extended attack
-                while test:
-                    if iterator >= len(rows):
-                        break
-                    else:
-                        if (all('' == s or s.isspace()
-                                for s in rows[iterator][3:len(
-                                    rows[iterator]) - 3])):
-                            test = False
-                        else:
-                            successes.append([float(col)
-                                              for col in
-                                              rows[iterator][3:(len(
-                                                  rows[iterator]) - 3)]])
+                    iterator = iterator + 2
+                    occurrence = {}
+                    for jj in range(self.totalSteps):
+                        occurrence[int(rows[iterator][1])] = (
+                                [float(col)
+                                 for col in
+                                 rows[iterator][2:(len(rows[iterator]) - 2)]])
 
                         iterator = iterator + 1
 
-                vegetation.setExtinguishingSuccess(successes)
+                    vegetation.setOccurrence(occurrence)
+
+                    iterator = iterator + 1
+                    rocMean = {}
+                    for config in self.usefulConfigurations:
+                        rocMean[config] = (
+                                [float(col)
+                                 for col in
+                                 rows[iterator][2:(len(rows[iterator]) - 2)]])
+
+                        iterator = iterator + 1
+
+                    vegetation.setROCA2PerHourMean(rocMean)
+
+                    iterator = iterator + 1
+                    rocSD = {}
+                    for config in self.usefulConfigurations:
+                        rocSD[config] = (
+                                [float(col)
+                                 for col in
+                                 rows[iterator][2:(len(rows[iterator]) - 2)]])
+
+                        iterator = iterator + 1
+
+                    vegetation.setROCA2PerHourSD(rocSD)
+
+                    iterator = iterator + 1
+                    initialSuccess = {}
+                    for config in self.usefulConfigurations:
+                        initialSuccess[config] = (
+                                [float(col)
+                                 for col in
+                                 rows[iterator][2:(len(rows[iterator]) - 2)]])
+
+                        iterator = iterator + 1
+
+                    vegetation.setInitialSuccess(initialSuccess)
+
+                    iterator = iterator + 1
+                    initialSize = {}
+                    for config in self.usefulConfigurations:
+                        initialSize[config] = (
+                                [float(col)
+                                 for col in
+                                 rows[iterator][2:(len(rows[iterator]) - 2)]])
+
+                        iterator = iterator + 1
+
+                    vegetation.setInitialSize(initialSuccess)
+
                 vegetations.append(vegetation)
 
         # REGION CONFIGURATION ################################################
@@ -492,6 +589,11 @@ class Model():
 
             airStrips = []
             bases = []
+
+            totalTankers = []
+            totalHelis = []
+            totalTrucks = []
+            totalResources = []
             # Store all the air strips
             # We only have 1 tanker and 1 helicopter at the moment
             test = True
@@ -521,10 +623,12 @@ class Model():
                         aircraft.setSpeed(float(
                             aircraftDetails[7].split(":")[1]))
                         aircraftList.append(aircraft)
+                        totalTankers.append(aircraft)
+                        totalResources.append(aircraft)
                     airStrip.setAirTankers(aircraftList)
+
                     noHelicopters = int(rows[iterator][4])
                     heliList = []
-
                     for ii in range(noHelicopters):
                         heli = Heli()
                         heli.setFlyingHours(float(
@@ -536,6 +640,8 @@ class Model():
                         heli.setSpeed(float(
                             helicopterDetails[7].split(":")[1]))
                         heliList.append(heli)
+                        totalHelis.append(heli)
+                        totalResources.append(heli)
                     airStrip.setHelicopters(heliList)
                     airStrip.setCapacity(float(rows[iterator][5]))
                     airStrips.append(airStrip)
@@ -566,6 +672,8 @@ class Model():
                         vehicle.setSpeed(float(
                             truckDetails[6].split(":")[1]))
                         vehiclesList.append(vehicle)
+                        totalTrucks.append(vehicle)
+                        totalResources.append(vehicle)
                     base.setLandResources(vehiclesList)
                     bases.append(base)
                     iterator = iterator + 1
@@ -640,6 +748,10 @@ class Model():
                         iterator = iterator + 1
 
             # Save values to the region object
+            self.region.setAirTankers(totalTankers)
+            self.region.setHelicopters(totalHelis)
+            self.region.setFiretrucks(totalTrucks)
+            self.region.setResources(totalResources)
             self.region.setX(x[0:ii])
             self.region.setY(y[0:ii])
             self.region.setZ(z[0:ii])

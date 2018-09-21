@@ -5,19 +5,17 @@ Created on Sun Dec 10 23:35:32 2017
 @author: davey
 """
 
-import numpy
-
 
 class Control():
     # Class for managing land bases for fire trucks
 
     def __init__(self):
         # Constructs an instance
-        lambda1 = 0.5
-        lambda2 = 0.5
-        eta1 = 1
-        eta2 = 1
-        eta3 = 1
+        self.lambda1 = 0.5
+        self.lambda2 = 0.5
+        self.eta1 = 1
+        self.eta2 = 1
+        self.eta3 = 1
 
     def getLambda1(self):
         return self.lambda1

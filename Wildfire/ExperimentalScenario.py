@@ -5,8 +5,6 @@ Created on Sun Dec 10 23:33:07 2017
 @author: davey
 """
 
-import numpy
-
 
 class ExperimentalScenario():
     # Class for defining the parameters of the scenario currently being tested
@@ -14,11 +12,11 @@ class ExperimentalScenario():
 
     def __init__(self):
         # Constructs an instance
-        speedMultIdx = 0
-        occProbMultIdx = 0
-        damIntMultIdx = 0
-        weatherUncertMultIdx = 0
-        scenarioNo = ExperimentalScenario.scenarios
+        self.speedMultIdx = 0
+        self.occProbMultIdx = 0
+        self.damIntMultIdx = 0
+        self.weatherUncertMultIdx = 0
+        self.scenarioNo = ExperimentalScenario.scenarios
         ExperimentalScenario.scenarios = ExperimentalScenario.scenarios + 1
 
     def getSpeedMultIdx(self):

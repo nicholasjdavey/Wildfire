@@ -17,9 +17,10 @@ class Vegetation():
         self.flammability = 0.0
         self.ffdiRange = numpy.empty([0, 0])
         self.occurrence = numpy.empty([0, 0])
-        self.rocA2PerHour = numpy.empty([0, 0])
-        self.resourceParams = []
-        self.extinguishingSuccess = numpy.empty([0, 0])
+        self.rocA2PerHourMean = numpy.empty([0, 0])
+        self.rocA2PerHourSD = numpy.empty([0, 0])
+        self.initialSuccess = numpy.empty([0, 0])
+        self.initialSize = numpy.empty([0, 0])
 
     def getName(self):
         return self.name
@@ -45,20 +46,26 @@ class Vegetation():
     def setOccurrence(self, o):
         self.occurrence = o
 
-    def getROCA2PerHour(self):
-        return self.rocA2PerHour
+    def getROCA2PerHourMean(self):
+        return self.rocA2PerHourMean
 
-    def setROCA2PerHour(self, r):
-        self.rocA2PerHour = r
+    def setROCA2PerHourMean(self, r):
+        self.rocA2PerHourMean = r
 
-    def getResourceParams(self):
-        return self.resourceParams
+    def getROCA2PerHourSD(self):
+        return self.rocA2PerHourSD
 
-    def setResourceParams(self, r):
-        self.resourceParams = r
+    def setROCA2PerHourSD(self, r):
+        self.rocA2PerHourSD = r
 
-    def getExtinguishingSuccess(self):
-        return self.extinguishingSuccess
+    def getInitialSuccess(self):
+        return self.initialSuccess
 
-    def setExtinguishingSuccess(self, e):
-        self.extinguishingSuccess = e
+    def setInitialSuccess(self, e):
+        self.initialSuccess = e
+
+    def getInitialSize(self):
+        return self.initialSize
+
+    def setInitialSize(self, e):
+        self.initialSize = e

@@ -5,8 +5,6 @@ Created on Sun Dec 10 23:35:38 2017
 @author: davey
 """
 
-import numpy
-
 from Resource import Resource
 from datetime import timedelta
 
