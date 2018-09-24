@@ -19,6 +19,7 @@ class Region():
         self.x = numpy.empty([0, 0])
         self.y = numpy.empty([0, 0])
         self.z = numpy.empty([0, 0])
+        self.vertices = []
         self.north = numpy.empty([0, 0])
         self.south = numpy.empty([0, 0])
         self.east = numpy.empty([0, 0])
@@ -85,6 +86,12 @@ class Region():
 
     def setZ(self, z):
         self.z = z
+
+    def getVertices(self):
+        return self.vertices
+
+    def setVertices(self, v):
+        self.vertices = v
 
     def getNorth(self):
         return self.north

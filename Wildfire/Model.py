@@ -49,7 +49,8 @@ class Model():
         self.variableParameters = None
         self.controls = []
         self.configurations = {}
-        self.usefulConfigurations = []
+        self.usefulConfigurationsE = []
+        self.usefulConfigurationsP = []
         self.region = None
         self.stepSize = 0
         self.totalSteps = 0
@@ -62,6 +63,9 @@ class Model():
         self.mcPaths = 0
         self.discountFactor = 0
         self.algo = 0
+        self.samplePaths = []
+        self.useSamplePaths = False
+        self.runs = 0
 
     def getROVPaths(self):
         return self.rovPaths
@@ -195,11 +199,17 @@ class Model():
     def setConfigurations(self, c):
         self.configurations = c
 
-    def getUsefulConfigurations(self):
-        return self.usefulConfigurations
+    def getUsefulConfigurationsExisting(self):
+        return self.usefulConfigurationsE
 
-    def setUsefulConfigurations(self, uc):
-        self.usefulConfigurations = uc
+    def setUsefulConfigurationsExisting(self, uc):
+        self.usefulConfigurationsE = uc
+
+    def getUsefulConfigurationsPotential(self):
+        return self.usefulConfigurationsP
+
+    def setUsefulConfigurationsPotential(self, uc):
+        self.usefulConfigurationsP = uc
 
     def getRegion(self):
         return self.region
@@ -242,6 +252,24 @@ class Model():
 
     def setAlgo(self, a):
         self.algo = a
+
+    def getSamplePaths(self):
+        return self.samplePaths
+
+    def setSamplePaths(self, p):
+        self.samplePaths = p
+
+    def getUseSamplePaths(self):
+        return self.useSamplePaths
+
+    def setUseSamplePaths(self, u):
+        self.useSamplePaths = u
+
+    def getRuns(self):
+        return self.runs
+
+    def setRuns(self, r):
+        self.runs = r
 
     def readInSourceData(self, filename):
         # First read the raw source files
@@ -375,8 +403,23 @@ class Model():
         usefulConfigs = (contents[83 + noAircraft + noLandcraft + noControls]
                          .split(":")[1].strip())
         usefulConfigsSplit = usefulConfigs.split(",")
-        self.usefulConfigurations = [int(usefulConfigsSplit[ii])
+        self.usefulConfigurationsE = [int(usefulConfigsSplit[ii])
                                      for ii in range(len(usefulConfigsSplit))]
+
+        usefulConfigs = (contents[84 + noAircraft + noLandcraft + noControls]
+                         .split(":")[1].strip())
+        usefulConfigsSplit = usefulConfigs.split(",")
+        self.usefulConfigurationsP = [int(usefulConfigsSplit[ii])
+                                     for ii in range(len(usefulConfigsSplit))]
+
+        self.useSamplePaths = [
+                True if int(
+                        contents[85 + noAircraft + noLandcraft + noControls]
+                        .split(":")[1].strip()) == 1
+                else False]
+
+        self.runs = int(contents[86 + noAircraft + noLandcraft + noControls]
+                        .split(":")[1].strip())
 
         self.variableParameters = varParams
 
@@ -694,6 +737,7 @@ class Model():
             tempMax = numpy.empty([len(rows)-iterator])
             windN = numpy.empty([len(rows)-iterator])
             windE = numpy.empty([len(rows)-iterator])
+            vertices = [None]*(len(rows)-iterator)
             fireSeverity = numpy.empty([len(rows)-iterator])
             fireAges = numpy.empty([len(rows)-iterator])
             ii = 0
@@ -722,6 +766,11 @@ class Model():
                     fireAges[ii] = float(rows[iterator][14])
                     windN[ii] = float(rows[iterator][15])
                     windE[ii] = float(rows[iterator][16])
+                    vertices[ii] = numpy.array(
+                            [[float(rows[iterator][16 + 2*jj]),
+                              float(rows[iterator][16 + 2*jj + 1])]
+                             for jj in range(len(rows[iterator]) - 16)
+                             if rows[iterator][16 + 2*jj] != ''])
                     ii = ii + 1
                     iterator = iterator + 1
 
@@ -1073,6 +1122,29 @@ class Model():
 
             weatherConfigFile.close()
         #######################################################################
+
+        # PRE-COMPUTED SAMPLE PATHS ###########################################
+        samplePaths = Path(root + "/Sample_Paths.csv")
+        if samplePaths.is_file():
+            # If exists, just call the pre-created data
+
+            with open(root + "/Sample_Paths.csv") as sp:
+                reader = csv.reader(sp)
+                rows = [r for r in reader]
+
+            self.samplePaths = [None]*(int(rows[1][1]))
+
+            noPatches = len(self.region.getX())
+
+            for path in range(self.samplePaths):
+                self.samplePaths[path] = numpy.empty([
+                        self.totalSteps + self.lookahead + 1,
+                        noPatches])
+
+                self.samplePaths[path] = numpy.array([
+                        [rows[4 + path*(noPatches + 2) + patch][tt + 1]
+                         for tt in range(self.totalSteps + self.lookahead + 1)]
+                        for patch in range(noPatches)])
 
     def computeWeatherParameters(self):
         pass
