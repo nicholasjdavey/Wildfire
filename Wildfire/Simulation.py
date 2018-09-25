@@ -13,6 +13,9 @@ import os
 import csv
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
+from matplotlib.collections import PatchCollection
+import matplotlib.cm as clrmp
+import matplotlib.backends.backend_pdf as pdf
 #import multiprocessing as mp
 
 from Fire import Fire
@@ -1716,7 +1719,6 @@ class Simulation():
                     fig, ax = plt.subplots()
 
                     patches = []
-                    colors = []
                     cmap = clrmp.get_cmap('Oranges')
 
                     for rp in range(rawPatches):
@@ -1744,16 +1746,64 @@ class Simulation():
                     with open(outputfile, 'w', newline='') as csvfile:
                         writer = csv.writer(csvfile, delimiter=',')
 
-                        # Aircraft Hours
+                        columns = self.model.getTotalSteps()*5
+                        # Aircraft Hours and Positions
 
+                        row = ['RESOURCE_ID', 'TYPE', 'ACCUMULATED_HOURS']
 
-                        # Aircraft Positions
+                        row.extend(['']*(self.model.getTotalSteps() - 1))
+                        row.extend([a + str(ii)
+                                    for ii in range(self.model.getTotalSteps()
+                                                    - 1)
+                                    for a in ['X_POSITION_T', 'Y_POSITION_T']])
+                        row.append('BASE_IDS')
+                        row.extend(['']*(self.model.getTotalSteps() - 1))
+                        row.append('FIRE_IDS')
+                        row.extend(['']*(self.model.getTotalSteps() - 1))
+                        writer.writerow(row)
 
-                        # Aircraft Hours
+                        resources = self.model.getRegion().getResources()
+                        helis = self.model.getRegion().getHelicopters()
+                        tankers = self.model.getRegion().getAirTankers()
 
-                    # Accumulated Damage Per Patch
+                        for ii in range(resources):
+                            row = [
+                                str(ii),
+                                'Fixed' if resource[ii] in tankers else False,
+                                self.accumulatedHours[run, ii, tt]]
+                            row.extend([
+                                    self.aircraftPositions[tt, ii, pp]
+                                    for ii in range(self.model.getTotalSteps()
+                                                    - 1)
+                                    for pp in [0, 1]])
+                            row.extend([
+                                    self.realisedAssignments[run][tt][ii, 0]
+                                    for tt in range(len(
+                                            self.model.getTotalSteps()))])
+                            row.extend([
+                                    self.realisedAssignments[run][tt][ii, 1]
+                                    for tt in range(len(
+                                            self.model.getTotalSteps()))])
+
+                            writer.writerow(row)
+
+        self.realisedFires = []
+        self.expectedDamages = [None]*samplePaths
+
+                    """ Accumulated Damage Per Patch """
+                    outputfile = subOutfolder + "Accumulated_Patch_Damage.csv"
+
+                    with open(outputfile, 'w', newline='') as csvfile:
+                        writer = csv.writer(csvfile, delimiter=',')
+
                     self.finalDamageMaps = [None]*samplePaths
 
+                    """ Active fires """
+                    for tt in range(self.model.getTotalSteps()):
+                        outputfile = subOutfolder + "Resource_States.csv"
+
+                        with open(outputfile, 'w', newline='') as csvfile:
+                            writer = csv.writer(csvfile, delimiter=',')
 
                     """ Accumulated Damage Maps """
                     for tt in range(self.model.getTotalSteps()):
@@ -1771,11 +1821,6 @@ class Simulation():
                 if self.model.getAlgo() == 2:
                     """ ROV Regressions """
                     pass
-
-        self.realisedAssignments = [None]*samplePaths
-        self.realisedFires = []
-        self.aircraftHours = [None]*samplePaths
-        self.expectedDamages = [None]*samplePaths
 
     def currPos2Fire(self, currLocs, fires):
         # Computes the distance between each aircraft and each fire
