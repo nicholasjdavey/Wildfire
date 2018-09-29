@@ -385,10 +385,10 @@ class Model():
                                .split(":")[1]
                                .strip())
 
-        self.mcPaths = float(contents[80 + noAircraft + noLandcraft +
-                                      noControls]
-                             .split(":")[1]
-                             .strip())
+        self.mcPaths = int(contents[80 + noAircraft + noLandcraft +
+                                    noControls]
+                           .split(":")[1]
+                           .strip())
 
         self.discountFactor = float(contents[81 + noAircraft + noLandcraft +
                                              noControls]
@@ -457,7 +457,6 @@ class Model():
 
         # Get resource details
         # Aircraft are first, then Helicopters
-        # At the moment we only have one of each
         # Tankers
         # Indices for vehicles at future calls refer to the order created here.
         # Order is A1...AI,H1...HJ,T1...TK
@@ -504,8 +503,9 @@ class Model():
             reader = csv.reader(cf)
             rows = [r for r in reader]
 
-            # For now we only have tankers and heliconfigurationsDataFilecopters and early and late
-            # hence we only have four components of the encoding:
+            # For now we only have tankers and heli configurations. For each,
+            # they can be early or late hence we only have four components of
+            # the encoding:
             # TE HE TL HL
             iterator = 2
             configCount = 1
@@ -534,7 +534,8 @@ class Model():
                     vegetation.setFFDIRange(
                         numpy.array([float(col)
                                      for col in
-                                     rows[iterator][3:(len(rows[iterator]) - 3)]]))
+                                     rows[iterator][3:(len(rows[iterator])
+                                     - 3)]]))
 
                     iterator = iterator + 2
                     occurrence = {}
@@ -550,7 +551,7 @@ class Model():
 
                     iterator = iterator + 1
                     rocMean = {}
-                    for config in self.usefulConfigurations:
+                    for config in self.configurations:
                         rocMean[config] = (
                                 [float(col)
                                  for col in
@@ -562,7 +563,7 @@ class Model():
 
                     iterator = iterator + 1
                     rocSD = {}
-                    for config in self.usefulConfigurations:
+                    for config in self.configurations:
                         rocSD[config] = (
                                 [float(col)
                                  for col in
@@ -574,7 +575,7 @@ class Model():
 
                     iterator = iterator + 1
                     initialSuccess = {}
-                    for config in self.usefulConfigurations:
+                    for config in self.configurations:
                         initialSuccess[config] = (
                                 [float(col)
                                  for col in
@@ -586,7 +587,7 @@ class Model():
 
                     iterator = iterator + 1
                     initialSize = {}
-                    for config in self.usefulConfigurations:
+                    for config in self.configurations:
                         initialSize[config] = (
                                 [float(col)
                                  for col in
@@ -608,30 +609,14 @@ class Model():
                 reader = csv.reader(fd)
                 rows = [r for r in reader]
 
-            # First few lines are demand locations
+            # First few lines are airstrip details
             iterator = 1
             test = True
 
-            patches = []
-            while test:
-                if all('' == s or s.isspace() for s in rows[iterator][1:6]):
-                    test = False
-                    iterator = iterator + 2
-                else:
-                    patch = Patch()
-                    patch.setCentroid(numpy.array([float(rows[iterator][1]),
-                                                   float(rows[iterator][2])]))
-                    patch.setAvDanger([float(rows[iterator][3])])
-                    patch.setAvSeverity([float(rows[iterator][4])])
-                    patch.setArea(float(rows[iterator][6]))
-                    patch.setIndices([int(rows[iterator][7].split(" ")[ii])
-                                      for ii in range(len(rows[iterator][7]
-                                                          .split(" ")))])
-                    patches.append(patch)
-                    iterator = iterator + 1
-
             airStrips = []
             bases = []
+
+            resourceAssignments = []
 
             totalTankers = []
             totalHelis = []
@@ -668,6 +653,7 @@ class Model():
                         aircraftList.append(aircraft)
                         totalTankers.append(aircraft)
                         totalResources.append(aircraft)
+                        resourceAssignments.append([len(airStrips) + 1, 0])
                     airStrip.setAirTankers(aircraftList)
 
                     noHelicopters = int(rows[iterator][4])
@@ -685,12 +671,15 @@ class Model():
                         heliList.append(heli)
                         totalHelis.append(heli)
                         totalResources.append(heli)
+                        resourceAssignments.append([len(airStrips) + 1, 0])
                     airStrip.setHelicopters(heliList)
                     airStrip.setCapacity(float(rows[iterator][5]))
                     airStrips.append(airStrip)
                     iterator = iterator + 1
 
-            # Store all the bases
+            self.region.setAssignments(numpy.array(resourceAssignments))
+
+            # Store all the fire stations
             test = True
             while test:
                 if (all('' == s or s.isspace()
@@ -721,16 +710,13 @@ class Model():
                     bases.append(base)
                     iterator = iterator + 1
 
-            # Raw patch data
+            # Patch data. We store matrix versions here as well as patch
+            # objects.
             test = True
             x = numpy.empty([len(rows)-iterator])
             y = numpy.empty([len(rows)-iterator])
             z = numpy.empty([len(rows)-iterator])
             veg = numpy.empty([len(rows)-iterator])
-            north = numpy.empty([len(rows)-iterator])
-            south = numpy.empty([len(rows)-iterator])
-            east = numpy.empty([len(rows)-iterator])
-            west = numpy.empty([len(rows)-iterator])
             rain = numpy.empty([len(rows)-iterator])
             precip = numpy.empty([len(rows)-iterator])
             tempMin = numpy.empty([len(rows)-iterator])
@@ -742,6 +728,7 @@ class Model():
             fireAges = numpy.empty([len(rows)-iterator])
             ii = 0
 
+            patches = []
             while test:
                 if (all('' == s or s.isspace()
                         for s in rows[iterator][1:4]) or
@@ -754,23 +741,31 @@ class Model():
                     y[ii] = float(rows[iterator][2])
                     z[ii] = float(rows[iterator][3])
                     veg[ii] = int(rows[iterator][4]) - 1
-                    north[ii] = int(rows[iterator][5])
-                    south[ii] = int(rows[iterator][6])
-                    east[ii] = int(rows[iterator][7])
-                    west[ii] = int(rows[iterator][8])
-                    precip[ii] = float(rows[iterator][9])
-                    tempMin[ii] = float(rows[iterator][10])
-                    tempMax[ii] = float(rows[iterator][11])
-                    rain[ii] = float(rows[iterator][12])
-                    fireSeverity[ii] = float(rows[iterator][13])
-                    fireAges[ii] = float(rows[iterator][14])
-                    windN[ii] = float(rows[iterator][15])
-                    windE[ii] = float(rows[iterator][16])
+                    precip[ii] = float(rows[iterator][5])
+                    tempMin[ii] = float(rows[iterator][6])
+                    tempMax[ii] = float(rows[iterator][7])
+                    rain[ii] = float(rows[iterator][8])
+                    fireSeverity[ii] = float(rows[iterator][9])
+                    fireAges[ii] = float(rows[iterator][10])
+                    windN[ii] = float(rows[iterator][11])
+                    windE[ii] = float(rows[iterator][12])
                     vertices[ii] = numpy.array(
-                            [[float(rows[iterator][16 + 2*jj]),
-                              float(rows[iterator][16 + 2*jj + 1])]
-                             for jj in range(len(rows[iterator]) - 16)
-                             if rows[iterator][16 + 2*jj] != ''])
+                            [[float(rows[iterator][13 + 2*jj]),
+                              float(rows[iterator][13 + 2*jj + 1])]
+                             for jj in range(int((len(rows[iterator]) - 12)/2))
+                             if rows[iterator][13 + 2*jj] != ''])
+
+                    # Now create the patch objects
+                    patch = Patch()
+                    patch.setVertices(vertices[ii])
+                    patch.setAvDanger([float(rows[iterator][3])])
+                    patch.setAvSeverity([float(rows[iterator][4])])
+                    patch.computeArea()
+                    patch.computeCentroid()
+                    patch.setVegetation(
+                            vegetations[int(rows[iterator][4]) - 1])
+                    patches.append(patch)
+
                     ii = ii + 1
                     iterator = iterator + 1
 
@@ -793,6 +788,8 @@ class Model():
                         fire.setSize(float(rows[iterator][3]))
                         fire.setStart(float(rows[iterator][4]))
                         fire.setInitialSize(float(rows[iterator][5]))
+                        fire.setFinalSize(float(rows[iterator][5]))
+                        fire.setPatchID(int(rows[iterator][6]) - 1)
                         fires.append(fire)
                         iterator = iterator + 1
 
@@ -805,10 +802,6 @@ class Model():
             self.region.setY(y[0:ii])
             self.region.setZ(z[0:ii])
             self.region.setVegetation(veg[0:ii])
-            self.region.setNorth(north[0:ii])
-            self.region.setSouth(south[0:ii])
-            self.region.setEast(east[0:ii])
-            self.region.setWest(west[0:ii])
             self.region.setHumidity(precip[0:ii])
             self.region.setRain(rain[0:ii])
             self.region.setTemperatureMin(tempMin[0:ii])

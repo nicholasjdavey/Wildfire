@@ -6,6 +6,11 @@ Created on Sun Dec 10 23:33:16 2017
 """
 
 import numpy
+import random
+from shapely.affinity import affine_transform
+from shapely.geometry import Point, Polygon
+from shapely.ops import triangulate
+
 from Fire import Fire
 
 
@@ -18,13 +23,12 @@ class Patch():
         self.vertices = numpy.empty([0, 0])
         self.centroid = numpy.empty([0, 0])
         self.area = 0.0
-        self.vegetation = numpy.array([0, 0])
+        self.vegetation = None
         self.averageDanger = []
         self.averageFireSeverity = []
         self.averageTemperature = []
         self.averageHumidity = []
         self.averageWind = []
-        self.regionIndices = numpy.array([0, 0])
         self.patchID = Patch.patches
         Patch.patches += 1
 
@@ -45,6 +49,12 @@ class Patch():
 
     def setArea(self, a):
         self.area = a
+
+    def getVegetation(self):
+        return self.vegetation
+
+    def setVegetation(self, v):
+        self.vegetation = v
 
     def getAvDanger(self):
         return self.averageDanger
@@ -85,7 +95,7 @@ class Patch():
                                vegetation.getFFDIRange(),
                                vegetation.getInitialSize())
             fire = Fire.Fire()
-            fire.setLocation(self.centroid)
+            fire.setLocation(self.randomPatchPoint)
             fire.setSize(size)
             fire.setInitialSize(size)
             fire.setPatchID(self.patchID)
@@ -111,3 +121,37 @@ class Patch():
             grSD = 0
 
         self.size = self.size*(1 + grMean + grSD)
+
+    def randomPatchPoint(self):
+        "Return list of k points chosen uniformly at random inside polygon."
+        areas = []
+        transforms = []
+        for t in triangulate(self.vertices):
+            areas.append(t.area)
+            (x0, y0), (x1, y1), (x2, y2), _ = t.exterior.coords
+            transforms.append([x1 - x0, x2 - x0, y2 - y0, y1 - y0, x0, y0])
+        points = []
+        for transform in random.choices(transforms, weights=areas):
+            x, y = [random.random() for _ in range(2)]
+            if x + y > 1:
+                p = Point(1 - x, 1 - y)
+            else:
+                p = Point(x, y)
+            points.append(affine_transform(p, transform))
+        return points
+
+    def computeArea(self):
+        """ Computes the area of a patch based on its vertices """
+        x = [self.vertices[ii][0] for ii in range(len(self.vertices))]
+        y = [self.vertices[ii][1] for ii in range(len(self.vertices))]
+
+        self.area = (
+                0.5*numpy.abs(numpy.dot(x, numpy.roll(y,1))
+                -numpy.dot(y,numpy.roll(x,1))))
+
+    def computeCentroid(self):
+        """ Computes the centroid of a patch based on its vertices """
+        ref_polygon = Polygon(self.vertices)
+
+        self.centroid = [ref_polygon.centroid.x,
+                         ref_polygon.centroid.y]

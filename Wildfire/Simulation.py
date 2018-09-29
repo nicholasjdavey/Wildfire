@@ -12,8 +12,8 @@ import copy
 import os
 import csv
 import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon
-from matplotlib.collections import PatchCollection
+import matplotlib.patches as mpp
+import matplotlib.collections as mpc
 import matplotlib.cm as clrmp
 import matplotlib.backends.backend_pdf as pdf
 #import multiprocessing as mp
@@ -251,7 +251,7 @@ class Simulation():
                 for c in cplxMod.C
                 for n in cplxMod.N}
 
-        """ Number of aircraft required for component C of configuration C """
+        """ Number of aircraft required for component C of configuration K """
         cplxMod.Q_KC = {
                 (k, c): self.model.getConfigurations()[k-1, c-1]
                 for k in cplxMod.K
@@ -282,26 +282,14 @@ class Simulation():
 
         """ Patch configuration covers """
         cplxMod.decisionVars["Delta_NK"] = [
-                "Delta_NK_N" + str(n) + "_K" + str(k)
+                "Delta_NK_Adj_N" + str(n) + "_K" + str(k)
                 for n in cplxMod.N
                 for k in cplxMod.K]
         cplxMod.decisionVarsIdxStarts["Delta_NK"] = totalVars
         totalVars = totalVars + len(cplxMod.decisionVars["Delta_NK"])
 
         cplxMod.variables.add(
-                types=([cplxMod.variables.type.binary],
-                       len(cplxMod.decisionVars["Delta_NK"])))
-
-        """ Risk-adjusted patch configruation covers """
-        cplxMod.decisionVars["Delta_NK_Adj"] = [
-                "Delta_NK_Adj_N" + str(n) + "_K" + str(k)
-                for n in cplxMod.N
-                for k in cplxMod.K]
-        cplxMod.decisionVarsIdxStarts["Delta_NK_Adj"] = totalVars
-        totalVars = totalVars + len(cplxMod.decisionVars["Delta_NK_Adj"])
-
-        cplxMod.variables.add(
-                lb=[0]*len(cplxMod.decisionVars["Delta_NK_Adj"]))
+                lb=[0]*len(cplxMod.decisionVars["Delta_NK"]))
 
         """ Aircraft-fire assignments and fire configuration covers """
         """
@@ -340,9 +328,10 @@ class Simulation():
         cplxMod.constraintIdxStarts = {}
         totalConstraints = 0
 
-        """Makes sure that a particular aircraft configuration at patch n can
-        only be met if the correct number of aircraft to satisfy each of the
-        components in c in configuration k are available."""
+        """Probability-adjusted patch covers to account for possibility that
+        multiple fires may need to be covered by the aircraft and therefore
+        there is a non-zero probability for each configuration possible for a
+        patch"""
         cplxMod.constraintNames["C_2"] = [
                 "C_2_K" + str(k) + "_C" + str(c) + "_N" + str(n)
                 for k in cplxMod.K
@@ -350,61 +339,6 @@ class Simulation():
                 for n in cplxMod.N]
         cplxMod.constraintIdxStarts["C_2"] = totalConstraints
         totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_2"])
-
-        varIdxs = {}
-        varCoeffs = {}
-        for k in cplxMod.K:
-            for c in cplxMod.C:
-                for n in cplxMod.N:
-                    varIdxs[k, c, n] = (
-                            [cplxMod.decisionVarsIdxStarts["X_RB"] +
-                             r*len(cplxMod.B) + b
-                             for r in cplxMod.R
-                             for b in cplxMod.B])
-                    varCoeffs[k, c, n] = (
-                            [-cplxMod.d3_RNC[r, n, c]
-                             for r in cplxMod.R
-                             for b in cplxMod.B])
-
-                    varIdxs[k, c, n].extend(
-                            [cplxMod.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                             + m*(len(cplxMod.R)*len(cplxMod.B) +
-                                  len(cplxMod.K))
-                             + r*len(cplxMod.B) + b
-                             for r in cplxMod.R
-                             for b in cplxMod.B
-                             for m in cplxMod.M])
-                    varCoeffs[k, c, n].extend(
-                            [cplxMod.d3_RNC[r, n, c]
-                             for r in cplxMod.R
-                             for b in cplxMod.B
-                             for m in cplxMod.M])
-
-                    varIdxs[k, c, n].append(
-                            [cplxMod.decisionVarsIdxStarts["Delta_NK"]
-                             + n*len(cplxMod.K) + k])
-                    varCoeffs[k, c, n].append(cplxMod.Q_KC[k, c])
-
-        cplxMod.linear_constraints.add(
-                lin_expr=[
-                        cplex.SparsePair(
-                                ind=varIdxs[k, c, n],
-                                val=varCoeffs[k, c, n])
-                        for k in cplxMod.K
-                        for c in cplxMod.C
-                        for n in cplxMod.N],
-                senses=["L"]*(len(varIdxs)),
-                rhs=[0]*len(varIdxs))
-
-        """Probability-adjusted patch covers to account for possibility that
-        multiple fires may need to be covered by the aircraft"""
-        cplxMod.constraintNames["C_3"] = [
-                "C_3_K" + str(k) + "_C" + str(c) + "_N" + str(n)
-                for k in cplxMod.K
-                for c in cplxMod.C
-                for n in cplxMod.N]
-        cplxMod.constraintIdxStarts["C_3"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_3"])
 
         varIdxs = {}
         varCoeffs = {}
@@ -436,7 +370,7 @@ class Simulation():
                              for m in cplxMod.M])
 
                     varIdxs[k, c, n].append(
-                            [cplxMod.decisionVarsIdxStarts["Delta_NK_Adj"]
+                            [cplxMod.decisionVarsIdxStarts["Delta_NK"]
                              + n*len(cplxMod.K) + k])
                     varCoeffs[k, c, n].append(cplxMod.Q_KC[k, c])
 
@@ -451,45 +385,12 @@ class Simulation():
                 senses=["L"]*(len(varIdxs)),
                 rhs=[0]*len(varIdxs))
 
-        """Ensures that a configuration is not applied to a patch unless it is
-        indeed possible"""
+        """Ensures that an aircraft is assigned to only one base"""
         cplxMod.constraintNames["C_4"] = [
-                "C_4_K" + str(k) + "_N" + str(n)
-                for k in cplxMod.K
-                for n in cplxMod.N]
+                "C_4_R" + str(r)
+                for r in cplxMod.R]
         cplxMod.constraintIdxStarts["C_4"] = totalConstraints
         totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_4"])
-
-        varIdxs = {}
-        varCoeffs = {}
-        for k in cplxMod.K:
-            for n in cplxMod.N:
-                varIdxs[k, n] = (
-                        [cplxMod.decisionVarsIdxStarts["Delta_NK"]
-                         + n*len(cplxMod.K) + k])
-                varCoeffs[k, n] = ([1])
-
-                varIdxs[k, n].extend(
-                        [cplxMod.decisionVarsIdxStarts["Delta_NK_Adj"]
-                         + n*len(cplxMod.K) + k])
-                varCoeffs[k, n].extend([-1])
-
-        cplxMod.linear_constraints.add(
-                lin_expr=[
-                        cplex.SparsePair(
-                                ind=varIdxs[k, n],
-                                val=varCoeffs[k, n])
-                        for k in cplxMod.K
-                        for n in cplxMod.N],
-                senses=["L"]*len(varIdxs),
-                rhs=[0]*len(varIdxs))
-
-        """Ensures that an aircraft is assigned to only one base"""
-        cplxMod.constraintNames["C_6"] = [
-                "C_6_R" + str(r)
-                for r in cplxMod.R]
-        cplxMod.constraintIdxStarts["C_6"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_6"])
 
         varIdxs = {}
         varCoeffs = {}
@@ -510,12 +411,12 @@ class Simulation():
                 rhs=[1]*len(varIdxs))
 
         """Ensures that an aircraft can be allocated to at most one fire"""
-        cplxMod.constraintNames["C_7"] = [
-                "C_7_R" + str(r) + "_B" + str(b)
+        cplxMod.constraintNames["C_5"] = [
+                "C_5_R" + str(r) + "_B" + str(b)
                 for r in cplxMod.R
                 for b in cplxMod.B]
-        cplxMod.constraintIdxStarts["C_7"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_7"])
+        cplxMod.constraintIdxStarts["C_5"] = totalConstraints
+        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_5"])
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
@@ -527,12 +428,13 @@ class Simulation():
                 senses=["L"]*len(cplxMod.R)*len(cplxMod.B),
                 rhs=[1]*len(cplxMod.R)*len(cplxMod.B))
 
-        """Ensures that a patch can be assigned only one configuration"""
-        cplxMod.constraintNames["C_9"] = [
-                "C_9_N" + str(n)
+        """Ensures that the sum of probabilities of applying each configuration
+        to a patch is 1"""
+        cplxMod.constraintNames["C_7"] = [
+                "C_7_N" + str(n)
                 for n in cplxMod.N]
-        cplxMod.constraintIdxStarts["C_9"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_9"])
+        cplxMod.constraintIdxStarts["C_7"] = totalConstraints
+        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_7"])
 
         varIdxs = {}
         varCoeffs = {}
@@ -553,11 +455,11 @@ class Simulation():
                 rhs=[1]*len(varIdxs))
 
         """Ensures that the maximum number of flying hours are not exceeded"""
-        cplxMod.constraintNames["C_10"] = [
-                "C_10_K" + str(k)
+        cplxMod.constraintNames["C_8"] = [
+                "C_8_K" + str(k)
                 for k in cplxMod.K]
-        cplxMod.constraintIdxStarts["C_10"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_10"])
+        cplxMod.constraintIdxStarts["C_8"] = totalConstraints
+        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_8"])
 
         varIdxs = {}
         varCoeffs = {}
@@ -600,15 +502,15 @@ class Simulation():
         regionSize = region.getX().size
         timeSteps = self.model.getTotalSteps()
         lookahead = self.model.getLookahead()
-        noPatches = len(self.model.getX())
+        noPatches = len(self.model.getRegion().getX())
 
         simPaths = numpy.empty([self.model.getMCPaths(),
                                 self.model.getTotalSteps()
-                                + self.model.getLookahead(),
+                                + self.model.getLookahead() + 1,
                                 noPatches])
 
         # Generate a sample FFDI path for the region N times
-        for path in self.model.getMCPaths():
+        for path in range(self.model.getMCPaths()):
             rain = numpy.zeros([timeSteps+1+lookahead, regionSize])
             rain[0] = region.getRain()
             precipitation = numpy.zeros([timeSteps+1+lookahead, regionSize])
@@ -635,14 +537,15 @@ class Simulation():
                                   temperatureMax, windRegimes, windNS, windEW,
                                   FFDI, ii)
 
-            simPaths[ii] = FFDI
+            simPaths[path] = FFDI
 
         root = ("../Experiments/Experiments/" +
-                self.inputfile.split("../Experiments/Experiments/")[1]
+                self.model.getInputFile()
+                .split("../Experiments/Experiments/")[1]
                 .split("/")[0])
 
         # Now write out the results to a csv file for later use
-        with open(root + "Sample_Paths.csv") as sp:
+        with open(root + "/Sample_Paths.csv", 'w', newline='') as sp:
             writer = csv.writer(sp, delimiter=",")
 
             writer.writerow(
@@ -690,7 +593,7 @@ class Simulation():
 
         """ Initial assignment of aircraft to bases (Col 1) and fires (Col 2)
         A value of zero indicates no assignment (only applicable for fires) """
-        assignments = numpy.empty([len(resources) , 2])
+        assignments = self.model.getRegion().getAssignments()
 
         regionSize = region.getX().size
         samplePaths = self.model.getROVPaths()
@@ -700,10 +603,9 @@ class Simulation():
         self.finalDamageMaps = [None]*samplePaths
         self.expectedDamages = [None]*samplePaths
         self.realisedAssignments = [None]*samplePaths
-        self.realisedFires = []
+        self.realisedFires = [None]*samplePaths
         self.realisedFFDIs = [None]*samplePaths
         self.aircraftHours = [None]*samplePaths
-        self.expectedConfigDamages = [None, None]*samplePaths
 
         wg = region.getWeatherGenerator()
 
@@ -714,7 +616,11 @@ class Simulation():
             firesPath = copy.copy(fires)
             resourcesPath = copy.copy(resources)
             activeFires = [fire for fire in firesPath]
+            self.realisedFires[ii] = [None]*(timeSteps + 1)
+            self.realisedFires[ii][0] = copy.copy(activeFires)
             self.finalDamageMaps[ii] = numpy.empty([timeSteps + 1, patches])
+            self.finalDamageMaps[ii][0] = numpy.zeros([patches])
+            self.aircraftHours[ii] = numpy.zeros([timeSteps + 1, len(resources)])
 
             rain = numpy.zeros([timeSteps+1+lookahead, regionSize])
             rain[0] = region.getRain()
@@ -804,6 +710,9 @@ class Simulation():
                                 expDamagePoten, activeFires, resourcesPath,
                                 expectedFFDI))
 
+                # Save the active fires to the path history
+                self.realisedFires[ii][tt + 1] = copy.copy(activeFires)
+
                 # Simulate the fire growth, firefighting success and the new
                 # positions of each resources
                 damage = damage + self.simulateSinglePeriod(
@@ -811,14 +720,23 @@ class Simulation():
                         accumulatedDamage, patchConfigs, fireConfigs, FFDI[tt],
                         tt)
 
-                # Simulate the realised weather for the next time step
-                wg.computeWeather(
-                        rain, precipitation, temperatureMin, temperatureMax,
-                        windRegimes, windNS, windEW, FFDI, tt)
+                self.aircraftHours[ii][tt + 1] = numpy.array([
+                        resourcesPath[r].getFlyingHours()
+                        for r in range(len(self.model.getRegion().getResources()))])
 
-            # Store the expected damage for output results
-            self.expectedDamages[ii] = [
-                    FFDI, assignmentsPath, accumulatedDamage, damage]
+                # Simulate the realised weather for the next time step
+                if len(sampleFFDIs) == 0:
+                    wg.computeWeather(
+                            rain, precipitation, temperatureMin, temperatureMax,
+                            windRegimes, windNS, windEW, FFDI, tt)
+                else:
+                    FFDI[tt + 1] = sampleFFDIs[ii][tt + 1]
+
+                # Store the output results
+            self.finalDamageMaps[ii] = accumulatedDamage
+            self.expectedDamages[ii] = damage
+            self.realisedAssignments[ii] = assignmentsPath
+            self.realisedFFDIs[ii] = FFDI
 
         # Print the results to an output file
         self.writeOutResults()
@@ -1032,13 +950,13 @@ class Simulation():
 
         """Ensures that aircraft r can only fight a fire out of base b if it is
         actually stationed at base b"""
-        tempModel.constraintNames["C_5"] = [
-                "C_5_M" + str(m) + "_R" + str(r) + "_B" + str(b)
+        tempModel.constraintNames["C_3"] = [
+                "C_3_M" + str(m) + "_R" + str(r) + "_B" + str(b)
                 for m in tempModel.M
                 for r in tempModel.R
                 for b in tempModel.B]
-        tempModel.constraintIdxStarts["C_5"] = totalConstraints
-        totalConstraints = totalConstraints + len(tempModel.constraintNames["C_5"])
+        tempModel.constraintIdxStarts["C_3"] = totalConstraints
+        totalConstraints = totalConstraints + len(tempModel.constraintNames["C_3"])
 
         varIdxs = {}
         varCoeffs = {}
@@ -1069,11 +987,11 @@ class Simulation():
                 rhs=[0]*len(varIdxs))
 
         """Ensures that a fire can be assigned only one configuration"""
-        tempModel.constraintNames["C_8"] = [
-                "C_8_M" + str(m)
+        tempModel.constraintNames["C_6"] = [
+                "C_6_M" + str(m)
                 for m in tempModel.M]
-        tempModel.constraintIdxStarts["C_8"] = totalConstraints
-        totalConstraints = totalConstraints + len(tempModel.constraintNames["C_8"])
+        tempModel.constraintIdxStarts["C_6"] = totalConstraints
+        totalConstraints = totalConstraints + len(tempModel.constraintNames["C_6"])
 
         varIdxs = {}
         varCoeffs = {}
@@ -1114,35 +1032,6 @@ class Simulation():
                  tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
                  + m*(len(tempModel.R)*len(tempModel.B) + len(tempModel.K))
                  + r*(len(tempModel.B)) + b,
-                 -tempModel.d3_RCN[r, c, n])
-                for r in tempModel.R
-                for b in tempModel.B
-                for m in tempModel.M
-                for k in tempModel.K
-                for c in tempModel.C
-                for n in tempModel.N])
-
-        tempModel.linear_constraints.set_coefficients(coefficients)
-
-        """ CONSTRAINT 3 """
-        coefficients = [
-                (tempModel.constraintIdxStarts["C_3"]
-                 + k*len(tempModel.C)*len(tempModel.N) + c*len(tempModel.N) + n,
-                 tempModel.decisionVarsIdxStarts["X_RB"]
-                 + r*len(tempModel.B) + b,
-                 tempModel.d3_RCN[r, c, n]/tempModel.no_CB[c, b])
-                for r in tempModel.R
-                for b in tempModel.B
-                for k in tempModel.K
-                for c in tempModel.C
-                for n in tempModel.N]
-
-        coefficients.extend([
-                (tempModel.constraintIdxStarts["C_3"]
-                 + k*len(tempModel.C)*len(tempModel.N) + c*len(tempModel.N) + n,
-                 tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                 + m*(len(tempModel.R)*len(tempModel.B) + len(tempModel.K))
-                 + r*(len(tempModel.B)) + b,
                  -tempModel.d3_RCN[r, c, n]/tempModel.no_CB[c, b])
                 for r in tempModel.R
                 for b in tempModel.B
@@ -1153,9 +1042,9 @@ class Simulation():
 
         tempModel.linear_constraints.set_coefficients(coefficients)
 
-        """ CONSTRAINT 7 """
+        """ CONSTRAINT 5 """
         coefficients = [
-                (tempModel.constraintIdxsStarts["C_7"]
+                (tempModel.constraintIdxsStarts["C_5"]
                  + r*len(tempModel.B) + b,
                  tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
                  + m*(len(tempModel.R)*len(tempModel.B) + len(tempModel.K))
@@ -1167,9 +1056,9 @@ class Simulation():
 
         tempModel.linear_constraints.set_coefficients(coefficients)
 
-        """ CONSTRAINT 10 """
+        """ CONSTRAINT 8 """
         coefficients = [
-                (tempModel.constraintIdxStarts["C_10"] + r,
+                (tempModel.constraintIdxStarts["C_8"] + r,
                  tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
                  + m*(len(tempModel.R)*len(tempModel.B) + len(tempModel.K))
                  + r*(len(tempModel.B)) + b,
@@ -1179,7 +1068,7 @@ class Simulation():
                 for m in tempModel.M]
 
         coefficients.extend([
-                (tempModel.constraintIdxStarts["C_10"] + r,
+                (tempModel.constraintIdxStarts["C_8"] + r,
                  tempModel.decisionVarsIdxStarts["X_RB"]
                  + r*len(tempModel.B) + b,
                  tempModel.d1_RB[r, b])
@@ -1189,7 +1078,7 @@ class Simulation():
         tempModel.linear_constraints.set_coefficients(coefficients)
 
         tempModel.linear_constraints.set_rhs([
-                (tempModel.constraintIdxStarts["C_10"] + r,
+                (tempModel.constraintIdxStarts["C_8"] + r,
                  tempModel.Gmax_R[r] - tempModel.G_R[r])
                 for r in tempModel.R])
 
@@ -1433,7 +1322,7 @@ class Simulation():
 
         return paths
 
-    def rov(self, exogenousPaths, randCont, endogenousPaths):
+    def simulateROV(self, exogenousPaths, randCont, endogenousPaths):
         pass
 
     def randomControls(self):
@@ -1667,6 +1556,8 @@ class Simulation():
 
         maxFFDI = max(self.realisedFFDIs)
         minFFDI = min(self.realisedFFDIs)
+        maxDamage = max(self.finalDamageMaps)
+        minDamage = min(self.finalDamageMaps)
 
         """ Output folder """
         outfolder = root + "/Outputs"
@@ -1721,9 +1612,10 @@ class Simulation():
                     patches = []
                     cmap = clrmp.get_cmap('Oranges')
 
+                    # Patch FFDI values
                     for rp in range(rawPatches):
-                        polygon = Polygon(
-                                self.model.getVertices()[rp],
+                        polygon = mpp.Polygon(
+                                self.model.getRegion().getVertices()[rp],
                                 edgecolor="black",
                                 facecolor=cmap((
                                         self.realisedFFDIs[run, rp, tt] -
@@ -1731,7 +1623,31 @@ class Simulation():
                                 closed=True)
                         patches.append(polygon)
 
-                    p = PatchCollection(patches)
+                    # Annotate with bases
+                    for base in range(self.model.getRegion().getBases()):
+                        polygon = mpp.Polygon(
+                                [(self.model.getRegion().getBases()[base]
+                                        .getLocation()[0] - 1.1,
+                                 self.model.getRegion().getBases()[base]
+                                        .getLocation()[0] - 0.9),
+                                 (self.model.getRegion().getBases()[base]
+                                        .getLocation()[0] - 0.9,
+                                 self.model.getRegion().getBases()[base]
+                                        .getLocation()[0] - 1.1),
+                                 (self.model.getRegion().getBases()[base]
+                                        .getLocation()[0] + 1.1,
+                                 self.model.getRegion().getBases()[base]
+                                        .getLocation()[0] + 0.9),
+                                 (self.model.getRegion().getBases()[base]
+                                        .getLocation()[0] + 0.9,
+                                 self.model.getRegion().getBases()[base]
+                                        .getLocation()[0] + 1.1)],
+                                edgecolor="black",
+                                facecolor="black",
+                                closed=True)
+                        patches.append(polygon)
+
+                    p = mpc.PatchCollection(patches)
                     ax.add_collection(p)
                     fig.colorbar(p, ax=ax)
 
@@ -1743,11 +1659,11 @@ class Simulation():
 
                     outputfile = subOutfolder + "Resource_States.csv"
 
+                    """ Aircraft Hours and Positions """
                     with open(outputfile, 'w', newline='') as csvfile:
                         writer = csv.writer(csvfile, delimiter=',')
 
                         columns = self.model.getTotalSteps()*5
-                        # Aircraft Hours and Positions
 
                         row = ['RESOURCE_ID', 'TYPE', 'ACCUMULATED_HOURS']
 
@@ -1769,7 +1685,7 @@ class Simulation():
                         for ii in range(resources):
                             row = [
                                 str(ii),
-                                'Fixed' if resource[ii] in tankers else False,
+                                'Fixed' if resources[ii] in tankers else False,
                                 self.accumulatedHours[run, ii, tt]]
                             row.extend([
                                     self.aircraftPositions[tt, ii, pp]
@@ -1787,39 +1703,163 @@ class Simulation():
 
                             writer.writerow(row)
 
-        self.realisedFires = []
-        self.expectedDamages = [None]*samplePaths
-
                     """ Accumulated Damage Per Patch """
                     outputfile = subOutfolder + "Accumulated_Patch_Damage.csv"
 
                     with open(outputfile, 'w', newline='') as csvfile:
                         writer = csv.writer(csvfile, delimiter=',')
 
-                    self.finalDamageMaps = [None]*samplePaths
+                        writer.writerows([
+                                [str(patch + 1)] +
+                                self.finalDamageMaps[patch]
+                                for patch in range(len(
+                                        self.model.getRegion().getPatches()))])
 
                     """ Active fires """
-                    for tt in range(self.model.getTotalSteps()):
-                        outputfile = subOutfolder + "Resource_States.csv"
+                    outputfile = subOutfolder + "Fire_States.csv"
 
-                        with open(outputfile, 'w', newline='') as csvfile:
-                            writer = csv.writer(csvfile, delimiter=',')
+                    with open(outputfile, 'w', newline='') as csvfile:
+                        writer = csv.writer(csvfile, delimiter=',')
 
-                    """ Accumulated Damage Maps """
+                        for tt in range(self.model.getTotalSteps()):
+                            writer.writerow(
+                                    ['Time_Step', str(tt+1)]
+                                    + ['']*3)
+
+                            writer.writerow(
+                                    ['Fires', str(len(self.realisedFires[tt]))]
+                                    + ['']*3)
+
+                            writer.writerow(
+                                    ['Fire_ID', 'Start_Size', 'End_Size',
+                                     'X_Pos', 'Y_Pos'])
+
+                            for fire in range(len(self.realisedFires[tt])):
+                                writer.writerow(
+                                        [str(fire+1),
+                                         self.realisedFires[tt][fire]
+                                                 .getStartSize(),
+                                         self.realisedFires[tt][fire]
+                                                 .getEndSize(),
+                                         self.realisedFires[tt][fire]
+                                                 .getLocation()[0],
+                                         self.realisedFires[tt][fire]
+                                                 .getLocation()[1]])
+
+                            writer.writerow(['']*5)
+
+                    """ Accumulated Damage Maps with Active Fires """
                     for tt in range(self.model.getTotalSteps()):
+
+                        fig, ax = plt.subplots()
+
+                        patches = []
+                        cmap = clrmp.get_cmap('Oranges')
+
                         # Damage heat map
-                        self.finalDamageMaps = [None]*samplePaths
+                        for rp in range(rawPatches):
+                            polygon = mpp.Polygon(
+                                    self.model.getRegion().getVertices()[rp],
+                                    edgecolor="black",
+                                    facecolor=cmap((
+                                            self.finalDamageMaps[run, rp, tt] -
+                                            minDamage)/maxDamage),
+                                    closed=True)
+                            patches.append(polygon)
 
-                        # Bases
+                        # Annotate with bases
+                        for base in range(self.model.getRegion().getBases()):
+                            polygon = mpp.Polygon(
+                                    [(self.model.getRegion().getBases()[base]
+                                            .getLocation()[0] - 1.1,
+                                     self.model.getRegion().getBases()[base]
+                                            .getLocation()[0] - 0.9),
+                                     (self.model.getRegion().getBases()[base]
+                                            .getLocation()[0] - 0.9,
+                                     self.model.getRegion().getBases()[base]
+                                            .getLocation()[0] - 1.1),
+                                     (self.model.getRegion().getBases()[base]
+                                            .getLocation()[0] + 1.1,
+                                     self.model.getRegion().getBases()[base]
+                                            .getLocation()[0] + 0.9),
+                                     (self.model.getRegion().getBases()[base]
+                                            .getLocation()[0] + 0.9,
+                                     self.model.getRegion().getBases()[base]
+                                            .getLocation()[0] + 1.1)],
+                                    edgecolor="black",
+                                    facecolor="black",
+                                    closed=True)
+                            patches.append(polygon)
 
-                        # Fires
+                        # Annotate with active fires (only fires that survive to end of period)
+                        for fire in self.realisedFires[tt]:
+                            circle = mpp.Circle(
+                                    (fire.getLocation()[0], fire.getLocation()[1]),
+                                    math.sqrt(fire.getFinalSize()/(math.pi)),
+                                    edgecolor="red",
+                                    facecolor="red",
+                                    alpha=0.5)
+                            patches.append(circle)
 
                         # Base assignment annotations
+                        for base in range(self.model.getRegion().getBases()):
+                            tankers = sum([
+                                    1
+                                    for ii in range(len(self.model.getRegion().getResources()))
+                                    if (self.model.getRegion().getResources()[ii] in
+                                        self.model.getRegion().getAirTankers()
+                                        and self.realisedAssignments[run][tt][ii, 0] == base + 1)])
+                            helis = sum([
+                                    1
+                                    for ii in range(len(self.model.getRegion().getResources()))
+                                    if (self.model.getRegion().getResources()[ii] in
+                                        self.model.getRegion().getHelicopters()
+                                        and self.realisedAssignments[run][tt][ii, 0] == base + 1)])
+
+                            plt.text(self.model.getRegion().getBases()[base].getLocation()[0] + 10,
+                                     self.model.getRegion().getBases()[base].getLocation()[1] + 10,
+                                     "T" + str(tankers),
+                                     color="black")
+
+                            plt.text(self.model.getRegion().getBases()[base].getLocation()[0] + 15,
+                                     self.model.getRegion().getBases()[base].getLocation()[1] + 10,
+                                     "H" + str(helis),
+                                     color="black")
 
                         # Fire assignment annotations
+                        for fire in range(len(self.realisedFires[run, tt])):
+                            tankers = sum([
+                                    1
+                                    for ii in range(len(self.model.getRegion().getResources()))
+                                    if (self.model.getRegion().getResources()[ii] in
+                                        self.model.getRegion().getAirTankers()
+                                        and self.realisedAssignments[run][tt][ii, 1] == fire + 1)])
+                            helis = sum([
+                                    1
+                                    for ii in range(len(self.model.getRegion().getResources()))
+                                    if (self.model.getRegion().getResources()[ii] in
+                                        self.model.getRegion().getHelicopters()
+                                        and self.realisedAssignments[run][tt][ii, 1] == fire + 1)])
+
+                            plt.text(self.realisedFires[fire].getLocation()[0] + 10,
+                                     self.realisedFires[fire].getLocation()[1] + 10,
+                                     "T" + str(tankers),
+                                     color="black")
+
+                            plt.text(self.realisedFires[fire].getLocation()[0] + 15,
+                                     self.realisedFires[fire].getLocation()[1] + 10,
+                                     "H" + str(helis),
+                                     color="black")
+
+                        p = mpc.PatchCollection(patches)
+                        ax.add_collection(p)
+
+                        outputGraphs.savefig(fig)
+                        plt.close(fig)
 
                 if self.model.getAlgo() == 2:
                     """ ROV Regressions """
+                    # Need to do after conference paper
                     pass
 
     def currPos2Fire(self, currLocs, fires):

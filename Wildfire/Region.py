@@ -47,6 +47,7 @@ class Region():
         self.airTankers = []
         self.helicopters = []
         self.firetrucks = []
+        self.assignments_0 = numpy.empty([0, 0])
         self.name = ""
         self.expectedDamagePotential = numpy.empty([0, 0])
         self.expectedDamageExisting = numpy.empty([0, 0])
@@ -236,6 +237,12 @@ class Region():
 
     def setFiretrucks(self, f):
         self.firetrucks = f
+
+    def getAssignments(self):
+        return self.assignments_0
+
+    def setAssignments(self, a):
+        self.assignments_0 = a
 
     def getName(self):
         return self.name
