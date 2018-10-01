@@ -79,20 +79,19 @@ class Fire():
     def setPatchID(self, pid):
         self.patchID = pid
 
-    def growFire(self, model, ffdi, random=False):
-        vegetation = model.getRegion().getVegetations()[
-                model.getRegion().getPatches()[self.patchID]
-                .getVegetations()[0][0]]
+    def growFire(self, model, ffdi, configID, random=False):
+        vegetation = (model.getRegion().getPatches()[self.patchID]
+                .getVegetation())
 
         grMean = numpy.interp(ffdi,
                               vegetation.getFFDIRange(),
-                              vegetation.getROCA2PerHourMean())
+                              vegetation.getROCA2PerHourMean()[configID])
 
         if random:
             grSD = max(0,
                        numpy.interp(ffdi,
                                 vegetation.getFFDIRange(),
-                                vegetation.getROCA2PerHourSD()))
+                                vegetation.getROCA2PerHourSD()[configID]))
         else:
             grSD = 0
 

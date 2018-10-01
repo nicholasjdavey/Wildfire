@@ -183,16 +183,18 @@ class Simulation():
         cplxMod.R = [ii for ii in
                      range(len(self.model.getRegion().getResources()))]
         cplxMod.B = [ii for ii in
-                     range(len(self.model.getRegion().getStations()))]
+                     range(len(self.model.getRegion().getStations()[0]))]
         cplxMod.N = [ii for ii in
                      range(len(self.model.getRegion().getPatches()))]
         cplxMod.T = [ii for ii in
                      range(self.model.getTotalSteps())]
-        cplxMod.K = [ii for ii in
-                     range(len(self.model.getUsefulConfigurations()))]
+        cplxMod.K = [ii for ii in range(len(self.model.getConfigurations()))]
+        cplxMod.KP = [cplxMod.K[ii-1] for ii in
+                      self.model.getUsefulConfigurationsPotential()]
+        cplxMod.KE = [cplxMod.K[ii-1] for ii in
+                      self.model.getUsefulConfigurationsExisting()]
         cplxMod.C = [1, 2, 3, 4]
-        cplxMod.M = [ii for ii in
-                     range(len(self.model.getRegion().getFires()))]
+        cplxMod.M = []
         cplxMod.M_All = [ii for ii in cplxMod.M]
 
         """ PARAMETERS """
@@ -205,15 +207,15 @@ class Simulation():
 
         """ Initial expected damage increase of each fire under each config """
         cplxMod.D1_MK = {
-                (m, k): 0
+                (m, k+1): 0
                 for m in cplxMod.M
-                for k in cplxMod.K}
+                for k in cplxMod.KE}
 
         """ Initial expected damage increase of each patch under each config """
         cplxMod.D2_NK = {
-                (n, k): 0
+                (n, k+1): 0
                 for n in cplxMod.N
-                for k in cplxMod.K}
+                for k in cplxMod.KP}
 
         """ Cumulative flying hours """
         cplxMod.G_R = {
@@ -222,7 +224,7 @@ class Simulation():
 
         """ Max flying hours """
         cplxMod.Gmax_R = {
-                r: self.model.getResources()[r].getMaxDailyHours()
+                r: self.model.getRegion().getResources()[r].getMaxDailyHours()
                 for r in cplxMod.R}
 
         """ Travel times between aircraft and bases """
@@ -253,7 +255,7 @@ class Simulation():
 
         """ Number of aircraft required for component C of configuration K """
         cplxMod.Q_KC = {
-                (k, c): self.model.getConfigurations()[k-1, c-1]
+                (k, c): self.model.getConfigurations()[k+1][c-1]
                 for k in cplxMod.K
                 for c in cplxMod.C}
 
@@ -278,13 +280,13 @@ class Simulation():
 
         cplxMod.variables.add(
                 types=([cplxMod.variables.type.binary]
-                       *len(cplxMod.decisionVarsIdxStarts["X_RB"])))
+                       *len(cplxMod.decisionVars["X_RB"])))
 
         """ Patch configuration covers """
         cplxMod.decisionVars["Delta_NK"] = [
-                "Delta_NK_Adj_N" + str(n) + "_K" + str(k)
+                "Delta_NK_Adj_N" + str(n) + "_K" + str(k+1)
                 for n in cplxMod.N
-                for k in cplxMod.K]
+                for k in cplxMod.KP]
         cplxMod.decisionVarsIdxStarts["Delta_NK"] = totalVars
         totalVars = totalVars + len(cplxMod.decisionVars["Delta_NK"])
 
@@ -306,8 +308,8 @@ class Simulation():
                  for b in cplxMod.B]
                 for m in cplxMod.M]
         component2 = [
-                ["Delta_MK_M" + str(m) + "_K" + str(k)
-                 for k in cplxMod.K]
+                ["Delta_MK_M" + str(m) + "_K" + str(k+1)
+                 for k in cplxMod.KE]
                 for m in cplxMod.M]
 
         cplxMod.decisionVars["Y_MRB_Delta_MK"] = []
@@ -321,7 +323,7 @@ class Simulation():
 
         cplxMod.variables.add(
                 types=([cplxMod.variables.type.binary]
-                       *len(cplxMod.decisionVarsIdxStarts["Y_MRB_Delta_MK"])))
+                       *len(cplxMod.decisionVars["Y_MRB_Delta_MK"])))
 
         """ CONSTRAINTS """
         cplxMod.constraintNames = {}
@@ -333,8 +335,8 @@ class Simulation():
         there is a non-zero probability for each configuration possible for a
         patch"""
         cplxMod.constraintNames["C_2"] = [
-                "C_2_K" + str(k) + "_C" + str(c) + "_N" + str(n)
-                for k in cplxMod.K
+                "C_2_K" + str(k+1) + "_C" + str(c) + "_N" + str(n)
+                for k in cplxMod.KP
                 for c in cplxMod.C
                 for n in cplxMod.N]
         cplxMod.constraintIdxStarts["C_2"] = totalConstraints
@@ -342,44 +344,77 @@ class Simulation():
 
         varIdxs = {}
         varCoeffs = {}
-        for k in cplxMod.K:
-            for c in cplxMod.C:
-                for n in cplxMod.N:
-                    varIdxs[k, c, n] = (
-                            [cplxMod.decisionVarsIdxStarts["X_RB"] +
-                             r*len(cplxMod.B) + b
-                             for r in cplxMod.R
-                             for b in cplxMod.B])
-                    varCoeffs[k, c, n] = (
-                            [-cplxMod.d3_RNC[r, n, c]/cplxMod.no_CB[c, b]
-                             for r in cplxMod.R
-                             for b in cplxMod.B])
 
-                    varIdxs[k, c, n].append(
-                            [cplxMod.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                             + m*(len(cplxMod.R)*len(cplxMod.B) +
-                                  len(cplxMod.K))
-                             + r*len(cplxMod.B) + b
-                             for r in cplxMod.R
-                             for b in cplxMod.B
-                             for m in cplxMod.M])
-                    varCoeffs[k, c, n].extend(
-                            [cplxMod.d3_RNC[r, n, c]/cplxMod.no_CB[c, b]
-                             for r in cplxMod.R
-                             for b in cplxMod.B
-                             for m in cplxMod.M])
+        varIdxs = {
+                (k, c, n):
+                [cplxMod.decisionVarsIdxStarts["X_RB"]
+                        + r*len(cplxMod.B) + b
+                        for r in cplxMod.R
+                        for b in cplxMod.B]
+                + [cplxMod.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
+                          + m*(len(cplxMod.R)*len(cplxMod.B)
+                          + len(cplxMod.KE)) + r*len(cplxMod.B) + b
+                          for r in cplxMod.R
+                          for b in cplxMod.B
+                          for m in cplxMod.M]
+                + [cplxMod.decisionVarsIdxStarts["Delta_NK"]
+                          + n*len(cplxMod.KP) + k]
+                for k in range(len(cplxMod.KP))
+                for c in cplxMod.C
+                for n in cplxMod.N}
 
-                    varIdxs[k, c, n].append(
-                            [cplxMod.decisionVarsIdxStarts["Delta_NK"]
-                             + n*len(cplxMod.K) + k])
-                    varCoeffs[k, c, n].append(cplxMod.Q_KC[k, c])
+        varCoeffs = {
+                (k, c, n):
+                [-cplxMod.d3_RCN[r, c, n]/cplxMod.no_CB[c, b]
+                        for r in cplxMod.R
+                        for b in cplxMod.B]
+                + [cplxMod.d3_RCN[r, c, n]/cplxMod.no_CB[c, b]
+                          for r in cplxMod.R
+                          for b in cplxMod.B
+                          for m in cplxMod.M]
+                + [cplxMod.Q_KC[cplxMod.KP[k], c]]
+                for k in range(len(cplxMod.KP))
+                for c in cplxMod.C
+                for n in cplxMod.N}
+
+#        for k in range(len(cplxMod.KP)):
+#            for c in cplxMod.C:
+#                for n in cplxMod.N:
+#                    varIdxs[k, c, n] = (
+#                            [cplxMod.decisionVarsIdxStarts["X_RB"] +
+#                             r*len(cplxMod.B) + b
+#                             for r in cplxMod.R
+#                             for b in cplxMod.B])
+#                    varCoeffs[k, c, n] = (
+#                            [-cplxMod.d3_RCN[r, c, n]/cplxMod.no_CB[c, b]
+#                             for r in cplxMod.R
+#                             for b in cplxMod.B])
+#
+#                    varIdxs[k, c, n].extend(
+#                            [cplxMod.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
+#                             + m*(len(cplxMod.R)*len(cplxMod.B) +
+#                                  len(cplxMod.KE))
+#                             + r*len(cplxMod.B) + b
+#                             for r in cplxMod.R
+#                             for b in cplxMod.B
+#                             for m in cplxMod.M])
+#                    varCoeffs[k, c, n].extend(
+#                            [cplxMod.d3_RCN[r, c, n]/cplxMod.no_CB[c, b]
+#                             for r in cplxMod.R
+#                             for b in cplxMod.B
+#                             for m in cplxMod.M])
+#
+#                    varIdxs[k, c, n].append(
+#                            cplxMod.decisionVarsIdxStarts["Delta_NK"]
+#                            + n*len(cplxMod.KP) + k)
+#                    varCoeffs[k, c, n].append(cplxMod.Q_KC[cplxMod.KP[k], c])
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
                         cplex.SparsePair(
                                 ind=varIdxs[k, c, n],
                                 val=varCoeffs[k, c, n])
-                        for k in cplxMod.K
+                        for k in range(len(cplxMod.KP))
                         for c in cplxMod.C
                         for n in cplxMod.N],
                 senses=["L"]*(len(varIdxs)),
@@ -397,7 +432,7 @@ class Simulation():
         for r in cplxMod.R:
             varIdxs[r] = (
                     [cplxMod.decisionVarsIdxStarts["X_RB"]
-                    + b
+                    + r*len(cplxMod.R) + b
                     for b in cplxMod.B])
             varCoeffs[r] = [1]*len(varIdxs[r])
 
@@ -442,7 +477,7 @@ class Simulation():
             varIdxs[n] = (
                     [cplxMod.decisionVarsIdxStarts["Delta_NK"]
                     + k
-                    for k in cplxMod.K])
+                    for k in range(len(cplxMod.K))])
             varCoeffs[n] = [1]*len(varIdxs[n])
 
         cplxMod.linear_constraints.add(
@@ -456,8 +491,8 @@ class Simulation():
 
         """Ensures that the maximum number of flying hours are not exceeded"""
         cplxMod.constraintNames["C_8"] = [
-                "C_8_K" + str(k)
-                for k in cplxMod.K]
+                "C_8_K" + str(r)
+                for r in cplxMod.R]
         cplxMod.constraintIdxStarts["C_8"] = totalConstraints
         totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_8"])
 
@@ -466,7 +501,7 @@ class Simulation():
         for r in cplxMod.R:
             varIdxs[r] = (
                     [cplxMod.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                     + m*(len(cplxMod.R)*len(cplxMod.B) + len(cplxMod.K))
+                     + m*(len(cplxMod.R)*len(cplxMod.B) + len(cplxMod.KE))
                      + r*len(cplxMod.B) + b
                      for b in cplxMod.B
                      for m in cplxMod.M])
@@ -486,7 +521,7 @@ class Simulation():
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
-                        cplxMod.SparsePair(
+                        cplex.SparsePair(
                                 ind=varIdxs[r],
                                 val=varCoeffs[r])
                         for r in cplxMod.R],
@@ -589,6 +624,8 @@ class Simulation():
         resources = region.getResources()
         fires = region.getFires()
         configs = self.model.getConfigurations()
+        configsE = self.model.getUsefulConfigurationsExisting()
+        configsP = self.model.getUsefulConfigurationsPotential()
         sampleFFDIs = self.model.getSamplePaths()
 
         """ Initial assignment of aircraft to bases (Col 1) and fires (Col 2)
@@ -596,7 +633,10 @@ class Simulation():
         assignments = self.model.getRegion().getAssignments()
 
         regionSize = region.getX().size
-        samplePaths = self.model.getROVPaths()
+        samplePaths = (
+                len(sampleFFDIs)
+                if len(sampleFFDIs) > 0
+                else self.model.getROVPaths())
         samplePaths2 = self.model.getMCPaths()
         lookahead = self.model.getLookahead()
 
@@ -692,23 +732,24 @@ class Simulation():
                 expDamageExist = {
                         (jj, kk):
                         self.expectedDamageExisting(
-                                activeFires[jj], expectedFFDI, configs[kk], tt)
+                                activeFires[jj], expectedFFDI, configsE[kk],
+                                tt)
                         for jj in range(len(activeFires))
-                        for kk in range(len(configs))}
+                        for kk in range(len(configsE))}
 
                 expDamagePoten = {
                         (jj, kk):
                         self.expectedDamagePotential(
-                                jj, expectedFFDI, configs[kk], tt)
-                        for jj in range(len(patches))
-                        for kk in range(len(configs))}
+                                jj, expectedFFDI, configsP[kk], tt)
+                        for jj in range(patches)
+                        for kk in range(len(configsP))}
 
                 # Assign aircraft using LP
                 [assignmentsPath, patchConfigs, fireConfigs] = (
                         self.assignAircraft(
                                 assignmentsPath, expDamageExist,
                                 expDamagePoten, activeFires, resourcesPath,
-                                expectedFFDI))
+                                expectedFFDI, tt + 1))
 
                 # Save the active fires to the path history
                 self.realisedFires[ii][tt + 1] = copy.copy(activeFires)
@@ -742,12 +783,12 @@ class Simulation():
         self.writeOutResults()
 
     def assignAircraft(self, assignmentsPath, expDamageExist, expDamagePoten,
-                       activeFires, resourcesPath, ffdiPath):
+                       activeFires, resourcesPath, ffdiPath, timeStep):
 
         """ First copy the relocation model """
         tempModel = cplex.Cplex(self.relocationModel)
         self.copyNonCplexComponents(tempModel, self.relocationModel)
-        bases = self.model.getRegion().getStations()
+        bases = self.model.getRegion().getStations()[0]
         patches = self.model.getRegion().getPatches()
 
         """////////////////////////////////////////////////////////////////////
@@ -771,8 +812,8 @@ class Simulation():
                  for b in tempModel.B]
                 for m in tempModel.M]
         component2 = [
-                ["Delta_MK_M" + str(m) + "_K" + str(k)
-                 for k in tempModel.K]
+                ["Delta_MK_M" + str(m) + "_K" + str(k+1)
+                 for k in tempModel.KE]
                 for m in tempModel.M]
 
         tempModel.decisionVars["Y_MRB_Delta_MK"] = []
@@ -781,16 +822,16 @@ class Simulation():
             tempModel.decisionVars["Y_MRB_Delta_MK"].extend(component1[m-1])
             tempModel.decisionVars["Y_MRB_Delta_MK"].extend(component2[m-1])
 
-        totalVars = tempModel.linear_constraints.get_num()
+        totalVars = tempModel.variables.get_num()
         tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"] = totalVars
         totalVars = totalVars + len(tempModel.decisionVars["Y_MRB_Delta_MK"])
 
         tempModel.variables.add(
                 types=([tempModel.variables.type.binary]
-                       *len(tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"])))
+                       *len(tempModel.decisionVars["Y_MRB_Delta_MK"])))
 
         """////////////////////////////////////////////////////////////////////
-        ///////////////////////////// PARAMETERS  /////////////////////////////
+        ///////////////////////////// PARAMETERS //////////////////////////////
         ////////////////////////////////////////////////////////////////////"""
 
         """ Now set the parameters and respective coefficients """
@@ -828,13 +869,13 @@ class Simulation():
                 for r in tempModel.R
                 for m in tempModel.M}
 
-        """ Travel times between resource R and patch N"""
+        """ Distances times between resource R and patch N"""
         tempModel.d3_RN = {
                 (r, n):
                 math.sqrt(
-                        (patches[n].getLocation()[0]
+                        (patches[n].getCentroid()[0]
                          - resourcesPath[r].getLocation()[0])**2
-                        + (patches[n].getLocation()[1]
+                        + (patches[n].getCentroid()[1]
                            - resourcesPath[r].getLocation()[1])**2)
                 for r in tempModel.R
                 for n in tempModel.N}
@@ -843,9 +884,9 @@ class Simulation():
         tempModel.d4_BNC = {
                 (b, n, c):
                 (math.sqrt(
-                        (patches[n].getLocation()[0]
+                        (patches[n].getCentroid()[0]
                          - bases[b].getLocation()[0])**2
-                        + (patches[n].getLocation()[1]
+                        + (patches[n].getCentroid()[1]
                            - bases[b].getLocation()[1])**2)/
                  (self.model.getResourceTypes()[0].getSpeed() if c in [1, 3]
                   else self.model.getResourceTypes()[1].getSpeed()))
@@ -856,12 +897,13 @@ class Simulation():
         """ Expected number of fires for patch N over horizon """
         tempModel.no_N = {
                 n:
-                sum([numpy.interp(ffdiPath[t, n],
+                sum([numpy.interp(ffdiPath[n, t],
                                   self.model.getRegion().getPatches()[n].
-                                  getVegetations()[0].getFFDIRange(),
+                                  getVegetation().getFFDIRange(),
                                   self.model.getRegion().getPatches()[n].
-                                  getVegetations()[0].getOccurrence())
-                     for t in self.tempModel.getLookahead()])
+                                  getVegetation().getOccurrence()[
+                                          timeStep + t])
+                     for t in range(self.model.getLookahead())])
                 for n in tempModel.N}
 
         """ Whether resource R satisfies component C for fire M """
@@ -879,8 +921,8 @@ class Simulation():
         tempModel.d3_RCN = {
                 (r, c, n):
                 (1
-                    if (((c == 1 or c == 3) and tempModel.d3_RNC[r, m] <= 1/3)
-                        or (c == 2 or c == 4 and tempModel.d3_RNC[r, m] > 1/3))
+                    if (((c == 1 or c == 3) and tempModel.d3_RN[r, n] <= 1/3)
+                        or (c == 2 or c == 4 and tempModel.d3_RN[r, n] > 1/3))
                     else 0)
                 for r in tempModel.R
                 for c in tempModel.C
@@ -890,8 +932,8 @@ class Simulation():
         tempModel.no_CB = {
                 (c, b):
                 sum([tempModel.d4_BNC[b, n, c]
-                     if (((c == 1 or c == 3) and tempModel.d4_BN[b, n, c] <= 1/3)
-                         or (c == 2 or c == 4 and tempModel.d4_BN[b, n, c] > 1/3))
+                     if (((c == 1 or c == 3) and tempModel.d4_BNC[b, n, c] <= 1/3)
+                         or (c == 2 or c == 4 and tempModel.d4_BNC[b, n, c] > 1/3))
                      else 0
                      for n in tempModel.N])
                 for c in tempModel.C
@@ -906,8 +948,8 @@ class Simulation():
         components in c in configuration k are available."""
         totalConstraints = tempModel.linear_constraints.get_num()
         tempModel.constraintNames["C_1"] = [
-                "C_1_K" + str(k) + "_C" + str(c) + "_M" + str(m)
-                for k in tempModel.K
+                "C_1_K" + str(k+1) + "_C" + str(c) + "_M" + str(m)
+                for k in tempModel.KE
                 for c in tempModel.C
                 for m in tempModel.M]
         tempModel.constraintIdxStarts["C_1"] = totalConstraints
@@ -915,20 +957,20 @@ class Simulation():
 
         varIdxs = {}
         varCoeffs = {}
-        for k in tempModel.K:
+        for k in range(len(tempModel.KE)):
             for c in tempModel.C:
                 for m in tempModel.M:
                     varIdxs[k, c, m] = [
-                            tempModel.decisionVarsIdxsStarts["Y_MRB_Delta_MK"]
+                            tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
                             + m*(len(tempModel.R)*len(tempModel.B) +
-                                    len(tempModel.K))
+                                    len(tempModel.KE))
                             + len(tempModel.R)*len(tempModel.B) + k]
-                    varCoeffs[k, c, m] = [tempModel.Q_KC[k, c]]
+                    varCoeffs[k, c, m] = [tempModel.Q_KC[tempModel.K[k], c]]
 
                     varIdxs[k, c, m].extend([
                             tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
                             + m*(len(tempModel.R)*len(tempModel.B) +
-                                    len(tempModel.K))
+                                    len(tempModel.KE))
                             + r*len(tempModel.B) + b
                             for r in tempModel.R
                             for b in tempModel.B])
@@ -939,10 +981,10 @@ class Simulation():
 
         tempModel.linear_constraints.add(
                 lin_expr=[
-                        tempModel.SparsePair(
+                        cplex.SparsePair(
                                 ind=varIdxs[k, c, m],
                                 val=varCoeffs[k, c, m])
-                        for k in tempModel.K
+                        for k in range(len(tempModel.KE))
                         for c in tempModel.C
                         for m in tempModel.M],
                 senses=["L"]*len(varIdxs),
@@ -977,7 +1019,7 @@ class Simulation():
 
         tempModel.linear_constraints.add(
                 lin_expr=[
-                        tempModel.SparsePair(
+                        cplex.SparsePair(
                                 ind=varIdxs[m, r, b],
                                 val=varCoeffs[m, r, b])
                         for m in tempModel.M
@@ -1000,12 +1042,13 @@ class Simulation():
                     tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
                     + m*(len(tempModel.R)*len(tempModel.B) + len(tempModel.K))
                     + len(tempModel.R)*len(tempModel.B)
-                    + k]
+                    + k
+                    for k in range(len(tempModel.KE))]
             varCoeffs[m] = [1]*len(varIdxs[m])
 
         tempModel.linear_constraints.add(
                 lin_expr=[
-                        tempModel.SparsePair(
+                        cplex.SparsePair(
                                 ind=varIdxs[m],
                                 val=varCoeffs[m])
                         for m in tempModel.M],
@@ -1022,7 +1065,7 @@ class Simulation():
                  tempModel.d3_RCN[r, c, n])
                 for r in tempModel.R
                 for b in tempModel.B
-                for k in tempModel.K
+                for k in range(len(tempModel.KP))
                 for c in tempModel.C
                 for n in tempModel.N]
 
@@ -1036,7 +1079,7 @@ class Simulation():
                 for r in tempModel.R
                 for b in tempModel.B
                 for m in tempModel.M
-                for k in tempModel.K
+                for k in range(len(tempModel.K))
                 for c in tempModel.C
                 for n in tempModel.N])
 
@@ -1044,7 +1087,7 @@ class Simulation():
 
         """ CONSTRAINT 5 """
         coefficients = [
-                (tempModel.constraintIdxsStarts["C_5"]
+                (tempModel.constraintIdxStarts["C_5"]
                  + r*len(tempModel.B) + b,
                  tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
                  + m*(len(tempModel.R)*len(tempModel.B) + len(tempModel.K))
@@ -1256,56 +1299,65 @@ class Simulation():
         tempModel.N = copy.copy(copyModel.N)
         tempModel.T = copy.copy(copyModel.T)
         tempModel.K = copy.copy(copyModel.K)
+        tempModel.KE = copy.copy(copyModel.KE)
+        tempModel.KP = copy.copy(copyModel.KP)
         tempModel.C = copy.copy(copyModel.C)
         tempModel.M_All = copy.copy(copyModel.M_All)
         tempModel.lambdas = copy.copy(copyModel.lambdas)
         tempModel.Gmax_R = copy.copy(copyModel.Gmax_R)
         tempModel.Q_KC = copy.copy(copyModel.Q_KC)
+        tempModel.decisionVars = copy.copy(copyModel.decisionVars)
+        tempModel.decisionVarsIdxStarts = copy.copy(
+                copyModel.decisionVarsIdxStarts)
+        tempModel.constraintIdxStarts = copy.copy(
+                copyModel.constraintIdxStarts)
+        tempModel.constraintNames = copy.copy(copyModel.constraintNames)
 
-    def expectedDamageExisting(self, fire, ffdiPath, config, time):
+    def expectedDamageExisting(self, fire, ffdiPath, configID, time):
         damage = 0
         fireTemp = copy.copy(fire)
         patch = fire.getPatchID()
 
-        for tt in self.model.getLookahead():
-            ffdi = ffdiPath[time, patch]
+        for tt in range(self.model.getLookahead()):
+            ffdi = ffdiPath[patch, tt]
             originalSize = fireTemp.getSize()
-            fireTemp.growFire(self.model, ffdi)
+            fireTemp.growFire(self.model, ffdi, configID)
             damage += (fireTemp.getSize() - originalSize)
 
         return damage
 
-    def expectedDamagePotential(self, patchID, ffdiPath, config, time):
+    def expectedDamagePotential(self, patchID, ffdiPath, configID, time):
         damage = 0
-        vegetation = self.model.getRegion().getVegetations()[
-                self.model.getRegion().getPatches()[patchID]
-                .getVegetations()[0][0]]
+        vegetation = (self.model.getRegion().getPatches()[patchID]
+                .getVegetation())
 
-        for tt in range(time, time + self.model.getLookahead()):
+        for tt in range(self.model.getLookahead()):
             # Only look at the expected damage of fires started at this time
             # period to the end of the horizon
-            ffdi = ffdiPath[tt, patchID]
+            ffdi = ffdiPath[patchID, tt]
 
             occ = numpy.interp(ffdi,
                                vegetation.getFFDIRange(),
-                               vegetation.getOccurrence())
+                               vegetation.getOccurrence()[time + tt + 1])
 
             size = numpy.interp(ffdi,
                                 vegetation.getFFDIRange(),
-                                vegetation.getInitialSize())
+                                vegetation.getInitialSize()[configID])
 
             growth = 1
 
             for t2 in range(tt, self.model.getLookahead() + time):
-                ffdi = ffdiPath[t2, patchID]
+                ffdi = ffdiPath[patchID, t2]
 
                 grMean = numpy.interp(ffdi,
                           vegetation.getFFDIRange(),
-                          vegetation.getROCA2PerHourMean())
+                          vegetation.getROCA2PerHourMean()[configID])
 
                 growth = growth*(1 + grMean)
 
             damage += occ*size*growth
+
+            return damage
 
     """////////////////////////////////////////////////////////////////////////
     ////////////////////////// ROV Routines for later /////////////////////////
