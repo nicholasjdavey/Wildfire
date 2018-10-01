@@ -179,11 +179,12 @@ class Simulation():
         cplxMod = cplex.Cplex()
         cplxMod.objective.set_sense(cplxMod.objective.sense.minimize)
 
-        """ INDEXED SETS """
+        """ INDEXED SETS AND LIST LENGTHS """
         cplxMod.R = [ii for ii in
                      range(len(self.model.getRegion().getResources()))]
         cplxMod.B = [ii for ii in
                      range(len(self.model.getRegion().getStations()[0]))]
+        lenB = len(cplxMod.B)
         cplxMod.N = [ii for ii in
                      range(len(self.model.getRegion().getPatches()))]
         cplxMod.T = [ii for ii in
@@ -191,6 +192,7 @@ class Simulation():
         cplxMod.K = [ii for ii in range(len(self.model.getConfigurations()))]
         cplxMod.KP = [cplxMod.K[ii-1] for ii in
                       self.model.getUsefulConfigurationsPotential()]
+        lenKP = len(cplxMod.KP)
         cplxMod.KE = [cplxMod.K[ii-1] for ii in
                       self.model.getUsefulConfigurationsExisting()]
         cplxMod.C = [1, 2, 3, 4]
@@ -246,10 +248,10 @@ class Simulation():
                 for c in cplxMod.C
                 for m in cplxMod.M}
 
-        """ Whether resource R satisfies component C for patch N """
-        cplxMod.d3_RCN = {
-                (r, c, n): 0
-                for r in cplxMod.R
+        """ Whether base B satisfies component C for patch N """
+        cplxMod.d3_BCN = {
+                (b, c, n): 0
+                for b in cplxMod.B
                 for c in cplxMod.C
                 for n in cplxMod.N}
 
@@ -282,6 +284,18 @@ class Simulation():
                 types=([cplxMod.variables.type.binary]
                        *len(cplxMod.decisionVars["X_RB"])))
 
+        """ Aircraft availability at base assignments """
+        cplxMod.decisionVars["A_RB"] = [
+                "A_RB_R" + str(r) + "_B" + str(b)
+                for r in cplxMod.R
+                for b in cplxMod.B]
+        cplxMod.decisionVarsIdxStarts["A_RB"] = totalVars
+        totalVars = totalVars + len(cplxMod.decisionVars["A_RB"])
+
+        cplxMod.variables.add(
+                types=([cplxMod.variables.type.binary]
+                       *len(cplxMod.decisionVars["A_RB"])))
+
         """ Patch configuration covers """
         cplxMod.decisionVars["Delta_NK"] = [
                 "Delta_NK_Adj_N" + str(n) + "_K" + str(k+1)
@@ -303,27 +317,26 @@ class Simulation():
         bound is set to 0. This effectively eliminates the column
         """
         component1 = [
-                ["Y_MRB_M" + str(m) + "_R" + str(r) + "_B" + str(b)
-                 for r in cplxMod.R
-                 for b in cplxMod.B]
+                ["Y_MR_M" + str(m) + "_R" + str(r)
+                 for r in cplxMod.R]
                 for m in cplxMod.M]
         component2 = [
                 ["Delta_MK_M" + str(m) + "_K" + str(k+1)
                  for k in cplxMod.KE]
                 for m in cplxMod.M]
 
-        cplxMod.decisionVars["Y_MRB_Delta_MK"] = []
+        cplxMod.decisionVars["Y_MR_Delta_MK"] = []
 
         for m in cplxMod.M:
-            cplxMod.decisionVars["Y_MRB_Delta_MK"].extend(component1[m-1])
-            cplxMod.decisionVars["Y_MRB_Delta_MK"].extend(component2[m-1])
+            cplxMod.decisionVars["Y_MR_Delta_MK"].extend(component1[m-1])
+            cplxMod.decisionVars["Y_MR_Delta_MK"].extend(component2[m-1])
 
-        cplxMod.decisionVarsIdxStarts["Y_MRB_Delta_MK"] = totalVars
-        totalVars = totalVars + len(cplxMod.decisionVars["Y_MRB_Delta_MK"])
+        cplxMod.decisionVarsIdxStarts["Y_MR_Delta_MK"] = totalVars
+        totalVars = totalVars + len(cplxMod.decisionVars["Y_MR_Delta_MK"])
 
         cplxMod.variables.add(
                 types=([cplxMod.variables.type.binary]
-                       *len(cplxMod.decisionVars["Y_MRB_Delta_MK"])))
+                       *len(cplxMod.decisionVars["Y_MR_Delta_MK"])))
 
         """ CONSTRAINTS """
         cplxMod.constraintNames = {}
@@ -342,72 +355,25 @@ class Simulation():
         cplxMod.constraintIdxStarts["C_2"] = totalConstraints
         totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_2"])
 
-        varIdxs = {}
-        varCoeffs = {}
-
+        startARB = cplxMod.decisionVarsIdxStarts["A_RB"]
+        startDeltaNK = cplxMod.decisionVarsIdxStarts["Delta_NK"]
         varIdxs = {
                 (k, c, n):
-                [cplxMod.decisionVarsIdxStarts["X_RB"]
-                        + r*len(cplxMod.B) + b
-                        for r in cplxMod.R
-                        for b in cplxMod.B]
-                + [cplxMod.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                          + m*(len(cplxMod.R)*len(cplxMod.B)
-                          + len(cplxMod.KE)) + r*len(cplxMod.B) + b
-                          for r in cplxMod.R
-                          for b in cplxMod.B
-                          for m in cplxMod.M]
-                + [cplxMod.decisionVarsIdxStarts["Delta_NK"]
-                          + n*len(cplxMod.KP) + k]
-                for k in range(len(cplxMod.KP))
+                [startARB + r*lenB + b for r in cplxMod.R for b in cplxMod.B]
+                + [startDeltaNK + n*lenKP + k]
+                for k in range(lenKP)
                 for c in cplxMod.C
                 for n in cplxMod.N}
 
         varCoeffs = {
                 (k, c, n):
-                [-cplxMod.d3_RCN[r, c, n]/cplxMod.no_CB[c, b]
+                [-cplxMod.d3_BCN[b, c, n]/cplxMod.no_CB[c, b]
                         for r in cplxMod.R
                         for b in cplxMod.B]
-                + [cplxMod.d3_RCN[r, c, n]/cplxMod.no_CB[c, b]
-                          for r in cplxMod.R
-                          for b in cplxMod.B
-                          for m in cplxMod.M]
                 + [cplxMod.Q_KC[cplxMod.KP[k], c]]
-                for k in range(len(cplxMod.KP))
+                for k in range(lenKP)
                 for c in cplxMod.C
                 for n in cplxMod.N}
-
-#        for k in range(len(cplxMod.KP)):
-#            for c in cplxMod.C:
-#                for n in cplxMod.N:
-#                    varIdxs[k, c, n] = (
-#                            [cplxMod.decisionVarsIdxStarts["X_RB"] +
-#                             r*len(cplxMod.B) + b
-#                             for r in cplxMod.R
-#                             for b in cplxMod.B])
-#                    varCoeffs[k, c, n] = (
-#                            [-cplxMod.d3_RCN[r, c, n]/cplxMod.no_CB[c, b]
-#                             for r in cplxMod.R
-#                             for b in cplxMod.B])
-#
-#                    varIdxs[k, c, n].extend(
-#                            [cplxMod.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-#                             + m*(len(cplxMod.R)*len(cplxMod.B) +
-#                                  len(cplxMod.KE))
-#                             + r*len(cplxMod.B) + b
-#                             for r in cplxMod.R
-#                             for b in cplxMod.B
-#                             for m in cplxMod.M])
-#                    varCoeffs[k, c, n].extend(
-#                            [cplxMod.d3_RCN[r, c, n]/cplxMod.no_CB[c, b]
-#                             for r in cplxMod.R
-#                             for b in cplxMod.B
-#                             for m in cplxMod.M])
-#
-#                    varIdxs[k, c, n].append(
-#                            cplxMod.decisionVarsIdxStarts["Delta_NK"]
-#                            + n*len(cplxMod.KP) + k)
-#                    varCoeffs[k, c, n].append(cplxMod.Q_KC[cplxMod.KP[k], c])
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
@@ -420,21 +386,63 @@ class Simulation():
                 senses=["L"]*(len(varIdxs)),
                 rhs=[0]*len(varIdxs))
 
-        """Ensures that an aircraft is assigned to only one base"""
-        cplxMod.constraintNames["C_4"] = [
-                "C_4_R" + str(r)
-                for r in cplxMod.R]
+        """Ensures that an aircraft can only be available at a base if it is
+        stationed there"""
+        cplxMod.constraintNames["C_3"] = [
+                "C_3_R" + str(r) + "_B" + str(b)
+                for r in cplxMod.R
+                for b in cplxMod.B]
+        cplxMod.constraintIdxStarts["C_3"] = totalConstraints
+        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_3"])
+
+        startXRB = cplxMod.decisionVarsIdxStarts["X_RB"]
+        varIdxs = {(r, b): [startARB + r*lenB, startXRB + r*lenB]
+                   for r in cplxMod.R
+                   for b in cplxMod.B}
+
+        varCoeffs = {(r, b): [1, -1] for r in cplxMod.R for b in cplxMod.B}
+
+        cplxMod.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[r, b],
+                                val=varCoeffs[r, b])
+                        for r in cplxMod.R
+                        for b in cplxMod.B],
+                senses=["L"]*(len(varIdxs)),
+                rhs=[0]*len(varIdxs))
+
+        """Ensures that an aircraft is either available at a base or is
+        attending a fire"""
+        cplxMod.constraintNames["C_4"] = ["C_4_R" + str(r) for r in cplxMod.R]
         cplxMod.constraintIdxStarts["C_4"] = totalConstraints
         totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_4"])
 
-        varIdxs = {}
-        varCoeffs = {}
-        for r in cplxMod.R:
-            varIdxs[r] = (
-                    [cplxMod.decisionVarsIdxStarts["X_RB"]
-                    + r*len(cplxMod.R) + b
-                    for b in cplxMod.B])
-            varCoeffs[r] = [1]*len(varIdxs[r])
+        varIdxs = {(r): [startARB + r*lenB + b for b in cplxMod.B]
+                   for r in cplxMod.R}
+
+        varCoeffs = {(r): [1 for b in cplxMod.B] for r in cplxMod.R}
+
+        cplxMod.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[r],
+                                val=varCoeffs[r])
+                        for r in cplxMod.R],
+                senses=["E"]*(len(varIdxs)),
+                rhs=[1]*len(varIdxs))
+
+        """Ensures that an aircraft is assigned to one and only one base"""
+        cplxMod.constraintNames["C_5"] = [
+                "C_5_R" + str(r)
+                for r in cplxMod.R]
+        cplxMod.constraintIdxStarts["C_5"] = totalConstraints
+        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_5"])
+
+        varIdxs = {(r): [startXRB + r*lenB + b for b in cplxMod.B]
+                   for r in cplxMod.R}
+
+        varCoeffs = {(r): [1]*len(varIdxs[r]) for r in cplxMod.R}
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
@@ -446,12 +454,12 @@ class Simulation():
                 rhs=[1]*len(varIdxs))
 
         """Ensures that an aircraft can be allocated to at most one fire"""
-        cplxMod.constraintNames["C_5"] = [
-                "C_5_R" + str(r) + "_B" + str(b)
+        cplxMod.constraintNames["C_6"] = [
+                "C_6_R" + str(r) + "_B" + str(b)
                 for r in cplxMod.R
                 for b in cplxMod.B]
-        cplxMod.constraintIdxStarts["C_5"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_5"])
+        cplxMod.constraintIdxStarts["C_6"] = totalConstraints
+        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_6"])
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
@@ -465,20 +473,17 @@ class Simulation():
 
         """Ensures that the sum of probabilities of applying each configuration
         to a patch is 1"""
-        cplxMod.constraintNames["C_7"] = [
-                "C_7_N" + str(n)
+        cplxMod.constraintNames["C_8"] = [
+                "C_8_N" + str(n)
                 for n in cplxMod.N]
-        cplxMod.constraintIdxStarts["C_7"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_7"])
+        cplxMod.constraintIdxStarts["C_8"] = totalConstraints
+        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_8"])
 
-        varIdxs = {}
-        varCoeffs = {}
-        for n in cplxMod.N:
-            varIdxs[n] = (
-                    [cplxMod.decisionVarsIdxStarts["Delta_NK"]
-                    + k
-                    for k in range(len(cplxMod.K))])
-            varCoeffs[n] = [1]*len(varIdxs[n])
+        varIdxs = {(n):
+                   [startDeltaNK + n*lenKP + k for k in range(len(cplxMod.K))]
+                   for n in cplxMod.N}
+
+        varCoeffs = {(n): [1]*len(varIdxs[n]) for n in cplxMod.N}
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
@@ -490,34 +495,17 @@ class Simulation():
                 rhs=[1]*len(varIdxs))
 
         """Ensures that the maximum number of flying hours are not exceeded"""
-        cplxMod.constraintNames["C_8"] = [
-                "C_8_K" + str(r)
+        cplxMod.constraintNames["C_9"] = [
+                "C_9_K" + str(r)
                 for r in cplxMod.R]
-        cplxMod.constraintIdxStarts["C_8"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_8"])
+        cplxMod.constraintIdxStarts["C_9"] = totalConstraints
+        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_9"])
 
-        varIdxs = {}
-        varCoeffs = {}
-        for r in cplxMod.R:
-            varIdxs[r] = (
-                    [cplxMod.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                     + m*(len(cplxMod.R)*len(cplxMod.B) + len(cplxMod.KE))
-                     + r*len(cplxMod.B) + b
-                     for b in cplxMod.B
-                     for m in cplxMod.M])
-            varCoeffs[r] = (
-                    [cplxMod.d2_RM[r, m]
-                     for b in cplxMod.B
-                     for m in cplxMod.M])
+        varIdxs = {(r): [startXRB + r*lenB + b for b in cplxMod.B]
+                   for r in cplxMod.R}
 
-            varIdxs[r].extend(
-                    [cplxMod.decisionVarsIdxStarts["X_RB"]
-                     + r*len(cplxMod.B) + b
-                     for b in cplxMod.B])
-            varCoeffs[r].extend(
-                    [cplxMod.d1_RB[r, b]
-                     + r*len(cplxMod.B) + b
-                     for b in cplxMod.B])
+        varCoeffs = {(r): [cplxMod.d1_RB[r, b] + r*lenB + b for b in cplxMod.B]
+                     for r in cplxMod.R}
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
@@ -795,6 +783,14 @@ class Simulation():
         /////////////////////////// DECISION VARIABLES ////////////////////////
         ////////////////////////////////////////////////////////////////////"""
 
+        """ Set lengths """
+        lenR = len(tempModel.R)
+        lenB = len(tempModel.B)
+        lenN = len(tempModel.N)
+        lenKP = len(tempModel.KP)
+        lenKE = len(tempModel.KE)
+        lenC = len(tempModel.C)
+
         """ Set the fire details for the sets and decision variables """
         tempModel.M = [ii for ii in range(len(activeFires))]
 
@@ -807,28 +803,27 @@ class Simulation():
         bound is set to 0. This effectively eliminates the column
         """
         component1 = [
-                ["Y_MRB_M" + str(m) + "_R" + str(r) + "_B" + str(b)
-                 for r in tempModel.R
-                 for b in tempModel.B]
+                ["Y_MR_M" + str(m) + "_R" + str(r)
+                 for r in tempModel.R]
                 for m in tempModel.M]
         component2 = [
                 ["Delta_MK_M" + str(m) + "_K" + str(k+1)
                  for k in tempModel.KE]
                 for m in tempModel.M]
 
-        tempModel.decisionVars["Y_MRB_Delta_MK"] = []
+        tempModel.decisionVars["Y_MR_Delta_MK"] = []
 
         for m in tempModel.M:
-            tempModel.decisionVars["Y_MRB_Delta_MK"].extend(component1[m-1])
-            tempModel.decisionVars["Y_MRB_Delta_MK"].extend(component2[m-1])
+            tempModel.decisionVars["Y_MR_Delta_MK"].extend(component1[m-1])
+            tempModel.decisionVars["Y_MR_Delta_MK"].extend(component2[m-1])
 
         totalVars = tempModel.variables.get_num()
-        tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"] = totalVars
-        totalVars = totalVars + len(tempModel.decisionVars["Y_MRB_Delta_MK"])
+        tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"] = totalVars
+        totalVars = totalVars + len(tempModel.decisionVars["Y_MR_Delta_MK"])
 
         tempModel.variables.add(
                 types=([tempModel.variables.type.binary]
-                       *len(tempModel.decisionVars["Y_MRB_Delta_MK"])))
+                       *len(tempModel.decisionVars["Y_MR_Delta_MK"])))
 
         """////////////////////////////////////////////////////////////////////
         ///////////////////////////// PARAMETERS //////////////////////////////
@@ -869,15 +864,15 @@ class Simulation():
                 for r in tempModel.R
                 for m in tempModel.M}
 
-        """ Distances times between resource R and patch N"""
-        tempModel.d3_RN = {
-                (r, n):
+        """ Distances between resource R and patch N"""
+        tempModel.d3_BN = {
+                (b, n):
                 math.sqrt(
                         (patches[n].getCentroid()[0]
-                         - resourcesPath[r].getLocation()[0])**2
+                         - bases[b].getLocation()[0])**2
                         + (patches[n].getCentroid()[1]
-                           - resourcesPath[r].getLocation()[1])**2)
-                for r in tempModel.R
+                           - bases[b].getLocation()[1])**2)
+                for b in tempModel.B
                 for n in tempModel.N}
 
         """ Travel times between base B and patch N"""
@@ -917,14 +912,14 @@ class Simulation():
                 for c in tempModel.C
                 for m in tempModel.M}
 
-        """ Whether resource R satisfies component C for patch N """
-        tempModel.d3_RCN = {
-                (r, c, n):
+        """ Whether base B satisfies component C for patch N """
+        tempModel.d3_BCN = {
+                (b, c, n):
                 (1
-                    if (((c == 1 or c == 3) and tempModel.d3_RN[r, n] <= 1/3)
-                        or (c == 2 or c == 4 and tempModel.d3_RN[r, n] > 1/3))
+                    if (((c == 1 or c == 3) and tempModel.d3_BN[b, n] <= 1/3)
+                        or (c == 2 or c == 4 and tempModel.d3_BN[b, n] > 1/3))
                     else 0)
-                for r in tempModel.R
+                for b in tempModel.B
                 for c in tempModel.C
                 for n in tempModel.N}
 
@@ -938,6 +933,39 @@ class Simulation():
                      for n in tempModel.N])
                 for c in tempModel.C
                 for b in tempModel.B}
+
+        """////////////////////////////////////////////////////////////////////
+        ///////////////////// OBJECTIVE VALUE COEFFICIENTS ////////////////////
+        ////////////////////////////////////////////////////////////////////"""
+
+        startYMR = tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
+        startXRB = tempModel.decisionVarsIdxStarts["X_RB"]
+        startDeltaNK = tempModel.decisionVarsIdxStarts["Delta_NK"]
+
+        tempModel.objective.set_linear(list(zip(
+                [startYMR + m*(lenR + lenKE) + k
+                 for m in tempModel.M
+                 for k in tempModel.KE],
+                [tempModel.D1_MK[m, k]*tempModel.lambdas[1]*tempModel.lambdas[2]
+                 for m in tempModel.M
+                 for k in tempModel.KE])))
+
+        tempModel.objective.set_linear(list(zip(
+                [startDeltaNK + n*lenKE + k
+                 for n in tempModel.N
+                 for k in tempModel.KP],
+                [tempModel.D2_NK[n, k]*tempModel.lambdas[2]*(1 -
+                        tempModel.lambdas[1])
+                 for n in tempModel.N
+                 for k in tempModel.KP])))
+
+        tempModel.objective.set_linear(list(zip(
+                [startXRB + r*lenB + b
+                 for r in tempModel.R
+                 for b in tempModel.B],
+                [(1 - tempModel.lambdas[2])*tempModel.d1_RB[r, b]
+                 for r in tempModel.R
+                 for b in tempModel.B])))
 
         """////////////////////////////////////////////////////////////////////
         //////////////////////////// CONSTRAINTS //////////////////////////////
@@ -955,29 +983,21 @@ class Simulation():
         tempModel.constraintIdxStarts["C_1"] = totalConstraints
         totalConstraints = totalConstraints + len(tempModel.constraintNames["C_1"])
 
-        varIdxs = {}
-        varCoeffs = {}
-        for k in range(len(tempModel.KE)):
-            for c in tempModel.C:
-                for m in tempModel.M:
-                    varIdxs[k, c, m] = [
-                            tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                            + m*(len(tempModel.R)*len(tempModel.B) +
-                                    len(tempModel.KE))
-                            + len(tempModel.R)*len(tempModel.B) + k]
-                    varCoeffs[k, c, m] = [tempModel.Q_KC[tempModel.K[k], c]]
+        varIdxs = {
+                (k, c, m):
+                [startYMR + m*(lenR + lenKE) + lenR + k]
+                + [startYMR + m*(lenR + lenKE) + r for r in tempModel.R]
+                for k in range(len(tempModel.KE))
+                for c in tempModel.C
+                for m in tempModel.M}
 
-                    varIdxs[k, c, m].extend([
-                            tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                            + m*(len(tempModel.R)*len(tempModel.B) +
-                                    len(tempModel.KE))
-                            + r*len(tempModel.B) + b
-                            for r in tempModel.R
-                            for b in tempModel.B])
-                    varCoeffs[k, c, m].extend([
-                            -tempModel.d2_RCM[r, c, m]
-                            for r in tempModel.R
-                            for b in tempModel.B])
+        varCoeffs = {
+                (k, c, m):
+                [tempModel.Q_KC[tempModel.K[k], c]]
+                + [-tempModel.d2_RCM[r, c, m] for r in tempModel.R]
+                for k in range(len(tempModel.KE))
+                for c in tempModel.C
+                for m in tempModel.M}
 
         tempModel.linear_constraints.add(
                 lin_expr=[
@@ -990,61 +1010,19 @@ class Simulation():
                 senses=["L"]*len(varIdxs),
                 rhs=[0]*len(varIdxs))
 
-        """Ensures that aircraft r can only fight a fire out of base b if it is
-        actually stationed at base b"""
-        tempModel.constraintNames["C_3"] = [
-                "C_3_M" + str(m) + "_R" + str(r) + "_B" + str(b)
-                for m in tempModel.M
-                for r in tempModel.R
-                for b in tempModel.B]
-        tempModel.constraintIdxStarts["C_3"] = totalConstraints
-        totalConstraints = totalConstraints + len(tempModel.constraintNames["C_3"])
-
-        varIdxs = {}
-        varCoeffs = {}
-        for m in tempModel.M:
-            for r in tempModel.R:
-                for b in tempModel.B:
-                    varIdxs[m, r, b] = [
-                            tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                            + m*(len(tempModel.R)*len(tempModel.B) +
-                                    len(tempModel.K))
-                            + r*(len(tempModel.B)) + b]
-                    varCoeffs[m, r, b] = [1]
-
-                    varIdxs[m, r, b].extend(
-                            [tempModel.decisionVarsIdxStarts["X_RB"]
-                            + r*len(tempModel.B) + b])
-                    varCoeffs[m, r, b].extend([1])
-
-        tempModel.linear_constraints.add(
-                lin_expr=[
-                        cplex.SparsePair(
-                                ind=varIdxs[m, r, b],
-                                val=varCoeffs[m, r, b])
-                        for m in tempModel.M
-                        for r in tempModel.R
-                        for b in tempModel.B],
-                senses=["L"]*len(varIdxs),
-                rhs=[0]*len(varIdxs))
-
         """Ensures that a fire can be assigned only one configuration"""
-        tempModel.constraintNames["C_6"] = [
-                "C_6_M" + str(m)
+        tempModel.constraintNames["C_7"] = [
+                "C_7_M" + str(m)
                 for m in tempModel.M]
-        tempModel.constraintIdxStarts["C_6"] = totalConstraints
-        totalConstraints = totalConstraints + len(tempModel.constraintNames["C_6"])
+        tempModel.constraintIdxStarts["C_7"] = totalConstraints
+        totalConstraints = totalConstraints + len(tempModel.constraintNames["C_7"])
 
-        varIdxs = {}
-        varCoeffs = {}
-        for m in tempModel.M:
-            varIdxs[m] = [
-                    tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                    + m*(len(tempModel.R)*len(tempModel.B) + len(tempModel.K))
-                    + len(tempModel.R)*len(tempModel.B)
-                    + k
-                    for k in range(len(tempModel.KE))]
-            varCoeffs[m] = [1]*len(varIdxs[m])
+        varIdxs = {(m): [startYMR + m*(lenR + lenKE) + lenR + k
+                         for k in range(len(tempModel.KE))]
+                   for m in tempModel.M}
+
+        varCoeffs = {(m): [1]*len(varIdxs[m])
+                     for m in tempModel.M}
 
         tempModel.linear_constraints.add(
                 lin_expr=[
@@ -1057,63 +1035,52 @@ class Simulation():
 
         """ MODIFY THE COEFFICIENTS AND COMPONENTS OF MANY OTHER CONSTRAINTS """
         """ CONSTRAINT 2 """
+        startARB = tempModel.decisionVarsIdxStarts["A_RB"]
+        startC2 = tempModel.constraintIdxStarts["C_2"]
         coefficients = [
-                (tempModel.constraintIdxStarts["C_2"]
-                 + k*len(tempModel.C)*len(tempModel.N) + c*len(tempModel.N) + n,
-                 tempModel.decisionVarsIdxStarts["X_RB"]
-                 + r*len(tempModel.B) + b,
-                 tempModel.d3_RCN[r, c, n])
+                (startC2 + k*lenC*lenN + c*lenN + n,
+                 startARB + r*lenB + b,
+                 -tempModel.d3_BCN[b, c, n])
                 for r in tempModel.R
                 for b in tempModel.B
                 for k in range(len(tempModel.KP))
                 for c in tempModel.C
                 for n in tempModel.N]
 
-        coefficients.extend([
-                (tempModel.constraintIdxStarts["C_2"]
-                 + k*len(tempModel.C)*len(tempModel.N) + c*len(tempModel.N) + n,
-                 tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                 + m*(len(tempModel.R)*len(tempModel.B) + len(tempModel.K))
-                 + r*(len(tempModel.B)) + b,
-                 -tempModel.d3_RCN[r, c, n]/tempModel.no_CB[c, b])
+        tempModel.linear_constraints.set_coefficients(coefficients)
+
+        """ CONSTRAINT 4 """
+        startC4 = tempModel.constraintIdxStarts["C_4"]
+        coefficients = [
+                (startC4 + r, startYMR + m*(lenR + lenKE) + r, 1)
                 for r in tempModel.R
-                for b in tempModel.B
-                for m in tempModel.M
-                for k in range(len(tempModel.K))
-                for c in tempModel.C
-                for n in tempModel.N])
+                for m in tempModel.M]
 
         tempModel.linear_constraints.set_coefficients(coefficients)
 
-        """ CONSTRAINT 5 """
+        """ CONSTRAINT 6 """
+        startC6 = tempModel.constraintIdxStarts["C_6"]
         coefficients = [
-                (tempModel.constraintIdxStarts["C_5"]
-                 + r*len(tempModel.B) + b,
-                 tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                 + m*(len(tempModel.R)*len(tempModel.B) + len(tempModel.K))
-                 + r*(len(tempModel.B)) + b,
+                (startC6 + r,
+                 startYMR + m*(lenR + lenKP) + r,
                  1)
                 for r in tempModel.R
-                for b in tempModel.B
                 for m in tempModel.M]
 
         tempModel.linear_constraints.set_coefficients(coefficients)
 
-        """ CONSTRAINT 8 """
+        """ CONSTRAINT 9 """
+        startC9 = tempModel.constraintIdxStarts["C_9"]
         coefficients = [
-                (tempModel.constraintIdxStarts["C_8"] + r,
-                 tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                 + m*(len(tempModel.R)*len(tempModel.B) + len(tempModel.K))
-                 + r*(len(tempModel.B)) + b,
+                (startC9 + r,
+                 startYMR + m*(lenR + lenKE) + r,
                  tempModel.d2_RM[r, m])
                 for r in tempModel.R
-                for b in tempModel.B
                 for m in tempModel.M]
 
         coefficients.extend([
-                (tempModel.constraintIdxStarts["C_8"] + r,
-                 tempModel.decisionVarsIdxStarts["X_RB"]
-                 + r*len(tempModel.B) + b,
+                (startC9 + r,
+                 startXRB + r*lenB + b,
                  tempModel.d1_RB[r, b])
                 for r in tempModel.R
                 for b in tempModel.B])
@@ -1121,7 +1088,7 @@ class Simulation():
         tempModel.linear_constraints.set_coefficients(coefficients)
 
         tempModel.linear_constraints.set_rhs([
-                (tempModel.constraintIdxStarts["C_8"] + r,
+                (startC9 + r,
                  tempModel.Gmax_R[r] - tempModel.G_R[r])
                 for r in tempModel.R])
 
