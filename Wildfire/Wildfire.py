@@ -20,6 +20,7 @@ def main():
         simulation.simulate()
 
         # Save results
+        simulation.writeOutResults()
 
     print("Simulations complete")
 

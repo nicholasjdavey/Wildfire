@@ -611,7 +611,6 @@ class Simulation():
         patches = len(region.getPatches())
         resources = region.getResources()
         fires = region.getFires()
-        configs = self.model.getConfigurations()
         configsE = self.model.getUsefulConfigurationsExisting()
         configsP = self.model.getUsefulConfigurationsPotential()
         sampleFFDIs = self.model.getSamplePaths()
@@ -759,16 +758,13 @@ class Simulation():
                             rain, precipitation, temperatureMin, temperatureMax,
                             windRegimes, windNS, windEW, FFDI, tt)
                 else:
-                    FFDI[tt + 1] = sampleFFDIs[ii][tt + 1]
+                    FFDI[tt + 1] = sampleFFDIs[ii][:, tt + 1]
 
                 # Store the output results
             self.finalDamageMaps[ii] = accumulatedDamage
             self.expectedDamages[ii] = damage
             self.realisedAssignments[ii] = assignmentsPath
             self.realisedFFDIs[ii] = FFDI
-
-        # Print the results to an output file
-        self.writeOutResults()
 
     def assignAircraft(self, assignmentsPath, expDamageExist, expDamagePoten,
                        activeFires, resourcesPath, ffdiPath, timeStep):
@@ -1215,7 +1211,7 @@ class Simulation():
             activeFires[fire].growFire(
                     self.model,
                     ffdi[activeFires[fire].getPatchID()],
-                    fireConfigs[fire],
+                    fireConfigs[fire] + 1,
                     random=True)
 
             sizeCurr = activeFires[fire].getSize()
@@ -1245,7 +1241,9 @@ class Simulation():
 
         """ New fires """
         for patch in range(len(self.model.getRegion().getPatches())):
-            nfPatch = patches[patch].newFires(self, self.model, ffdi[patch])
+            nfPatch = patches[patch].newFires(self.model,
+                                              ffdi[patch],
+                                              patchConfigs[patch] + 1)
             activeFires.extend(nfPatch)
 
             for fire in nfPatch:

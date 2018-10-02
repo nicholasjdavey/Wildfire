@@ -80,21 +80,19 @@ class Patch():
     def setIndices(self, i):
         self.indices = i
 
-    def newFires(self, model, ffdi):
-        vegetation = model.getRegion().getVegetations()[self.vegetation[0]]
-
+    def newFires(self, model, ffdi, configID):
         occ = numpy.interp(ffdi,
-                           vegetation.getFFDIRange(),
-                           vegetation.getOccurrence())
+                           self.vegetation.getFFDIRange(),
+                           self.vegetation.getOccurrence()[configID])
 
         newFires = numpy.random.poisson(occ)
         newFiresList = []
 
-        for f in range(len(newFires)):
+        for f in range(newFires):
             size = numpy.interp(ffdi,
-                               vegetation.getFFDIRange(),
-                               vegetation.getInitialSize())
-            fire = Fire.Fire()
+                               self.vegetation.getFFDIRange(),
+                               self.vegetation.getInitialSize()[configID])
+            fire = Fire()
             fire.setLocation(self.randomPatchPoint)
             fire.setSize(size)
             fire.setInitialSize(size)
