@@ -649,6 +649,7 @@ class Model():
                             aircraftDetails[6].split(":")[1]))
                         aircraft.setSpeed(float(
                             aircraftDetails[7].split(":")[1]))
+                        aircraft.setLocation(airStrip.getLocation())
                         aircraftList.append(aircraft)
                         totalTankers.append(aircraft)
                         totalResources.append(aircraft)
@@ -667,6 +668,7 @@ class Model():
                             helicopterDetails[6].split(":")[1]))
                         heli.setSpeed(float(
                             helicopterDetails[7].split(":")[1]))
+                        heli.setLocation(airStrip.getLocation())
                         heliList.append(heli)
                         totalHelis.append(heli)
                         totalResources.append(heli)

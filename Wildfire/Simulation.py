@@ -942,11 +942,13 @@ class Simulation():
         startXRB = tempModel.decisionVarsIdxStarts["X_RB"]
         startDeltaNK = tempModel.decisionVarsIdxStarts["Delta_NK"]
 
+        lambdaVals = tempModel.lambdas[1]
+
         tempModel.objective.set_linear(list(zip(
                 [startYMR + m*(lenR + lenKE) + k
                  for m in tempModel.M
                  for k in tempModel.KE],
-                [tempModel.D1_MK[m, k]*tempModel.lambdas[1]*tempModel.lambdas[2]
+                [tempModel.D1_MK[m, k]*lambdaVals[0]*lambdaVals[1]
                  for m in tempModel.M
                  for k in tempModel.KE])))
 
@@ -954,8 +956,7 @@ class Simulation():
                 [startDeltaNK + n*lenKE + k
                  for n in tempModel.N
                  for k in tempModel.KP],
-                [tempModel.D2_NK[n, k]*tempModel.lambdas[2]*(1 -
-                        tempModel.lambdas[1])
+                [tempModel.D2_NK[n, k]*lambdaVals[1]*(1 - lambdaVals[0])
                  for n in tempModel.N
                  for k in tempModel.KP])))
 
@@ -963,7 +964,7 @@ class Simulation():
                 [startXRB + r*lenB + b
                  for r in tempModel.R
                  for b in tempModel.B],
-                [(1 - tempModel.lambdas[2])*tempModel.d1_RB[r, b]
+                [(1 - lambdaVals[1])*tempModel.d1_RB[r, b]
                  for r in tempModel.R
                  for b in tempModel.B])))
 
@@ -1100,43 +1101,38 @@ class Simulation():
 
         x_RB = [[round(tempModel.solution.get_values(
                        tempModel.decisionVarsIdxStarts["X_RB"]
-                       + r*len(tempModel.B) + b))
+                       + r*lenB + b))
                  for b in tempModel.B]
                 for r in tempModel.R]
 
         for r in tempModel.R:
-            assignments[r-1, 0] = x_RB[r-1].index(1)
+            assignments[r-1, 0] = x_RB[r-1].index(1) + 1
 
-        y_RBM = [[[round(tempModel.solution.get_values(
-                         tempModel.decisionVarsIdxStarts["Y_MRB_Delta_MK"]
-                         + m*(len(tempModel.R)*len(tempModel.B)
-                         + len(tempModel.K)) + r*(len(tempModel.B)) + b))
+        y_RM = [[round(tempModel.solution.get_values(
+                         tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
+                         + m*(lenR + lenKE) + r))
                    for m in tempModel.M]
-                  for b in tempModel.B]
                  for r in tempModel.R]
 
         for r in tempModel.R:
-            for b in tempModel.B:
-                for m in tempModel.M:
-                    if y_RBM[r, b, m] == 1:
-                        assignments[r-1, 1] = m
-                        break
+            for m in tempModel.M:
+                if y_RM[r][m] == 1:
+                    assignments[r, 1] = m + 1
+                    break
 
         """ Update the attack configurations for each patch and active fire """
         configsN = [[round(tempModel.solution.get_values(
                            tempModel.decisionVarsIdxStarts["Delta_NK"]
-                           + n*len(tempModel.K) + k))
-                     for k in tempModel.K]
+                           + n*lenKP + k))
+                     for k in range(len(tempModel.KP))]
                     for n in tempModel.N]
 
         patchConfigs = [configsN[n-1].index(1) for n in tempModel.N]
 
         configsM = [[round(tempModel.solution.get_values(
-                           tempModel.decisionVarsIdxStarts["Y_RBM_Delta_MK"]
-                           + m*(len(tempModel.R)*len(tempModel.B)
-                           + len(tempModel.K))
-                           + len(tempModel.R)*len(tempModel.B) + k))
-                     for k in tempModel.K]
+                           tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
+                           + m*(lenR + lenKE) + lenR + k))
+                     for k in range(len(tempModel.KE))]
                     for m in tempModel.M]
 
         fireConfigs = [configsM[m-1].index(1) for m in tempModel.M]
@@ -1219,6 +1215,7 @@ class Simulation():
             activeFires[fire].growFire(
                     self.model,
                     ffdi[activeFires[fire].getPatchID()],
+                    fireConfigs[fire],
                     random=True)
 
             sizeCurr = activeFires[fire].getSize()
