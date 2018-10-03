@@ -10,6 +10,7 @@ import cplex
 import math
 import copy
 import os
+import errno
 import csv
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpp
@@ -143,7 +144,7 @@ class Simulation():
             0: self.samplePaths,
             1: self.simulateMPC,
             2: self.simulateROV,
-            3: self.simulateStatic
+            3: self.simulateMPC
             }
 
         algo = self.model.getAlgo()
@@ -152,7 +153,11 @@ class Simulation():
             self.buildLPModel()
 
         prog = switch.get(algo)
-        prog()
+
+        if algo == 3:
+            prog(True)
+        else:
+            prog()
 
     """////////////////////////////////////////////////////////////////////////
     /////////////////////// CPLEX Models Used in Program //////////////////////
@@ -600,7 +605,7 @@ class Simulation():
                             for tt in range(self.model.getTotalSteps() + 1
                                             + self.model.getLookahead())])
 
-    def simulateMPC(self):
+    def simulateMPC(self, static=False):
         # Computes a Model Predictive Control approach for reallocating
         # aerial resources for fighting fires. The input conditional
         # probabilities are provided as inputs to the program. We just run the
@@ -619,11 +624,14 @@ class Simulation():
         A value of zero indicates no assignment (only applicable for fires) """
         assignments = self.model.getRegion().getAssignments()
 
+        if static:
+            """ We need to conduct an initial assignment """
+
         regionSize = region.getX().size
         samplePaths = (
                 len(sampleFFDIs)
                 if len(sampleFFDIs) > 0
-                else self.model.getROVPaths())
+                else self.model.getRuns())
         samplePaths2 = self.model.getMCPaths()
         lookahead = self.model.getLookahead()
 
@@ -665,7 +673,35 @@ class Simulation():
             FFDI[0] = region.getDangerIndex()
             windRegimes = numpy.zeros([timeSteps+1+lookahead])
             windRegimes[0] = region.getWindRegime()
-            accumulatedDamage = numpy.zeros([timeSteps+1+lookahead, patches])
+            accumulatedDamage = numpy.zeros([timeSteps+1, patches])
+
+            """ If not MPC, we need to know the initial assignments of aircraft
+            based on the ENTIRE horizon """
+            if static:
+                expectedFFDI = sampleFFDIs[ii]
+                expDamageExist = {
+                        (jj, kk):
+                        self.expectedDamageExisting(
+                                activeFires[jj], expectedFFDI, configsE[kk],
+                                0, self.model.getTotalSteps())
+                        for jj in range(len(activeFires))
+                        for kk in range(len(configsE))}
+
+                expDamagePoten = {
+                        (jj, kk):
+                        self.expectedDamagePotential(
+                                jj, expectedFFDI, configsP[kk], 0,
+                                self.model.getTotalSteps())
+                        for jj in range(patches)
+                        for kk in range(len(configsP))}
+
+                [assignmentsPath, patchConfigs, fireConfigs] = (
+                        self.assignAircraft(
+                                assignmentsPath, expDamageExist,
+                                expDamagePoten, activeFires, resourcesPath,
+                                expectedFFDI, 0), static)
+
+                self.fixBaseAssignments(assignmentsPath)
 
             for tt in range(timeSteps):
                 if len(sampleFFDIs) == 0:
@@ -716,27 +752,31 @@ class Simulation():
                 else:
                     expectedFFDI = sampleFFDIs[ii][:, tt:(tt + lookahead + 1)]
 
+                """ If MPC, compute the new assignments """
                 expDamageExist = {
                         (jj, kk):
                         self.expectedDamageExisting(
                                 activeFires[jj], expectedFFDI, configsE[kk],
-                                tt)
+                                tt, self.model.getLookahead())
                         for jj in range(len(activeFires))
                         for kk in range(len(configsE))}
 
                 expDamagePoten = {
                         (jj, kk):
                         self.expectedDamagePotential(
-                                jj, expectedFFDI, configsP[kk], tt)
+                                jj, expectedFFDI, configsP[kk], tt,
+                                self.model.getLookahead())
                         for jj in range(patches)
                         for kk in range(len(configsP))}
 
                 # Assign aircraft using LP
+                # If this is for the static case, only fire assignments are
+                # considered
                 [assignmentsPath, patchConfigs, fireConfigs] = (
                         self.assignAircraft(
                                 assignmentsPath, expDamageExist,
                                 expDamagePoten, activeFires, resourcesPath,
-                                expectedFFDI, tt + 1))
+                                expectedFFDI, tt + 1), static)
 
                 # Save the active fires to the path history
                 self.realisedFires[ii][tt + 1] = copy.copy(activeFires)
@@ -765,6 +805,36 @@ class Simulation():
             self.expectedDamages[ii] = damage
             self.realisedAssignments[ii] = assignmentsPath
             self.realisedFFDIs[ii] = FFDI
+
+            """Save the results for this sample"""
+            self.writeOutResults(ii)
+
+    def fixBaseAssignments(self, assignments):
+        """ Non-assignments """
+        self.relocationModel.set_upper_bounds([
+                (self.relocationModel.decisionVars["X_RB"] +
+                 r*self.relocationModel.B + b,
+                 0)
+                if assignments[r, 0] == b + 1
+                else
+                (self.relocationModel.decisionVars["X_RB"] +
+                 r*self.relocationModel.B + b,
+                 1)
+                for r in self.relocationModel.R
+                for b in self.relocationModel.B])
+
+        """ Fixed assignments """
+        self.relocationModel.set_lower_bounds([
+                (self.relocationModel.decisionVars["X_RB"] +
+                 r*self.relocationModel.B + b,
+                 1)
+                if assignments[r, 0] == b + 1
+                else
+                (self.relocationModel.decisionVars["X_RB"] +
+                 r*self.relocationModel.B + b,
+                 0)
+                for r in self.relocationModel.R
+                for b in self.relocationModel.B])
 
     def assignAircraft(self, assignmentsPath, expDamageExist, expDamagePoten,
                        activeFires, resourcesPath, ffdiPath, timeStep):
@@ -1102,7 +1172,7 @@ class Simulation():
                 for r in tempModel.R]
 
         for r in tempModel.R:
-            assignments[r-1, 0] = x_RB[r-1].index(1) + 1
+            assignments[r, 0] = x_RB[r].index(1) + 1
 
         y_RM = [[round(tempModel.solution.get_values(
                          tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
@@ -1123,7 +1193,7 @@ class Simulation():
                      for k in range(len(tempModel.KP))]
                     for n in tempModel.N]
 
-        patchConfigs = [configsN[n-1].index(1) for n in tempModel.N]
+        patchConfigs = [configsN[n].index(1) for n in tempModel.N]
 
         configsM = [[round(tempModel.solution.get_values(
                            tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
@@ -1131,69 +1201,9 @@ class Simulation():
                      for k in range(len(tempModel.KE))]
                     for m in tempModel.M]
 
-        fireConfigs = [configsM[m-1].index(1) for m in tempModel.M]
+        fireConfigs = [configsM[m].index(1) for m in tempModel.M]
 
         return [assignments, patchConfigs, fireConfigs]
-
-    def simulateStatic(self):
-        """ This routine uses the expected weather for the ENTIRE horizon to
-        perform a base assignment at the start of the day. Fire assignments are
-        still computed at each time step but aircraft cannot relocate between
-        bases. """
-        region = self.model.getRegion()
-        timeSteps = self.model.getTotalSteps()
-        patches = len(region.getPatches())
-        resources = region.getResources()
-        fires = region.getFires()
-        configs = self.model.getConfigurations()
-
-        """ Initial assignment of aircraft to bases (Col 1) and fires (Col 2)
-        A value of zero indicates no assignment (only applicable for fires) """
-        assignments = numpy.empty([len(resources) , 2])
-
-        regionSize = region.getX().size
-        samplePaths = self.model.getROVPaths()
-        samplePaths2 = self.model.getMCPaths()
-        lookahead = self.model.getLookahead()
-
-        self.finalDamageMaps = [None]*samplePaths
-        self.expectedDamages = [None]*samplePaths
-
-        wg = region.getWeatherGenerator()
-
-        for ii in range(samplePaths):
-            damage = 0
-            assignmentsPath = [None]*(timeSteps + 1)
-            assignmentsPath[0] = copy.copy(assignments)
-            firesPath = copy.copy(fires)
-            resourcesPath = copy.copy(resources)
-            activeFires = [fire for fire in firesPath]
-            self.finalDamageMaps[ii] = numpy.empty([timeSteps + 1, patches])
-
-            rain = numpy.zeros([timeSteps+1+lookahead, regionSize])
-            rain[0] = region.getRain()
-            precipitation = numpy.zeros([timeSteps+1+lookahead, regionSize])
-            precipitation[0] = region.getHumidity()
-            temperatureMin = numpy.zeros([timeSteps+1+lookahead, regionSize])
-            temperatureMin[0] = region.getTemperatureMin()
-            temperatureMax = numpy.zeros([timeSteps+1+lookahead, regionSize])
-            temperatureMax[0] = region.getTemperatureMax()
-            windNS = numpy.zeros([timeSteps+1+lookahead, regionSize])
-            windNS[0] = region.getWindN()
-            windEW = numpy.zeros([timeSteps+1+lookahead, regionSize])
-            windEW[0] = region.getWindE()
-            FFDI = numpy.zeros([timeSteps+1+lookahead, regionSize])
-            FFDI[0] = region.getDangerIndex()
-            windRegimes = numpy.zeros([timeSteps+1+lookahead])
-            windRegimes[0] = region.getWindRegime()
-            accumulatedDamage = numpy.zeros([timeSteps+1+lookahead, patches])
-
-        """ Initial time step """
-
-
-        """ All remaining time steps """
-        for tt in range(1, timeSteps):
-            pass
 
     def simulateSinglePeriod(self, assignmentsPath, resourcesPath,
                              firesPath, activeFires, accumulatedDamage,
@@ -1205,6 +1215,10 @@ class Simulation():
         """ Fight existing fires """
         inactiveFires = []
 
+        """ First, carry over the accumulated damage from the previous
+        period"""
+        accumulatedDamage[tt + 1, :] = accumulatedDamage[tt, :]
+
         for fire in range(len(activeFires)):
             sizeOld = activeFires[fire].getSize()
 
@@ -1214,7 +1228,7 @@ class Simulation():
                     fireConfigs[fire] + 1,
                     random=True)
 
-            sizeCurr = activeFires[fire].getSize()
+            sizeCurr = max(activeFires[fire].getSize(), sizeOld)
 
             if sizeCurr - sizeOld <= 1e-6:
                 # Extinguish fire and remove from list of active fires
@@ -1275,12 +1289,12 @@ class Simulation():
                 copyModel.constraintIdxStarts)
         tempModel.constraintNames = copy.copy(copyModel.constraintNames)
 
-    def expectedDamageExisting(self, fire, ffdiPath, configID, time):
+    def expectedDamageExisting(self, fire, ffdiPath, configID, time, look):
         damage = 0
         fireTemp = copy.copy(fire)
         patch = fire.getPatchID()
 
-        for tt in range(self.model.getLookahead()):
+        for tt in range(look):
             ffdi = ffdiPath[patch, tt]
             originalSize = fireTemp.getSize()
             fireTemp.growFire(self.model, ffdi, configID)
@@ -1288,12 +1302,12 @@ class Simulation():
 
         return damage
 
-    def expectedDamagePotential(self, patchID, ffdiPath, configID, time):
+    def expectedDamagePotential(self, patchID, ffdiPath, configID, time, look):
         damage = 0
         vegetation = (self.model.getRegion().getPatches()[patchID]
                 .getVegetation())
 
-        for tt in range(self.model.getLookahead()):
+        for tt in range(look):
             # Only look at the expected damage of fires started at this time
             # period to the end of the horizon
             ffdi = ffdiPath[patchID, tt]
@@ -1308,7 +1322,7 @@ class Simulation():
 
             growth = 1
 
-            for t2 in range(tt, self.model.getLookahead() + time):
+            for t2 in range(tt, look):
                 ffdi = ffdiPath[patchID, t2]
 
                 grMean = numpy.interp(ffdi,
@@ -1563,318 +1577,320 @@ class Simulation():
                 index = ffdiPath.append(mm)
                 expDE_lm[ll, mm] = expDE[index]
 
-    def writeOutResults(self):
+    def writeOutResults(self, run):
         root = ("../Experiments/Experiments/" +
-                self.model.getInputfile().split(
+                self.model.getInputFile().split(
                         "../Experiments/Experiments/")[1].split("/")[0])
 
-        maxFFDI = max(self.realisedFFDIs)
-        minFFDI = min(self.realisedFFDIs)
-        maxDamage = max(self.finalDamageMaps)
-        minDamage = min(self.finalDamageMaps)
+        maxFFDI = self.realisedFFDIs[run].max()
+        minFFDI = self.realisedFFDIs[run].min()
+        maxDamage = self.finalDamageMaps[run].max()
+        minDamage = self.finalDamageMaps[run].min()
 
         """ Output folder """
-        outfolder = root + "/Outputs"
+        outfolder = root + "/Outputs/Scenario_" + str(self.id)
 
-        for run in self.model.getRuns():
+        subOutfolder = outfolder + "/Run_" + str(run) + "/"
+
+        if not os.path.exists(os.path.dirname(subOutfolder)):
+            try:
+                os.makedirs(os.path.dirname(subOutfolder))
+            except OSError as exc: # Guard against race condition
+                if exc.errno != errno.EEXIST:
+                    raise
+
+        """ FFDI Data """
+        outputfile = subOutfolder + "FFDI.csv"
+        with open(outputfile, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile, delimiter=',')
+
+            # Compute columns
+            columns = int(self.model.getTotalSteps() + 1)
+
+            writer.writerow(
+                    ['FFDI_PATHS']
+                    + ['']*(columns-1))
+
+            writer.writerow(
+                    ['PATHS', str(len(self.realisedFFDIs))]
+                    + ['']*(columns-2))
+
+            writer.writerow(
+                    ['PATH_' + str(run + 1), 'HOUR']
+                    + ['']*(columns-2))
+
+            writer.writerow(
+                    ['PATCH']
+                    + [str(h + 1)
+                       for h in range(self.model.getTotalSteps() + 1)])
+
+            writer.writerows([
+                    [str(patch + 1)]
+                    + self.realisedFFDIs[run][0:(self.model.getTotalSteps() + 1),
+                                              patch].tolist()
+                    for patch in range(len(
+                            self.model.getRegion().getPatches()))])
+
+        """ FFDI Map """
+        outputGraphs = pdf.PdfPages(subOutfolder + "FFDI.pdf")
+        for tt in range(self.model.getTotalSteps() + 1):
+
+            rawPatches = len(self.model.getRegion().getX())
+            fig, ax = plt.subplots()
+
+            patches = []
+            cmap = clrmp.get_cmap('Oranges')
+
+            # Patch FFDI values
+            for rp in range(rawPatches):
+                polygon = mpp.Polygon(
+                        self.model.getRegion().getPatches()[rp]
+                                .getVertices(),
+                        edgecolor="black",
+                        facecolor=cmap((
+                                self.realisedFFDIs[run][tt, rp] -
+                                minFFDI)/maxFFDI),
+                        closed=True)
+                patches.append(polygon)
+
+            # Annotate with bases
+            for base in range(self.model.getRegion().getBases()):
+                polygon = mpp.Polygon(
+                        [(self.model.getRegion().getBases()[base]
+                                .getLocation()[0] - 1.1,
+                         self.model.getRegion().getBases()[base]
+                                .getLocation()[0] - 0.9),
+                         (self.model.getRegion().getBases()[base]
+                                .getLocation()[0] - 0.9,
+                         self.model.getRegion().getBases()[base]
+                                .getLocation()[0] - 1.1),
+                         (self.model.getRegion().getBases()[base]
+                                .getLocation()[0] + 1.1,
+                         self.model.getRegion().getBases()[base]
+                                .getLocation()[0] + 0.9),
+                         (self.model.getRegion().getBases()[base]
+                                .getLocation()[0] + 0.9,
+                         self.model.getRegion().getBases()[base]
+                                .getLocation()[0] + 1.1)],
+                        edgecolor="black",
+                        facecolor="black",
+                        closed=True)
+                patches.append(polygon)
+
+            p = mpc.PatchCollection(patches)
+            ax.add_collection(p)
+            fig.colorbar(p, ax=ax)
+
+            outputGraphs.savefig(fig)
+            plt.close(fig)
+
+        if self.model.getAlgo() > 0:
             subOutfolder = outfolder + "/Run_" + str(run)
 
-            """ FFDI Data """
-            outputfile = subOutfolder + "FFDI_Paths.csv"
+            outputfile = subOutfolder + "Resource_States.csv"
+
+            """ Aircraft Hours and Positions """
             with open(outputfile, 'w', newline='') as csvfile:
                 writer = csv.writer(csvfile, delimiter=',')
 
-                # Compute columns
-                columns = int(self.model.getTotalSteps()
-                              + self.model.getLookahead()
-                              + 1)
+                columns = self.model.getTotalSteps()*5
 
-                writer.writerow(
-                        ['FFDI_PATHS']
-                        + ['']*(columns-1))
+                row = ['RESOURCE_ID', 'TYPE', 'ACCUMULATED_HOURS']
 
+                row.extend(['']*(self.model.getTotalSteps() - 1))
+                row.extend([a + str(ii)
+                            for ii in range(self.model.getTotalSteps()
+                                            - 1)
+                            for a in ['X_POSITION_T', 'Y_POSITION_T']])
+                row.append('BASE_IDS')
+                row.extend(['']*(self.model.getTotalSteps() - 1))
+                row.append('FIRE_IDS')
+                row.extend(['']*(self.model.getTotalSteps() - 1))
+                writer.writerow(row)
 
-                writer.writerow(
-                        ['PATHS', str(len(self.realisedFFDIs))]
-                        + ['']*(columns-2))
+                resources = self.model.getRegion().getResources()
+                helis = self.model.getRegion().getHelicopters()
+                tankers = self.model.getRegion().getAirTankers()
 
-                writer.writerow(
-                        ['PATH_' + str(run + 1), 'HOUR']
-                        + ['']*(columns-2))
+                for ii in range(resources):
+                    row = [
+                        str(ii),
+                        'Fixed' if resources[ii] in tankers else False,
+                        self.accumulatedHours[run, ii, tt]]
+                    row.extend([
+                            self.aircraftPositions[tt, ii, pp]
+                            for ii in range(self.model.getTotalSteps()
+                                            - 1)
+                            for pp in [0, 1]])
+                    row.extend([
+                            self.realisedAssignments[run][tt][ii, 0]
+                            for tt in range(len(
+                                    self.model.getTotalSteps()))])
+                    row.extend([
+                            self.realisedAssignments[run][tt][ii, 1]
+                            for tt in range(len(
+                                    self.model.getTotalSteps()))])
 
-                writer.writerow(
-                        ['PATCH']
-                        + [str(h + 1)
-                           for h in range(len(
-                                   self.model.getTotalSteps()
-                                   + self.model.getLookahead()))])
+                    writer.writerow(row)
+
+            """ Accumulated Damage Per Patch """
+            outputfile = subOutfolder + "Accumulated_Patch_Damage.csv"
+
+            with open(outputfile, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile, delimiter=',')
 
                 writer.writerows([
-                        [str(patch + 1)]
-                        + self.realisedFFDIs[run, patch, :].tolist()
+                        [str(patch + 1)] +
+                        self.finalDamageMaps[patch]
                         for patch in range(len(
                                 self.model.getRegion().getPatches()))])
 
-                """ FFDI Map """
-                outputGraphs = pdf.PdfPages(subOutfolder + "FFDI.pdf")
-                for tt in range(self.model.getTotalSteps()
-                                + self.model.getLookahead()):
+            """ Active fires """
+            outputfile = subOutfolder + "Fire_States.csv"
 
-                    rawPatches = len(self.model.getX())
-                    fig, ax = plt.subplots()
+            with open(outputfile, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile, delimiter=',')
 
-                    patches = []
-                    cmap = clrmp.get_cmap('Oranges')
+                for tt in range(self.model.getTotalSteps()):
+                    writer.writerow(
+                            ['Time_Step', str(tt+1)]
+                            + ['']*3)
 
-                    # Patch FFDI values
-                    for rp in range(rawPatches):
-                        polygon = mpp.Polygon(
-                                self.model.getRegion().getVertices()[rp],
-                                edgecolor="black",
-                                facecolor=cmap((
-                                        self.realisedFFDIs[run, rp, tt] -
-                                        minFFDI)/maxFFDI),
-                                closed=True)
-                        patches.append(polygon)
+                    writer.writerow(
+                            ['Fires', str(len(self.realisedFires[tt]))]
+                            + ['']*3)
 
-                    # Annotate with bases
-                    for base in range(self.model.getRegion().getBases()):
-                        polygon = mpp.Polygon(
-                                [(self.model.getRegion().getBases()[base]
-                                        .getLocation()[0] - 1.1,
-                                 self.model.getRegion().getBases()[base]
-                                        .getLocation()[0] - 0.9),
-                                 (self.model.getRegion().getBases()[base]
-                                        .getLocation()[0] - 0.9,
-                                 self.model.getRegion().getBases()[base]
-                                        .getLocation()[0] - 1.1),
-                                 (self.model.getRegion().getBases()[base]
-                                        .getLocation()[0] + 1.1,
-                                 self.model.getRegion().getBases()[base]
-                                        .getLocation()[0] + 0.9),
-                                 (self.model.getRegion().getBases()[base]
-                                        .getLocation()[0] + 0.9,
-                                 self.model.getRegion().getBases()[base]
-                                        .getLocation()[0] + 1.1)],
-                                edgecolor="black",
-                                facecolor="black",
-                                closed=True)
-                        patches.append(polygon)
+                    writer.writerow(
+                            ['Fire_ID', 'Start_Size', 'End_Size',
+                             'X_Pos', 'Y_Pos'])
 
-                    p = mpc.PatchCollection(patches)
-                    ax.add_collection(p)
-                    fig.colorbar(p, ax=ax)
+                    for fire in range(len(self.realisedFires[tt])):
+                        writer.writerow(
+                                [str(fire+1),
+                                 self.realisedFires[tt][fire]
+                                         .getStartSize(),
+                                 self.realisedFires[tt][fire]
+                                         .getEndSize(),
+                                 self.realisedFires[tt][fire]
+                                         .getLocation()[0],
+                                 self.realisedFires[tt][fire]
+                                         .getLocation()[1]])
 
-                    outputGraphs.savefig(fig)
-                    plt.close(fig)
+                    writer.writerow(['']*5)
 
-                if self.model.getAlgo() > 0:
-                    subOutfolder = outfolder + "/Run_" + str(run)
+            """ Accumulated Damage Maps with Active Fires """
+            for tt in range(self.model.getTotalSteps()):
 
-                    outputfile = subOutfolder + "Resource_States.csv"
+                fig, ax = plt.subplots()
 
-                    """ Aircraft Hours and Positions """
-                    with open(outputfile, 'w', newline='') as csvfile:
-                        writer = csv.writer(csvfile, delimiter=',')
+                patches = []
+                cmap = clrmp.get_cmap('Oranges')
 
-                        columns = self.model.getTotalSteps()*5
+                # Damage heat map
+                for rp in range(rawPatches):
+                    polygon = mpp.Polygon(
+                            self.model.getRegion().getVertices()[rp],
+                            edgecolor="black",
+                            facecolor=cmap((
+                                    self.finalDamageMaps[run, rp, tt] -
+                                    minDamage)/maxDamage),
+                            closed=True)
+                    patches.append(polygon)
 
-                        row = ['RESOURCE_ID', 'TYPE', 'ACCUMULATED_HOURS']
+                # Annotate with bases
+                for base in range(self.model.getRegion().getBases()):
+                    polygon = mpp.Polygon(
+                            [(self.model.getRegion().getBases()[base]
+                                    .getLocation()[0] - 1.1,
+                             self.model.getRegion().getBases()[base]
+                                    .getLocation()[0] - 0.9),
+                             (self.model.getRegion().getBases()[base]
+                                    .getLocation()[0] - 0.9,
+                             self.model.getRegion().getBases()[base]
+                                    .getLocation()[0] - 1.1),
+                             (self.model.getRegion().getBases()[base]
+                                    .getLocation()[0] + 1.1,
+                             self.model.getRegion().getBases()[base]
+                                    .getLocation()[0] + 0.9),
+                             (self.model.getRegion().getBases()[base]
+                                    .getLocation()[0] + 0.9,
+                             self.model.getRegion().getBases()[base]
+                                    .getLocation()[0] + 1.1)],
+                            edgecolor="black",
+                            facecolor="black",
+                            closed=True)
+                    patches.append(polygon)
 
-                        row.extend(['']*(self.model.getTotalSteps() - 1))
-                        row.extend([a + str(ii)
-                                    for ii in range(self.model.getTotalSteps()
-                                                    - 1)
-                                    for a in ['X_POSITION_T', 'Y_POSITION_T']])
-                        row.append('BASE_IDS')
-                        row.extend(['']*(self.model.getTotalSteps() - 1))
-                        row.append('FIRE_IDS')
-                        row.extend(['']*(self.model.getTotalSteps() - 1))
-                        writer.writerow(row)
+                # Annotate with active fires (only fires that survive to end of period)
+                for fire in self.realisedFires[tt]:
+                    circle = mpp.Circle(
+                            (fire.getLocation()[0], fire.getLocation()[1]),
+                            math.sqrt(fire.getFinalSize()/(math.pi)),
+                            edgecolor="red",
+                            facecolor="red",
+                            alpha=0.5)
+                    patches.append(circle)
 
-                        resources = self.model.getRegion().getResources()
-                        helis = self.model.getRegion().getHelicopters()
-                        tankers = self.model.getRegion().getAirTankers()
+                # Base assignment annotations
+                for base in range(self.model.getRegion().getBases()):
+                    tankers = sum([
+                            1
+                            for ii in range(len(self.model.getRegion().getResources()))
+                            if (self.model.getRegion().getResources()[ii] in
+                                self.model.getRegion().getAirTankers()
+                                and self.realisedAssignments[run][tt][ii, 0] == base + 1)])
+                    helis = sum([
+                            1
+                            for ii in range(len(self.model.getRegion().getResources()))
+                            if (self.model.getRegion().getResources()[ii] in
+                                self.model.getRegion().getHelicopters()
+                                and self.realisedAssignments[run][tt][ii, 0] == base + 1)])
 
-                        for ii in range(resources):
-                            row = [
-                                str(ii),
-                                'Fixed' if resources[ii] in tankers else False,
-                                self.accumulatedHours[run, ii, tt]]
-                            row.extend([
-                                    self.aircraftPositions[tt, ii, pp]
-                                    for ii in range(self.model.getTotalSteps()
-                                                    - 1)
-                                    for pp in [0, 1]])
-                            row.extend([
-                                    self.realisedAssignments[run][tt][ii, 0]
-                                    for tt in range(len(
-                                            self.model.getTotalSteps()))])
-                            row.extend([
-                                    self.realisedAssignments[run][tt][ii, 1]
-                                    for tt in range(len(
-                                            self.model.getTotalSteps()))])
+                    plt.text(self.model.getRegion().getBases()[base].getLocation()[0] + 10,
+                             self.model.getRegion().getBases()[base].getLocation()[1] + 10,
+                             "T" + str(tankers),
+                             color="black")
 
-                            writer.writerow(row)
+                    plt.text(self.model.getRegion().getBases()[base].getLocation()[0] + 15,
+                             self.model.getRegion().getBases()[base].getLocation()[1] + 10,
+                             "H" + str(helis),
+                             color="black")
 
-                    """ Accumulated Damage Per Patch """
-                    outputfile = subOutfolder + "Accumulated_Patch_Damage.csv"
+                # Fire assignment annotations
+                for fire in range(len(self.realisedFires[run, tt])):
+                    tankers = sum([
+                            1
+                            for ii in range(len(self.model.getRegion().getResources()))
+                            if (self.model.getRegion().getResources()[ii] in
+                                self.model.getRegion().getAirTankers()
+                                and self.realisedAssignments[run][tt][ii, 1] == fire + 1)])
+                    helis = sum([
+                            1
+                            for ii in range(len(self.model.getRegion().getResources()))
+                            if (self.model.getRegion().getResources()[ii] in
+                                self.model.getRegion().getHelicopters()
+                                and self.realisedAssignments[run][tt][ii, 1] == fire + 1)])
 
-                    with open(outputfile, 'w', newline='') as csvfile:
-                        writer = csv.writer(csvfile, delimiter=',')
+                    plt.text(self.realisedFires[fire].getLocation()[0] + 10,
+                             self.realisedFires[fire].getLocation()[1] + 10,
+                             "T" + str(tankers),
+                             color="black")
 
-                        writer.writerows([
-                                [str(patch + 1)] +
-                                self.finalDamageMaps[patch]
-                                for patch in range(len(
-                                        self.model.getRegion().getPatches()))])
+                    plt.text(self.realisedFires[fire].getLocation()[0] + 15,
+                             self.realisedFires[fire].getLocation()[1] + 10,
+                             "H" + str(helis),
+                             color="black")
 
-                    """ Active fires """
-                    outputfile = subOutfolder + "Fire_States.csv"
+                p = mpc.PatchCollection(patches)
+                ax.add_collection(p)
 
-                    with open(outputfile, 'w', newline='') as csvfile:
-                        writer = csv.writer(csvfile, delimiter=',')
+                outputGraphs.savefig(fig)
+                plt.close(fig)
 
-                        for tt in range(self.model.getTotalSteps()):
-                            writer.writerow(
-                                    ['Time_Step', str(tt+1)]
-                                    + ['']*3)
-
-                            writer.writerow(
-                                    ['Fires', str(len(self.realisedFires[tt]))]
-                                    + ['']*3)
-
-                            writer.writerow(
-                                    ['Fire_ID', 'Start_Size', 'End_Size',
-                                     'X_Pos', 'Y_Pos'])
-
-                            for fire in range(len(self.realisedFires[tt])):
-                                writer.writerow(
-                                        [str(fire+1),
-                                         self.realisedFires[tt][fire]
-                                                 .getStartSize(),
-                                         self.realisedFires[tt][fire]
-                                                 .getEndSize(),
-                                         self.realisedFires[tt][fire]
-                                                 .getLocation()[0],
-                                         self.realisedFires[tt][fire]
-                                                 .getLocation()[1]])
-
-                            writer.writerow(['']*5)
-
-                    """ Accumulated Damage Maps with Active Fires """
-                    for tt in range(self.model.getTotalSteps()):
-
-                        fig, ax = plt.subplots()
-
-                        patches = []
-                        cmap = clrmp.get_cmap('Oranges')
-
-                        # Damage heat map
-                        for rp in range(rawPatches):
-                            polygon = mpp.Polygon(
-                                    self.model.getRegion().getVertices()[rp],
-                                    edgecolor="black",
-                                    facecolor=cmap((
-                                            self.finalDamageMaps[run, rp, tt] -
-                                            minDamage)/maxDamage),
-                                    closed=True)
-                            patches.append(polygon)
-
-                        # Annotate with bases
-                        for base in range(self.model.getRegion().getBases()):
-                            polygon = mpp.Polygon(
-                                    [(self.model.getRegion().getBases()[base]
-                                            .getLocation()[0] - 1.1,
-                                     self.model.getRegion().getBases()[base]
-                                            .getLocation()[0] - 0.9),
-                                     (self.model.getRegion().getBases()[base]
-                                            .getLocation()[0] - 0.9,
-                                     self.model.getRegion().getBases()[base]
-                                            .getLocation()[0] - 1.1),
-                                     (self.model.getRegion().getBases()[base]
-                                            .getLocation()[0] + 1.1,
-                                     self.model.getRegion().getBases()[base]
-                                            .getLocation()[0] + 0.9),
-                                     (self.model.getRegion().getBases()[base]
-                                            .getLocation()[0] + 0.9,
-                                     self.model.getRegion().getBases()[base]
-                                            .getLocation()[0] + 1.1)],
-                                    edgecolor="black",
-                                    facecolor="black",
-                                    closed=True)
-                            patches.append(polygon)
-
-                        # Annotate with active fires (only fires that survive to end of period)
-                        for fire in self.realisedFires[tt]:
-                            circle = mpp.Circle(
-                                    (fire.getLocation()[0], fire.getLocation()[1]),
-                                    math.sqrt(fire.getFinalSize()/(math.pi)),
-                                    edgecolor="red",
-                                    facecolor="red",
-                                    alpha=0.5)
-                            patches.append(circle)
-
-                        # Base assignment annotations
-                        for base in range(self.model.getRegion().getBases()):
-                            tankers = sum([
-                                    1
-                                    for ii in range(len(self.model.getRegion().getResources()))
-                                    if (self.model.getRegion().getResources()[ii] in
-                                        self.model.getRegion().getAirTankers()
-                                        and self.realisedAssignments[run][tt][ii, 0] == base + 1)])
-                            helis = sum([
-                                    1
-                                    for ii in range(len(self.model.getRegion().getResources()))
-                                    if (self.model.getRegion().getResources()[ii] in
-                                        self.model.getRegion().getHelicopters()
-                                        and self.realisedAssignments[run][tt][ii, 0] == base + 1)])
-
-                            plt.text(self.model.getRegion().getBases()[base].getLocation()[0] + 10,
-                                     self.model.getRegion().getBases()[base].getLocation()[1] + 10,
-                                     "T" + str(tankers),
-                                     color="black")
-
-                            plt.text(self.model.getRegion().getBases()[base].getLocation()[0] + 15,
-                                     self.model.getRegion().getBases()[base].getLocation()[1] + 10,
-                                     "H" + str(helis),
-                                     color="black")
-
-                        # Fire assignment annotations
-                        for fire in range(len(self.realisedFires[run, tt])):
-                            tankers = sum([
-                                    1
-                                    for ii in range(len(self.model.getRegion().getResources()))
-                                    if (self.model.getRegion().getResources()[ii] in
-                                        self.model.getRegion().getAirTankers()
-                                        and self.realisedAssignments[run][tt][ii, 1] == fire + 1)])
-                            helis = sum([
-                                    1
-                                    for ii in range(len(self.model.getRegion().getResources()))
-                                    if (self.model.getRegion().getResources()[ii] in
-                                        self.model.getRegion().getHelicopters()
-                                        and self.realisedAssignments[run][tt][ii, 1] == fire + 1)])
-
-                            plt.text(self.realisedFires[fire].getLocation()[0] + 10,
-                                     self.realisedFires[fire].getLocation()[1] + 10,
-                                     "T" + str(tankers),
-                                     color="black")
-
-                            plt.text(self.realisedFires[fire].getLocation()[0] + 15,
-                                     self.realisedFires[fire].getLocation()[1] + 10,
-                                     "H" + str(helis),
-                                     color="black")
-
-                        p = mpc.PatchCollection(patches)
-                        ax.add_collection(p)
-
-                        outputGraphs.savefig(fig)
-                        plt.close(fig)
-
-                if self.model.getAlgo() == 2:
-                    """ ROV Regressions """
-                    # Need to do after conference paper
-                    pass
+        if self.model.getAlgo() == 2:
+            """ ROV Regressions """
+            # Need to do after conference paper
+            pass
 
     def currPos2Fire(self, currLocs, fires):
         # Computes the distance between each aircraft and each fire

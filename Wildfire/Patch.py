@@ -85,7 +85,7 @@ class Patch():
                            self.vegetation.getFFDIRange(),
                            self.vegetation.getOccurrence()[configID])
 
-        newFires = numpy.random.poisson(occ)
+        newFires = numpy.random.poisson(occ*self.area)
         newFiresList = []
 
         for f in range(newFires):
@@ -93,7 +93,7 @@ class Patch():
                                self.vegetation.getFFDIRange(),
                                self.vegetation.getInitialSize()[configID])
             fire = Fire()
-            fire.setLocation(self.randomPatchPoint)
+            fire.setLocation(self.randomPatchPoint())
             fire.setSize(size)
             fire.setInitialSize(size)
             fire.setPatchID(self.patchID)
@@ -124,19 +124,23 @@ class Patch():
         "Return list of k points chosen uniformly at random inside polygon."
         areas = []
         transforms = []
-        for t in triangulate(self.vertices):
+        for t in triangulate(Polygon(self.vertices)):
             areas.append(t.area)
             (x0, y0), (x1, y1), (x2, y2), _ = t.exterior.coords
             transforms.append([x1 - x0, x2 - x0, y2 - y0, y1 - y0, x0, y0])
-        points = []
-        for transform in random.choices(transforms, weights=areas):
-            x, y = [random.random() for _ in range(2)]
-            if x + y > 1:
-                p = Point(1 - x, 1 - y)
-            else:
-                p = Point(x, y)
-            points.append(affine_transform(p, transform))
-        return points
+
+        weights = [areas[ii]/sum(areas) for ii in range(len(areas))]
+
+        transform = numpy.random.choice(range(len(transforms)), 1, p=weights)
+        x, y = [random.random() for _ in range(2)]
+        if x + y > 1:
+            p = Point(1 - x, 1 - y)
+        else:
+            p = Point([x, y])
+        pointPoints = affine_transform(p, transforms[transform[0]]).coords.xy
+        point = [pointPoints[ii][0] for ii in range(2)]
+
+        return point
 
     def computeArea(self):
         """ Computes the area of a patch based on its vertices """
