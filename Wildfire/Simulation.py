@@ -776,7 +776,7 @@ class Simulation():
                         self.assignAircraft(
                                 assignmentsPath, expDamageExist,
                                 expDamagePoten, activeFires, resourcesPath,
-                                expectedFFDI, tt + 1), static)
+                                expectedFFDI, tt + 1))
 
                 # Save the active fires to the path history
                 self.realisedFires[ii][tt + 1] = copy.copy(activeFires)
@@ -1632,13 +1632,15 @@ class Simulation():
                             self.model.getRegion().getPatches()))])
 
         """ FFDI Map """
-        outputGraphs = pdf.PdfPages(subOutfolder + "FFDI.pdf")
+        outputGraphs = pdf.PdfPages(subOutfolder + "FFDI_Map.pdf")
         for tt in range(self.model.getTotalSteps() + 1):
 
             rawPatches = len(self.model.getRegion().getX())
-            fig, ax = plt.subplots()
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
 
             patches = []
+            colors = []
             cmap = clrmp.get_cmap('Oranges')
 
             # Patch FFDI values
@@ -1646,43 +1648,57 @@ class Simulation():
                 polygon = mpp.Polygon(
                         self.model.getRegion().getPatches()[rp]
                                 .getVertices(),
-                        edgecolor="black",
-                        facecolor=cmap((
-                                self.realisedFFDIs[run][tt, rp] -
-                                minFFDI)/maxFFDI),
                         closed=True)
                 patches.append(polygon)
+                colors.append((self.realisedFFDIs[run][tt, rp] -
+                               minFFDI)/maxFFDI)
 
+            p = mpc.PatchCollection(patches, cmap=cmap)
+            p.set_array(numpy.array(colors))
+            ax.add_collection(p)
+
+            for patch in patches:
+                ax.add_patch(mpp.Polygon(patch.get_xy(), closed=True, ec='k',
+                                     lw=0.5, fill=None))
+
+            basePolys = []
             # Annotate with bases
-            for base in range(self.model.getRegion().getBases()):
+            for base in range(len(self.model.getRegion().getStations()[0])):
                 polygon = mpp.Polygon(
-                        [(self.model.getRegion().getBases()[base]
+                        [(self.model.getRegion().getStations()[0][base]
                                 .getLocation()[0] - 1.1,
-                         self.model.getRegion().getBases()[base]
+                         self.model.getRegion().getStations()[0][base]
                                 .getLocation()[0] - 0.9),
-                         (self.model.getRegion().getBases()[base]
+                         (self.model.getRegion().getStations()[0][base]
                                 .getLocation()[0] - 0.9,
-                         self.model.getRegion().getBases()[base]
+                         self.model.getRegion().getStations()[0][base]
                                 .getLocation()[0] - 1.1),
-                         (self.model.getRegion().getBases()[base]
+                         (self.model.getRegion().getStations()[0][base]
                                 .getLocation()[0] + 1.1,
-                         self.model.getRegion().getBases()[base]
+                         self.model.getRegion().getStations()[0][base]
                                 .getLocation()[0] + 0.9),
-                         (self.model.getRegion().getBases()[base]
+                         (self.model.getRegion().getStations()[0][base]
                                 .getLocation()[0] + 0.9,
-                         self.model.getRegion().getBases()[base]
+                         self.model.getRegion().getStations()[0][base]
                                 .getLocation()[0] + 1.1)],
-                        edgecolor="black",
-                        facecolor="black",
                         closed=True)
-                patches.append(polygon)
+                basePolys.append(polygon)
 
             p = mpc.PatchCollection(patches)
+            p.set_array(numpy.ones(len(self.model.getRegion().getStations()[0])))
             ax.add_collection(p)
-            fig.colorbar(p, ax=ax)
 
+            for base in basePolys:
+                ax.add_patch(mpp.Polygon(base.get_xy(),
+                             closed=True,
+                             ec='k',
+                             lw=1,
+                             fill='k'))
+
+            fig.canvas.draw()
             outputGraphs.savefig(fig)
-            plt.close(fig)
+
+        outputGraphs.close()
 
         if self.model.getAlgo() > 0:
             subOutfolder = outfolder + "/Run_" + str(run)
@@ -1779,6 +1795,7 @@ class Simulation():
                     writer.writerow(['']*5)
 
             """ Accumulated Damage Maps with Active Fires """
+            outputGraphs = pdf.PdfPages(subOutfolder + "Damage_Map.pdf")
             for tt in range(self.model.getTotalSteps()):
 
                 fig, ax = plt.subplots()
@@ -1884,8 +1901,9 @@ class Simulation():
                 p = mpc.PatchCollection(patches)
                 ax.add_collection(p)
 
+                fig.canvas.draw()
                 outputGraphs.savefig(fig)
-                plt.close(fig)
+                outputGraphs.close()
 
         if self.model.getAlgo() == 2:
             """ ROV Regressions """
