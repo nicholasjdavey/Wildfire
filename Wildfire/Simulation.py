@@ -930,7 +930,8 @@ class Simulation():
                                  + resourcesPath[r].getLocation()[1])
                                  *math.pi/360)/360)**2
                         + ((resourcesPath[r].getLocation()[1]
-                           - bases[b].getLocation()[1])*40000/360)**2))
+                           - bases[b].getLocation()[1])*40000/360)**2))/
+                 resourcesPath[r].getSpeed()
                 for r in tempModel.R
                 for b in tempModel.B}
 
@@ -1390,7 +1391,7 @@ class Simulation():
                           vegetation.getROCA2PerHourMean()[configID])
 
                 radCurr = (math.sqrt(size*10000/math.pi))
-                radNew = radCurr + max(0, numpy.random.normal(grMean, 0))
+                radNew = radCurr + max(0, grMean)
                 size = (math.pi * radNew**2)/10000
 
             damage += occ*size*(1 - success) + occ*sizeInitial*success

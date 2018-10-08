@@ -95,19 +95,22 @@ class Fire():
                               vegetation.getFFDIRange(),
                               vegetation.getROCA2PerHourMean()[configID])
 
+        radCurr = (math.sqrt(self.size*10000/math.pi))
+
         if random:
             grSD = max(0,
                        numpy.interp(ffdi,
                                 vegetation.getFFDIRange(),
                                 vegetation.getROCA2PerHourSD()[configID]))
+
+            radNew = radCurr + max(0, numpy.random.normal(grMean, grSD))
         else:
-            grSD = 0
+            grSD = 0.0
+            radNew = radCurr + max(0, grMean)
 
         # The fire is simply a growing circle. The front progresses from the
         # circumference radially. The growth rate pulled from the vegetation
         # object is in m/hr, so we must convert this to a new size given the
         # current size. Therefore, the current size's radius must be found
         # first.
-        radCurr = (math.sqrt(self.size*10000/math.pi))
-        radNew = radCurr + max(0, numpy.random.normal(grMean, grSD))
         self.size = (math.pi * radNew**2)/10000
