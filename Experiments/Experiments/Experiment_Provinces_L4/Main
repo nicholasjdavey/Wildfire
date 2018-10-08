@@ -1,0 +1,98 @@
+###############################################################################
+###################### INPUT DATA FOR WILDFIRE OPTIMISER ######################
+###############################################################################
+# Beta v.0.0.1
+# Do not change add or remove any lines from this file! Only modify the values\
+# after the colons (:) on each line
+# All file locations should be relative to the root directory of the program.
+###############################################################################
+
+###############################################################################
+## REGION DATA
+###############################################################################
+## SPATIAL DATA
+Region Shape File         : Experiments/Input_Data/Regions/Region_Provinces/CHL_adm2/CHL_adm2.shp
+Terrain X Data File       : Experiments/Input_Data/Regions/Region_1/XData
+Terrain Y Data File       : Experiments/Input_Data/Regions/Region_1/YData
+Terrain Z Data File       : Experiments/Input_Data/Regions/Region_1/ZData
+Vegetation Data File      : Experiments/Input_Data/Regions/Region_Provinces/Vegetation
+Value Data File           : Experiments/Input_Data/Regions/Region_1/Values
+
+## WEATHER STATION WEATHER DATA ROOT FILE
+Raw Weather Data File     : Experiments/Input_Data/Regions/Region_1/WeatherData
+
+###############################################################################
+## BASE DATA
+###############################################################################
+Aircraft Bases Data File  : Experiments/Input_Data/Regions/Region_1/Bases
+
+###############################################################################
+## AIRCRAFT DATA
+###############################################################################
+# Add as many lines as needed for each aircraft type. Provide the source file.
+Configurations DataFile   : Experiments/Input_Data/Aircraft/Configurations.csv
+Number of Aircraft Used   : 2
+Aircraft 1                : Experiments/Input_Data/Aircraft/Tanker
+Aircraft 2                : Experiments/Input_Data/Aircraft/Helicopter
+
+###############################################################################
+## FIRETRUCK DATA
+###############################################################################
+# Add as many lines as needed for each firetruck type. Provide the source file.
+Number of Landcraft Used  : 1
+Firetruck 1               : Experiments/Input_Data/Land/Truck
+
+###############################################################################
+## PROBABILITIES
+###############################################################################
+## VEGETATION AND WEATHER JOINT FIRE PROBABILITIES
+VEGETATIONS               : 5
+Vegetation 1              : Experiments/Input_Data/Regions/Region_Provinces/Probabilities/Vegetation1.csv
+Vegetation 2              : Experiments/Input_Data/Regions/Region_Provinces/Probabilities/Vegetation2.csv
+Vegetation 3              : Experiments/Input_Data/Regions/Region_Provinces/Probabilities/Vegetation3.csv
+Vegetation 4              : Experiments/Input_Data/Regions/Region_Provinces/Probabilities/Vegetation4.csv
+Vegetation 5              : Experiments/Input_Data/Regions/Region_Provinces/Probabilities/Vegetation5.csv
+
+###############################################################################
+## CONFIGURATION DATA
+###############################################################################
+## CONTROLS
+# Our two control parameters are lambda_1 and lambda_2 where
+# lambda_1 : 0 <= lambda_1 <= 1
+# lambda_1 : 0 <= lambda_2 <= 1
+# lambda_1 = 0 forces the program to relocate to existing fires
+# lambda_1 = 1 forces the program to relocate to cover in case of future fires
+# 0 <= lambda_1 <= 1 is a trade-off between the two
+# lambda_2 = 0 forces the program to keep aircraft where they are
+# lambda_2 = 1 forces the program to ignore relocation costs
+# 0 <= lambda_2 <= 1 is a trade-off between the two
+# Therefore, our control options are coordinate pairs of (lambda_1,lambda_2)
+# that lie in the unit square ([0,1]^2):
+Number of Control Options : 5
+#                       lambda_1                lambda_2
+Control 1       :              0.9                     0.1
+Control 2       :              0.9                     0.9
+Control 3       :              0.1                     0.1
+Control 4       :              0.9                     0.1
+Control 5       :              0.5                     0.5
+
+## EXPERIMENTAL CONTROLS (MULTIPLIERS AND PARAMETERS)
+# Separate different multipliers by comma (',')
+Aircraft Speed                              : 1
+Occurrence Probability                      : 1
+Damage Intensity                            : 1
+Weather Uncertainty                         : 1
+Time Steps                                  : 15
+Step Size (Hours)                           : 1
+Daylight Hours Per Day                      : 15
+ROV Paths                                   : 10
+Relocation LP Method                        : 3
+Lookahead                                   : 5
+Cover Time (minutes)                        : 20
+Monte Carlo Paths                           : 10
+Time discount factor                        : 0.7
+Algorithm (0=Static, 1=MPC, 2=ROV)          : 1
+Used Configurations (Exist)                 : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+Used Configurations (Poten)                 : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+Use Sample Paths                            : 1
+Runs                                        : 5

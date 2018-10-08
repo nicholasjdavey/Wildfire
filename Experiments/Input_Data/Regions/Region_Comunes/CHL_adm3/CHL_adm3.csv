@@ -1,0 +1,300 @@
+OBJECTID,ID_0,ISO,NAME_0,ID_1,NAME_1,ID_2,NAME_2,ID_3,NAME_3,TYPE_3,ENGTYPE_3,NL_NAME_3,VARNAME_3
+1,48,CHL,Chile,1,Aisén del General Carlos Ibáñez del Campo,1,Aisén,1,Aisen,Comuna,Municipality,NA,NA
+2,48,CHL,Chile,1,Aisén del General Carlos Ibáñez del Campo,1,Aisén,2,Cisnes,Comuna,Municipality,NA,NA
+3,48,CHL,Chile,1,Aisén del General Carlos Ibáñez del Campo,1,Aisén,3,Guaitecas,Comuna,Municipality,NA,NA
+4,48,CHL,Chile,1,Aisén del General Carlos Ibáñez del Campo,2,Capitán Prat,4,Cochrane,Comuna,Municipality,NA,NA
+5,48,CHL,Chile,1,Aisén del General Carlos Ibáñez del Campo,2,Capitán Prat,5,O'Higgins,Comuna,Municipality,NA,NA
+6,48,CHL,Chile,1,Aisén del General Carlos Ibáñez del Campo,2,Capitán Prat,6,Tortel,Comuna,Municipality,NA,NA
+7,48,CHL,Chile,1,Aisén del General Carlos Ibáñez del Campo,3,Coihaique,7,Coihaique,Comuna,Municipality,NA,NA
+8,48,CHL,Chile,1,Aisén del General Carlos Ibáñez del Campo,3,Coihaique,8,Lago Verde,Comuna,Municipality,NA,NA
+9,48,CHL,Chile,1,Aisén del General Carlos Ibáñez del Campo,4,General Carrera,9,Chile Chico,Comuna,Municipality,NA,NA
+10,48,CHL,Chile,1,Aisén del General Carlos Ibáñez del Campo,4,General Carrera,10,Rio Ibanez,Comuna,Municipality,NA,NA
+11,48,CHL,Chile,2,Antofagasta,5,Antofagasta,11,Antofagasta,Comuna,Municipality,NA,NA
+12,48,CHL,Chile,2,Antofagasta,5,Antofagasta,12,Mejillones,Comuna,Municipality,NA,NA
+13,48,CHL,Chile,2,Antofagasta,5,Antofagasta,13,Sierra Gorda,Comuna,Municipality,NA,NA
+14,48,CHL,Chile,2,Antofagasta,5,Antofagasta,14,Taltal,Comuna,Municipality,NA,NA
+15,48,CHL,Chile,2,Antofagasta,6,El Loa,15,Calama,Comuna,Municipality,NA,NA
+16,48,CHL,Chile,2,Antofagasta,6,El Loa,16,Ollague,Comuna,Municipality,NA,NA
+17,48,CHL,Chile,2,Antofagasta,6,El Loa,17,San Pedro de Atacama,Comuna,Municipality,NA,NA
+18,48,CHL,Chile,2,Antofagasta,7,Tocopilla,18,Maria Elena,Comuna,Municipality,NA,NA
+19,48,CHL,Chile,2,Antofagasta,7,Tocopilla,19,Tocopilla,Comuna,Municipality,NA,NA
+20,48,CHL,Chile,3,Araucanía,8,Cautín,20,Carahue,Comuna,Municipality,NA,NA
+21,48,CHL,Chile,3,Araucanía,8,Cautín,21,Cunco,Comuna,Municipality,NA,NA
+22,48,CHL,Chile,3,Araucanía,8,Cautín,22,Curarrehue,Comuna,Municipality,NA,NA
+23,48,CHL,Chile,3,Araucanía,8,Cautín,23,Freire,Comuna,Municipality,NA,NA
+24,48,CHL,Chile,3,Araucanía,8,Cautín,24,Galvarino,Comuna,Municipality,NA,NA
+25,48,CHL,Chile,3,Araucanía,8,Cautín,25,Golbea,Comuna,Municipality,NA,NA
+26,48,CHL,Chile,3,Araucanía,8,Cautín,26,Lautaro,Comuna,Municipality,NA,NA
+27,48,CHL,Chile,3,Araucanía,8,Cautín,27,Loncoche,Comuna,Municipality,NA,NA
+28,48,CHL,Chile,3,Araucanía,8,Cautín,28,Melipeuco,Comuna,Municipality,NA,NA
+29,48,CHL,Chile,3,Araucanía,8,Cautín,29,Nueva Imperial,Comuna,Municipality,NA,NA
+30,48,CHL,Chile,3,Araucanía,8,Cautín,30,Perquenco,Comuna,Municipality,NA,NA
+31,48,CHL,Chile,3,Araucanía,8,Cautín,31,Pitrufquen,Comuna,Municipality,NA,NA
+32,48,CHL,Chile,3,Araucanía,8,Cautín,32,Pucon,Comuna,Municipality,NA,NA
+33,48,CHL,Chile,3,Araucanía,8,Cautín,33,Saavedra,Comuna,Municipality,NA,NA
+34,48,CHL,Chile,3,Araucanía,8,Cautín,34,Temuco,Comuna,Municipality,NA,NA
+35,48,CHL,Chile,3,Araucanía,8,Cautín,35,Teodoro Schmidt,Comuna,Municipality,NA,NA
+36,48,CHL,Chile,3,Araucanía,8,Cautín,36,Tolten,Comuna,Municipality,NA,NA
+37,48,CHL,Chile,3,Araucanía,8,Cautín,37,Vilcun,Comuna,Municipality,NA,NA
+38,48,CHL,Chile,3,Araucanía,8,Cautín,38,Villarrica,Comuna,Municipality,NA,NA
+39,48,CHL,Chile,3,Araucanía,9,Malleco,39,Angol,Comuna,Municipality,NA,NA
+40,48,CHL,Chile,3,Araucanía,9,Malleco,40,Collipulli,Comuna,Municipality,NA,NA
+41,48,CHL,Chile,3,Araucanía,9,Malleco,41,Curacautin,Comuna,Municipality,NA,NA
+42,48,CHL,Chile,3,Araucanía,9,Malleco,42,Ercilla,Comuna,Municipality,NA,NA
+43,48,CHL,Chile,3,Araucanía,9,Malleco,43,Lonquimay,Comuna,Municipality,NA,NA
+44,48,CHL,Chile,3,Araucanía,9,Malleco,44,Los Sauces,Comuna,Municipality,NA,NA
+45,48,CHL,Chile,3,Araucanía,9,Malleco,45,Lumaco,Comuna,Municipality,NA,NA
+46,48,CHL,Chile,3,Araucanía,9,Malleco,46,Puren,Comuna,Municipality,NA,NA
+47,48,CHL,Chile,3,Araucanía,9,Malleco,47,Renaico,Comuna,Municipality,NA,NA
+48,48,CHL,Chile,3,Araucanía,9,Malleco,48,Traiguen,Comuna,Municipality,NA,NA
+49,48,CHL,Chile,3,Araucanía,9,Malleco,49,Victoria,Comuna,Municipality,NA,NA
+50,48,CHL,Chile,4,Arica y Parinacota,10,Arica,50,Arica,Comuna,Municipality,NA,NA
+51,48,CHL,Chile,4,Arica y Parinacota,10,Arica,51,Camarones,Comuna,Municipality,NA,NA
+52,48,CHL,Chile,4,Arica y Parinacota,11,Parinacota,52,General Lagos,Comuna,Municipality,NA,NA
+53,48,CHL,Chile,4,Arica y Parinacota,11,Parinacota,53,Putre,Comuna,Municipality,NA,NA
+54,48,CHL,Chile,5,Atacama,12,Chañaral,54,Chanaral,Comuna,Municipality,NA,NA
+55,48,CHL,Chile,5,Atacama,12,Chañaral,55,Diego de Almagro,Comuna,Municipality,NA,NA
+56,48,CHL,Chile,5,Atacama,13,Copiapó,56,Caldera,Comuna,Municipality,NA,NA
+57,48,CHL,Chile,5,Atacama,13,Copiapó,57,Copiapo,Comuna,Municipality,NA,NA
+58,48,CHL,Chile,5,Atacama,13,Copiapó,58,Tierra Amarilla,Comuna,Municipality,NA,NA
+59,48,CHL,Chile,5,Atacama,14,Huasco,59,Alto del Carmen,Comuna,Municipality,NA,NA
+60,48,CHL,Chile,5,Atacama,14,Huasco,60,Freirina,Comuna,Municipality,NA,NA
+61,48,CHL,Chile,5,Atacama,14,Huasco,61,Huasco,Comuna,Municipality,NA,NA
+62,48,CHL,Chile,5,Atacama,14,Huasco,62,Vallenar,Comuna,Municipality,NA,NA
+83,48,CHL,Chile,6,Bío-Bío,16,Arauco,83,Arauco,Comuna,Municipality,NA,NA
+84,48,CHL,Chile,6,Bío-Bío,16,Arauco,84,Canete,Comuna,Municipality,NA,NA
+85,48,CHL,Chile,6,Bío-Bío,16,Arauco,85,Contulmo,Comuna,Municipality,NA,NA
+86,48,CHL,Chile,6,Bío-Bío,16,Arauco,86,Curanilahue,Comuna,Municipality,NA,NA
+87,48,CHL,Chile,6,Bío-Bío,16,Arauco,87,Lebu,Comuna,Municipality,NA,NA
+88,48,CHL,Chile,6,Bío-Bío,16,Arauco,88,Los Alamos,Comuna,Municipality,NA,NA
+89,48,CHL,Chile,6,Bío-Bío,16,Arauco,89,Tirua,Comuna,Municipality,NA,NA
+90,48,CHL,Chile,6,Bío-Bío,17,Biobío,90,Antuco,Comuna,Municipality,NA,NA
+91,48,CHL,Chile,6,Bío-Bío,17,Biobío,91,Cabrero,Comuna,Municipality,NA,NA
+92,48,CHL,Chile,6,Bío-Bío,17,Biobío,92,Laja,Comuna,Municipality,NA,NA
+93,48,CHL,Chile,6,Bío-Bío,17,Biobío,93,Los Angeles,Comuna,Municipality,NA,NA
+94,48,CHL,Chile,6,Bío-Bío,17,Biobío,94,Mulchen,Comuna,Municipality,NA,NA
+95,48,CHL,Chile,6,Bío-Bío,17,Biobío,95,Nacimiento,Comuna,Municipality,NA,NA
+96,48,CHL,Chile,6,Bío-Bío,17,Biobío,96,Negrete,Comuna,Municipality,NA,NA
+97,48,CHL,Chile,6,Bío-Bío,17,Biobío,97,Quilago,Comuna,Municipality,NA,NA
+98,48,CHL,Chile,6,Bío-Bío,17,Biobío,98,Quillego,Comuna,Municipality,NA,NA
+99,48,CHL,Chile,6,Bío-Bío,17,Biobío,99,Rosendo,Comuna,Municipality,NA,NA
+100,48,CHL,Chile,6,Bío-Bío,17,Biobío,100,Santa Barbara,Comuna,Municipality,NA,NA
+101,48,CHL,Chile,6,Bío-Bío,17,Biobío,101,Tucapel,Comuna,Municipality,NA,NA
+102,48,CHL,Chile,6,Bío-Bío,17,Biobío,102,Yumbel,Comuna,Municipality,NA,NA
+103,48,CHL,Chile,6,Bío-Bío,18,Concepción,103,Concepcion,Comuna,Municipality,NA,NA
+104,48,CHL,Chile,6,Bío-Bío,18,Concepción,104,Coronel,Comuna,Municipality,NA,NA
+105,48,CHL,Chile,6,Bío-Bío,18,Concepción,105,Florida,Comuna,Municipality,NA,NA
+106,48,CHL,Chile,6,Bío-Bío,18,Concepción,106,Hualqui,Comuna,Municipality,NA,NA
+107,48,CHL,Chile,6,Bío-Bío,18,Concepción,107,Lota,Comuna,Municipality,NA,NA
+108,48,CHL,Chile,6,Bío-Bío,18,Concepción,108,Penco,Comuna,Municipality,NA,NA
+109,48,CHL,Chile,6,Bío-Bío,18,Concepción,109,Santa Juana,Comuna,Municipality,NA,NA
+110,48,CHL,Chile,6,Bío-Bío,18,Concepción,110,Talcahuano,Comuna,Municipality,NA,NA
+111,48,CHL,Chile,6,Bío-Bío,18,Concepción,111,Tome,Comuna,Municipality,NA,NA
+63,48,CHL,Chile,6,Bío-Bío,15,Ñuble,63,Bulnes,Comuna,Municipality,NA,NA
+64,48,CHL,Chile,6,Bío-Bío,15,Ñuble,64,Chillan,Comuna,Municipality,NA,NA
+65,48,CHL,Chile,6,Bío-Bío,15,Ñuble,65,Cobquecura,Comuna,Municipality,NA,NA
+66,48,CHL,Chile,6,Bío-Bío,15,Ñuble,66,Coelemu,Comuna,Municipality,NA,NA
+67,48,CHL,Chile,6,Bío-Bío,15,Ñuble,67,Coihueco,Comuna,Municipality,NA,NA
+68,48,CHL,Chile,6,Bío-Bío,15,Ñuble,68,El Carmen,Comuna,Municipality,NA,NA
+69,48,CHL,Chile,6,Bío-Bío,15,Ñuble,69,Ninhue,Comuna,Municipality,NA,NA
+70,48,CHL,Chile,6,Bío-Bío,15,Ñuble,70,Niquen,Comuna,Municipality,NA,NA
+71,48,CHL,Chile,6,Bío-Bío,15,Ñuble,71,Pemuco,Comuna,Municipality,NA,NA
+72,48,CHL,Chile,6,Bío-Bío,15,Ñuble,72,Pinto,Comuna,Municipality,NA,NA
+73,48,CHL,Chile,6,Bío-Bío,15,Ñuble,73,Portezuelo,Comuna,Municipality,NA,NA
+74,48,CHL,Chile,6,Bío-Bío,15,Ñuble,74,Quillon,Comuna,Municipality,NA,NA
+75,48,CHL,Chile,6,Bío-Bío,15,Ñuble,75,Quirihue,Comuna,Municipality,NA,NA
+76,48,CHL,Chile,6,Bío-Bío,15,Ñuble,76,Ranquil,Comuna,Municipality,NA,NA
+77,48,CHL,Chile,6,Bío-Bío,15,Ñuble,77,San Carlos,Comuna,Municipality,NA,NA
+78,48,CHL,Chile,6,Bío-Bío,15,Ñuble,78,San Fabian,Comuna,Municipality,NA,NA
+79,48,CHL,Chile,6,Bío-Bío,15,Ñuble,79,San Ignacio,Comuna,Municipality,NA,NA
+80,48,CHL,Chile,6,Bío-Bío,15,Ñuble,80,San Nicolas,Comuna,Municipality,NA,NA
+81,48,CHL,Chile,6,Bío-Bío,15,Ñuble,81,Trehuaco,Comuna,Municipality,NA,NA
+82,48,CHL,Chile,6,Bío-Bío,15,Ñuble,82,Yungay,Comuna,Municipality,NA,NA
+112,48,CHL,Chile,7,Coquimbo,19,Choapa,112,Illapel,Comuna,Municipality,NA,NA
+113,48,CHL,Chile,7,Coquimbo,19,Choapa,113,Los Vilos,Comuna,Municipality,NA,NA
+114,48,CHL,Chile,7,Coquimbo,19,Choapa,114,Mincha,Comuna,Municipality,NA,NA
+115,48,CHL,Chile,7,Coquimbo,19,Choapa,115,Salamanca,Comuna,Municipality,NA,NA
+116,48,CHL,Chile,7,Coquimbo,20,Elqui,116,Andacollo,Comuna,Municipality,NA,NA
+117,48,CHL,Chile,7,Coquimbo,20,Elqui,117,Coquimbo,Comuna,Municipality,NA,NA
+118,48,CHL,Chile,7,Coquimbo,20,Elqui,118,La Higuera,Comuna,Municipality,NA,NA
+119,48,CHL,Chile,7,Coquimbo,20,Elqui,119,La Serena,Comuna,Municipality,NA,NA
+120,48,CHL,Chile,7,Coquimbo,20,Elqui,120,Paiguano,Comuna,Municipality,NA,NA
+121,48,CHL,Chile,7,Coquimbo,20,Elqui,121,Vicuna,Comuna,Municipality,NA,NA
+122,48,CHL,Chile,7,Coquimbo,21,Limarí,122,Combarbala,Comuna,Municipality,NA,NA
+123,48,CHL,Chile,7,Coquimbo,21,Limarí,123,Monte Patria,Comuna,Municipality,NA,NA
+124,48,CHL,Chile,7,Coquimbo,21,Limarí,124,Ovalle,Comuna,Municipality,NA,NA
+125,48,CHL,Chile,7,Coquimbo,21,Limarí,125,Punitaqui,Comuna,Municipality,NA,NA
+126,48,CHL,Chile,7,Coquimbo,21,Limarí,126,Rio Hurtado,Comuna,Municipality,NA,NA
+127,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,127,Codegua,Comuna,Municipality,NA,NA
+128,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,128,Coinco,Comuna,Municipality,NA,NA
+129,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,129,Coltauco,Comuna,Municipality,NA,NA
+130,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,130,Donihue,Comuna,Municipality,NA,NA
+131,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,131,Graneros,Comuna,Municipality,NA,NA
+132,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,132,Las Cabras,Comuna,Municipality,NA,NA
+133,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,133,Machali,Comuna,Municipality,NA,NA
+134,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,134,Malloa,Comuna,Municipality,NA,NA
+135,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,135,Mostazal,Comuna,Municipality,NA,NA
+136,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,136,Olivar,Comuna,Municipality,NA,NA
+137,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,137,Peumo,Comuna,Municipality,NA,NA
+138,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,138,Pichidegua,Comuna,Municipality,NA,NA
+139,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,139,Quinta de Tilcoco,Comuna,Municipality,NA,NA
+140,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,140,Rancagua,Comuna,Municipality,NA,NA
+141,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,141,Rengo,Comuna,Municipality,NA,NA
+142,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,142,Requinao,Comuna,Municipality,NA,NA
+143,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,22,Cachapoal,143,San Vicente,Comuna,Municipality,NA,NA
+144,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,23,Cardenal Caro,144,La Estrella,Comuna,Municipality,NA,NA
+145,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,23,Cardenal Caro,145,Litueche,Comuna,Municipality,NA,NA
+146,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,23,Cardenal Caro,146,Marchihue,Comuna,Municipality,NA,NA
+147,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,23,Cardenal Caro,147,Navidad,Comuna,Municipality,NA,NA
+148,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,23,Cardenal Caro,148,Paredones,Comuna,Municipality,NA,NA
+149,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,23,Cardenal Caro,149,Pichilemu,Comuna,Municipality,NA,NA
+150,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,24,Colchagua,150,Chepica,Comuna,Municipality,NA,NA
+151,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,24,Colchagua,151,Chimbarongo,Comuna,Municipality,NA,NA
+152,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,24,Colchagua,152,Lolol,Comuna,Municipality,NA,NA
+153,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,24,Colchagua,153,Nancagua,Comuna,Municipality,NA,NA
+154,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,24,Colchagua,154,Palmilla,Comuna,Municipality,NA,NA
+155,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,24,Colchagua,155,Peralillo,Comuna,Municipality,NA,NA
+156,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,24,Colchagua,156,Placilla,Comuna,Municipality,NA,NA
+157,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,24,Colchagua,157,Pumanque,Comuna,Municipality,NA,NA
+158,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,24,Colchagua,158,San Fernando,Comuna,Municipality,NA,NA
+159,48,CHL,Chile,8,Libertador General Bernardo O'Higgins,24,Colchagua,159,Santa Cruz,Comuna,Municipality,NA,NA
+160,48,CHL,Chile,9,Los Lagos,25,Chiloé,160,Ancud,Comuna,Municipality,NA,NA
+161,48,CHL,Chile,9,Los Lagos,25,Chiloé,161,Castro,Comuna,Municipality,NA,NA
+162,48,CHL,Chile,9,Los Lagos,25,Chiloé,162,Chonchi,Comuna,Municipality,NA,NA
+163,48,CHL,Chile,9,Los Lagos,25,Chiloé,163,Curaco de Velez,Comuna,Municipality,NA,NA
+164,48,CHL,Chile,9,Los Lagos,25,Chiloé,164,Dalcahue,Comuna,Municipality,NA,NA
+165,48,CHL,Chile,9,Los Lagos,25,Chiloé,165,Puqueldon,Comuna,Municipality,NA,NA
+166,48,CHL,Chile,9,Los Lagos,25,Chiloé,166,Queilen,Comuna,Municipality,NA,NA
+167,48,CHL,Chile,9,Los Lagos,25,Chiloé,167,Quellon,Comuna,Municipality,NA,NA
+168,48,CHL,Chile,9,Los Lagos,25,Chiloé,168,Quemchi,Comuna,Municipality,NA,NA
+169,48,CHL,Chile,9,Los Lagos,25,Chiloé,169,Quinchao,Comuna,Municipality,NA,NA
+170,48,CHL,Chile,9,Los Lagos,26,Llanquihue,170,Calbuco,Comuna,Municipality,NA,NA
+171,48,CHL,Chile,9,Los Lagos,26,Llanquihue,171,Cochamo,Comuna,Municipality,NA,NA
+172,48,CHL,Chile,9,Los Lagos,26,Llanquihue,172,Fresia,Comuna,Municipality,NA,NA
+173,48,CHL,Chile,9,Los Lagos,26,Llanquihue,173,Frutillar,Comuna,Municipality,NA,NA
+174,48,CHL,Chile,9,Los Lagos,26,Llanquihue,174,LLanquihue,Comuna,Municipality,NA,NA
+175,48,CHL,Chile,9,Los Lagos,26,Llanquihue,175,Los Muermos,Comuna,Municipality,NA,NA
+176,48,CHL,Chile,9,Los Lagos,26,Llanquihue,176,Maullin,Comuna,Municipality,NA,NA
+177,48,CHL,Chile,9,Los Lagos,26,Llanquihue,177,Puerto Montt,Comuna,Municipality,NA,NA
+178,48,CHL,Chile,9,Los Lagos,26,Llanquihue,178,Puerto Varas,Comuna,Municipality,NA,NA
+179,48,CHL,Chile,9,Los Lagos,27,Osorno,179,Entre Lagos,Comuna,Municipality,NA,NA
+180,48,CHL,Chile,9,Los Lagos,27,Osorno,180,Osorno,Comuna,Municipality,NA,NA
+181,48,CHL,Chile,9,Los Lagos,27,Osorno,181,Puerto Octay,Comuna,Municipality,NA,NA
+182,48,CHL,Chile,9,Los Lagos,27,Osorno,182,Purranque,Comuna,Municipality,NA,NA
+183,48,CHL,Chile,9,Los Lagos,27,Osorno,183,Rio Negro,Comuna,Municipality,NA,NA
+184,48,CHL,Chile,9,Los Lagos,27,Osorno,184,San Juan de la Costa,Comuna,Municipality,NA,NA
+185,48,CHL,Chile,9,Los Lagos,27,Osorno,185,San Pablo,Comuna,Municipality,NA,NA
+186,48,CHL,Chile,9,Los Lagos,28,Palena,186,Chaiten,Comuna,Municipality,NA,NA
+187,48,CHL,Chile,9,Los Lagos,28,Palena,187,Futaleufu,Comuna,Municipality,NA,NA
+188,48,CHL,Chile,9,Los Lagos,28,Palena,188,Hualaihue,Comuna,Municipality,NA,NA
+189,48,CHL,Chile,9,Los Lagos,28,Palena,189,Palena,Comuna,Municipality,NA,NA
+190,48,CHL,Chile,10,Los Ríos,29,Ranco,190,Futrono,Comuna,Municipality,NA,NA
+191,48,CHL,Chile,10,Los Ríos,29,Ranco,191,La Unión,Comuna,Municipality,NA,NA
+192,48,CHL,Chile,10,Los Ríos,29,Ranco,192,Lago Ranco,Comuna,Municipality,NA,NA
+193,48,CHL,Chile,10,Los Ríos,29,Ranco,193,Rio Bueno,Comuna,Municipality,NA,NA
+194,48,CHL,Chile,10,Los Ríos,30,Valdivia,194,Corral,Comuna,Municipality,NA,NA
+195,48,CHL,Chile,10,Los Ríos,30,Valdivia,195,Lanco,Comuna,Municipality,NA,NA
+196,48,CHL,Chile,10,Los Ríos,30,Valdivia,196,Los Lagos,Comuna,Municipality,NA,NA
+197,48,CHL,Chile,10,Los Ríos,30,Valdivia,197,Mafil,Comuna,Municipality,NA,NA
+198,48,CHL,Chile,10,Los Ríos,30,Valdivia,198,Mariquina,Comuna,Municipality,NA,NA
+199,48,CHL,Chile,10,Los Ríos,30,Valdivia,199,Paillaco,Comuna,Municipality,NA,NA
+200,48,CHL,Chile,10,Los Ríos,30,Valdivia,200,Panguipulli,Comuna,Municipality,NA,NA
+201,48,CHL,Chile,10,Los Ríos,30,Valdivia,201,Valdivia,Comuna,Municipality,NA,NA
+202,48,CHL,Chile,11,Magallanes y Antártica Chilena,31,Antártica Chilena,202,Navarino,Comuna,Municipality,NA,NA
+204,48,CHL,Chile,11,Magallanes y Antártica Chilena,33,Capitán Prat,204,Natales,Comuna,Municipality,NA,NA
+205,48,CHL,Chile,11,Magallanes y Antártica Chilena,34,Chacabuco,205,n.a. ( 295),Comuna,Municipality,NA,NA
+206,48,CHL,Chile,11,Magallanes y Antártica Chilena,35,Magallanes,206,Punta Arenas,Comuna,Municipality,NA,NA
+207,48,CHL,Chile,11,Magallanes y Antártica Chilena,35,Magallanes,207,Rio Verde,Comuna,Municipality,NA,NA
+208,48,CHL,Chile,11,Magallanes y Antártica Chilena,36,Tierra del Fuego,208,Primavera,Comuna,Municipality,NA,NA
+209,48,CHL,Chile,11,Magallanes y Antártica Chilena,36,Tierra del Fuego,209,Timaukel,Comuna,Municipality,NA,NA
+203,48,CHL,Chile,11,Magallanes y Antártica Chilena,32,Última Esperanza,203,Torres de Paine,Comuna,Municipality,NA,NA
+210,48,CHL,Chile,12,Maule,37,Cauquenes,210,Cauquenes,Comuna,Municipality,NA,NA
+211,48,CHL,Chile,12,Maule,37,Cauquenes,211,Chanco,Comuna,Municipality,NA,NA
+212,48,CHL,Chile,12,Maule,37,Cauquenes,212,Pelluhue,Comuna,Municipality,NA,NA
+213,48,CHL,Chile,12,Maule,38,Curicó,213,Curico,Comuna,Municipality,NA,NA
+214,48,CHL,Chile,12,Maule,38,Curicó,214,Hualane,Comuna,Municipality,NA,NA
+215,48,CHL,Chile,12,Maule,38,Curicó,215,Licanten,Comuna,Municipality,NA,NA
+216,48,CHL,Chile,12,Maule,38,Curicó,216,Molina,Comuna,Municipality,NA,NA
+217,48,CHL,Chile,12,Maule,38,Curicó,217,Rauco,Comuna,Municipality,NA,NA
+218,48,CHL,Chile,12,Maule,38,Curicó,218,Romeral,Comuna,Municipality,NA,NA
+219,48,CHL,Chile,12,Maule,38,Curicó,219,Sagrada Familia,Comuna,Municipality,NA,NA
+220,48,CHL,Chile,12,Maule,38,Curicó,220,Teno,Comuna,Municipality,NA,NA
+221,48,CHL,Chile,12,Maule,38,Curicó,221,Vichuquen,Comuna,Municipality,NA,NA
+222,48,CHL,Chile,12,Maule,39,Linares,222,Colbun,Comuna,Municipality,NA,NA
+223,48,CHL,Chile,12,Maule,39,Linares,223,Linares,Comuna,Municipality,NA,NA
+224,48,CHL,Chile,12,Maule,39,Linares,224,Longavi,Comuna,Municipality,NA,NA
+225,48,CHL,Chile,12,Maule,39,Linares,225,Parral,Comuna,Municipality,NA,NA
+226,48,CHL,Chile,12,Maule,39,Linares,226,Retiro,Comuna,Municipality,NA,NA
+227,48,CHL,Chile,12,Maule,39,Linares,227,San Javier,Comuna,Municipality,NA,NA
+228,48,CHL,Chile,12,Maule,39,Linares,228,Villa Alegre,Comuna,Municipality,NA,NA
+229,48,CHL,Chile,12,Maule,39,Linares,229,Yerbas buenas,Comuna,Municipality,NA,NA
+230,48,CHL,Chile,12,Maule,40,Talca,230,Constitucion,Comuna,Municipality,NA,NA
+231,48,CHL,Chile,12,Maule,40,Talca,231,Curepto,Comuna,Municipality,NA,NA
+232,48,CHL,Chile,12,Maule,40,Talca,232,Empedrado,Comuna,Municipality,NA,NA
+233,48,CHL,Chile,12,Maule,40,Talca,233,Maule,Comuna,Municipality,NA,NA
+234,48,CHL,Chile,12,Maule,40,Talca,234,Pelarco,Comuna,Municipality,NA,NA
+235,48,CHL,Chile,12,Maule,40,Talca,235,Pencahue,Comuna,Municipality,NA,NA
+236,48,CHL,Chile,12,Maule,40,Talca,236,Rio Claro,Comuna,Municipality,NA,NA
+237,48,CHL,Chile,12,Maule,40,Talca,237,San Clemente,Comuna,Municipality,NA,NA
+238,48,CHL,Chile,12,Maule,40,Talca,238,Talca,Comuna,Municipality,NA,NA
+239,48,CHL,Chile,13,Región Metropolitana de Santiago,41,Chacabuco,239,Colina,Comuna,Municipality,NA,NA
+240,48,CHL,Chile,13,Región Metropolitana de Santiago,41,Chacabuco,240,n.a. ( 70),Comuna,Municipality,NA,NA
+241,48,CHL,Chile,13,Región Metropolitana de Santiago,42,Cordillera,241,Pirque,Comuna,Municipality,NA,NA
+242,48,CHL,Chile,13,Región Metropolitana de Santiago,42,Cordillera,242,Puente Alto,Comuna,Municipality,NA,NA
+243,48,CHL,Chile,13,Región Metropolitana de Santiago,42,Cordillera,243,San Jode de Maipo,Comuna,Municipality,NA,NA
+244,48,CHL,Chile,13,Región Metropolitana de Santiago,43,Maipo,244,Buin,Comuna,Municipality,NA,NA
+245,48,CHL,Chile,13,Región Metropolitana de Santiago,43,Maipo,245,Calera de Tango,Comuna,Municipality,NA,NA
+246,48,CHL,Chile,13,Región Metropolitana de Santiago,43,Maipo,246,Paine,Comuna,Municipality,NA,NA
+247,48,CHL,Chile,13,Región Metropolitana de Santiago,43,Maipo,247,San Bernardo,Comuna,Municipality,NA,NA
+248,48,CHL,Chile,13,Región Metropolitana de Santiago,44,Melipilla,248,Alhue,Comuna,Municipality,NA,NA
+249,48,CHL,Chile,13,Región Metropolitana de Santiago,44,Melipilla,249,Curacavi,Comuna,Municipality,NA,NA
+250,48,CHL,Chile,13,Región Metropolitana de Santiago,44,Melipilla,250,Maria Pinto,Comuna,Municipality,NA,NA
+251,48,CHL,Chile,13,Región Metropolitana de Santiago,44,Melipilla,251,Melipilla,Comuna,Municipality,NA,NA
+252,48,CHL,Chile,13,Región Metropolitana de Santiago,44,Melipilla,252,San Pedro,Comuna,Municipality,NA,NA
+253,48,CHL,Chile,13,Región Metropolitana de Santiago,45,Santiago,253,Santiago,Comuna,Municipality,NA,NA
+254,48,CHL,Chile,13,Región Metropolitana de Santiago,46,Talagante,254,El Monte,Comuna,Municipality,NA,NA
+255,48,CHL,Chile,13,Región Metropolitana de Santiago,46,Talagante,255,Isla de Maipo,Comuna,Municipality,NA,NA
+256,48,CHL,Chile,13,Región Metropolitana de Santiago,46,Talagante,256,Penaflor,Comuna,Municipality,NA,NA
+257,48,CHL,Chile,13,Región Metropolitana de Santiago,46,Talagante,257,Talagante,Comuna,Municipality,NA,NA
+258,48,CHL,Chile,14,Tarapacá,47,Iquique,258,Camina,Comuna,Municipality,NA,NA
+259,48,CHL,Chile,14,Tarapacá,47,Iquique,259,Colchane,Comuna,Municipality,NA,NA
+260,48,CHL,Chile,14,Tarapacá,47,Iquique,260,Huara,Comuna,Municipality,NA,NA
+261,48,CHL,Chile,14,Tarapacá,47,Iquique,261,Iquique,Comuna,Municipality,NA,NA
+262,48,CHL,Chile,14,Tarapacá,47,Iquique,262,Pica,Comuna,Municipality,NA,NA
+263,48,CHL,Chile,14,Tarapacá,47,Iquique,263,Pozo Almonte,Comuna,Municipality,NA,NA
+264,48,CHL,Chile,15,Valparaíso,48,ísla de Pascua,264,Ocean Islands,Comuna,Municipality,NA,NA
+265,48,CHL,Chile,15,Valparaíso,49,Los Andes,265,Calle Larga,Comuna,Municipality,NA,NA
+266,48,CHL,Chile,15,Valparaíso,49,Los Andes,266,Los Andes,Comuna,Municipality,NA,NA
+267,48,CHL,Chile,15,Valparaíso,49,Los Andes,267,Rinconada,Comuna,Municipality,NA,NA
+268,48,CHL,Chile,15,Valparaíso,49,Los Andes,268,San Esteban,Comuna,Municipality,NA,NA
+269,48,CHL,Chile,15,Valparaíso,50,Petorca,269,Cabildo,Comuna,Municipality,NA,NA
+270,48,CHL,Chile,15,Valparaíso,50,Petorca,270,La Ligua,Comuna,Municipality,NA,NA
+271,48,CHL,Chile,15,Valparaíso,50,Petorca,271,Papudo,Comuna,Municipality,NA,NA
+272,48,CHL,Chile,15,Valparaíso,50,Petorca,272,Petorca,Comuna,Municipality,NA,NA
+273,48,CHL,Chile,15,Valparaíso,50,Petorca,273,Zapallar,Comuna,Municipality,NA,NA
+274,48,CHL,Chile,15,Valparaíso,51,Quillota,274,Calera,Comuna,Municipality,NA,NA
+275,48,CHL,Chile,15,Valparaíso,51,Quillota,275,Hijuelas,Comuna,Municipality,NA,NA
+276,48,CHL,Chile,15,Valparaíso,51,Quillota,276,La Cruz,Comuna,Municipality,NA,NA
+277,48,CHL,Chile,15,Valparaíso,51,Quillota,277,Limache,Comuna,Municipality,NA,NA
+278,48,CHL,Chile,15,Valparaíso,51,Quillota,278,Nogales,Comuna,Municipality,NA,NA
+279,48,CHL,Chile,15,Valparaíso,51,Quillota,279,Olmue,Comuna,Municipality,NA,NA
+280,48,CHL,Chile,15,Valparaíso,51,Quillota,280,Quillota,Comuna,Municipality,NA,NA
+281,48,CHL,Chile,15,Valparaíso,52,San Antonio,281,Algarrobo,Comuna,Municipality,NA,NA
+282,48,CHL,Chile,15,Valparaíso,52,San Antonio,282,Cartagena,Comuna,Municipality,NA,NA
+283,48,CHL,Chile,15,Valparaíso,52,San Antonio,283,El Quisco,Comuna,Municipality,NA,NA
+284,48,CHL,Chile,15,Valparaíso,52,San Antonio,284,El Tabo,Comuna,Municipality,NA,NA
+285,48,CHL,Chile,15,Valparaíso,52,San Antonio,285,San Antonio,Comuna,Municipality,NA,NA
+286,48,CHL,Chile,15,Valparaíso,52,San Antonio,286,Santo Domingo,Comuna,Municipality,NA,NA
+287,48,CHL,Chile,15,Valparaíso,53,San Felipe de Aconcagua,287,Catemu,Comuna,Municipality,NA,NA
+288,48,CHL,Chile,15,Valparaíso,53,San Felipe de Aconcagua,288,Llaillay,Comuna,Municipality,NA,NA
+289,48,CHL,Chile,15,Valparaíso,53,San Felipe de Aconcagua,289,Panquehue,Comuna,Municipality,NA,NA
+290,48,CHL,Chile,15,Valparaíso,53,San Felipe de Aconcagua,290,Putaendo,Comuna,Municipality,NA,NA
+291,48,CHL,Chile,15,Valparaíso,53,San Felipe de Aconcagua,291,San Felipe,Comuna,Municipality,NA,NA
+292,48,CHL,Chile,15,Valparaíso,53,San Felipe de Aconcagua,292,Santa Maria,Comuna,Municipality,NA,NA
+293,48,CHL,Chile,15,Valparaíso,54,Valparaíso,293,Casa Blanca,Comuna,Municipality,NA,NA
+294,48,CHL,Chile,15,Valparaíso,54,Valparaíso,294,Puchuncavi,Comuna,Municipality,NA,NA
+295,48,CHL,Chile,15,Valparaíso,54,Valparaíso,295,Quilpue,Comuna,Municipality,NA,NA
+296,48,CHL,Chile,15,Valparaíso,54,Valparaíso,296,Quintero,Comuna,Municipality,NA,NA
+297,48,CHL,Chile,15,Valparaíso,54,Valparaíso,297,Valparaiso,Comuna,Municipality,NA,NA
+298,48,CHL,Chile,15,Valparaíso,54,Valparaíso,298,Villa Alemana,Comuna,Municipality,NA,NA
+299,48,CHL,Chile,15,Valparaíso,54,Valparaíso,299,Vina del Mar,Comuna,Municipality,NA,NA

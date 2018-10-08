@@ -19,9 +19,6 @@ def main():
     for simulation in model.getSimulations():
         simulation.simulate()
 
-        # Save results
-        simulation.writeOutResults()
-
     print("Simulations complete")
 
 if True:

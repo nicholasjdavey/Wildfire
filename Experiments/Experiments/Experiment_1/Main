@@ -11,6 +11,7 @@
 ## REGION DATA
 ###############################################################################
 ## SPATIAL DATA
+Region Shape File         : Experiments/Input_Data/Regions/Region_Provinces/CHL_adm2/CHL_adm2.shp
 Terrain X Data File       : Experiments/Input_Data/Regions/Region_1/XData
 Terrain Y Data File       : Experiments/Input_Data/Regions/Region_1/YData
 Terrain Z Data File       : Experiments/Input_Data/Regions/Region_1/ZData

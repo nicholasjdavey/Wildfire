@@ -20,7 +20,8 @@ class Vegetation():
         self.rocA2PerHourMean = numpy.empty([0, 0])
         self.rocA2PerHourSD = numpy.empty([0, 0])
         self.initialSuccess = numpy.empty([0, 0])
-        self.initialSize = numpy.empty([0, 0])
+        self.initialSizeMean = numpy.empty([0, 0])
+        self.initialSizeSD = numpy.empty([0, 0])
 
     def getName(self):
         return self.name
@@ -64,8 +65,14 @@ class Vegetation():
     def setInitialSuccess(self, e):
         self.initialSuccess = e
 
-    def getInitialSize(self):
-        return self.initialSize
+    def getInitialSizeMean(self):
+        return self.initialSizeMean
 
-    def setInitialSize(self, e):
-        self.initialSize = e
+    def setInitialSizeMean(self, e):
+        self.initialSizeMean = e
+
+    def getInitialSizeSD(self):
+        return self.initialSizeSD
+
+    def setInitialSizeSD(self, e):
+        self.initialSizeSD = e

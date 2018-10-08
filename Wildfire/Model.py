@@ -9,6 +9,7 @@ import numpy
 import math
 import csv
 import copy
+import geopandas as gp
 
 from Control import Control
 from Patch import Patch
@@ -33,6 +34,7 @@ class Model():
     def __init__(self):
         # Constructs an instance
         self.inputfile = ""
+        self.shapefile = ""
         self.xDataFile = ""
         self.yDataFile = ""
         self.zDataFile = ""
@@ -66,6 +68,13 @@ class Model():
         self.samplePaths = []
         self.useSamplePaths = False
         self.runs = 0
+        self.shape = None
+
+    def getShape(self):
+        return self.shape
+
+    def setShape(self, s):
+        self.shape = s
 
     def getROVPaths(self):
         return self.rovPaths
@@ -102,6 +111,12 @@ class Model():
 
     def setInputFile(self, i):
         self.inputfile = i
+
+    def getShapefile(self):
+        return self.shapefile
+
+    def setShapefile(self, s):
+        self.shapefile = s
 
     def getXDataFile(self):
         return self.xDataFile
@@ -276,49 +291,52 @@ class Model():
         self.inputfile = filename
         inputfile = open(filename, "r")
         contents = inputfile.readlines()
-        self.xDataFile = contents[13].split(":")[1].strip()
-        self.yDataFile = contents[14].split(":")[1].strip()
-        self.zDataFile = contents[15].split(":")[1].strip()
-        self.vegetationDataFile = contents[16].split(":")[1].strip()
+        self.shapefile = contents[13].split(":")[1].strip()
+        self.xDataFile = contents[14].split(":")[1].strip()
+        self.yDataFile = contents[15].split(":")[1].strip()
+        self.zDataFile = contents[16].split(":")[1].strip()
+        self.vegetationDataFile = contents[17].split(":")[1].strip()
         self.valueDataFile = contents[17].split(":")[1].strip()
-        self.weatherDataFile = contents[20].split(":")[1].strip()
-        self.basesDataFile = contents[25].split(":")[1].strip()
-        self.configurationsDataFile = contents[31].split(":")[1].strip()
+        self.weatherDataFile = contents[21].split(":")[1].strip()
+        self.basesDataFile = contents[26].split(":")[1].strip()
+        self.configurationsDataFile = contents[32].split(":")[1].strip()
 
-        noAircraft = int(contents[32].split(":")[1].strip())
+        noAircraft = int(contents[33].split(":")[1].strip())
         aircraftData = []
 
         for ii in range(noAircraft):
-            aircraftData.append(contents[33 + ii].split(":")[1].strip())
+            aircraftData.append(contents[34 + ii].split(":")[1].strip())
 
         self.aircraftDataFiles = aircraftData
 
-        noLandcraft = int(contents[38+noAircraft].split(":")[1].strip())
+        noLandcraft = int(contents[39+noAircraft].split(":")[1].strip())
         landcraftData = []
 
         for ii in range(noLandcraft):
-            landcraftData.append(contents[39 + noAircraft + ii].split(":")[1]
+            landcraftData.append(contents[40 + noAircraft + ii].split(":")[1]
                                  .strip())
 
         self.landcraftDataFiles = landcraftData
 
-        noVegetations = int(contents[44 + noAircraft + noLandcraft]
+        noVegetations = int(contents[45 + noAircraft + noLandcraft]
                             .split(":")[1].strip())
         vegetationsData = []
 
         for ii in range(noVegetations):
-            vegetationsData.append(contents[45 + noAircraft + noLandcraft]
+            vegetationsData.append(contents[46 + noAircraft + noLandcraft]
                                    .split(":")[1].strip())
 
         self.vegetationDataFiles = vegetationsData
 
         # These controls are not used for the fourth type of linear program
-        noControls = int(contents[64 + noAircraft + noLandcraft].split(":")[1]
+        noControls = int(contents[62 + noAircraft + noLandcraft+
+                                  noVegetations].split(":")[1]
                          .strip())
 
         for ii in range(noControls):
             control = Control()
-            varsStr = (contents[66 + noAircraft + noLandcraft + ii]
+            varsStr = (contents[64 + noAircraft + noLandcraft + noVegetations
+                                + ii]
                        .split(":")[1])
             lambda1 = float(varsStr.split()[0].strip())
             lambda2 = float(varsStr.split()[1].strip())
@@ -328,85 +346,91 @@ class Model():
 
         varParams = VariableParameters()
 
-        varsStr = (contents[69 + noAircraft + noLandcraft + noControls]
+        varsStr = (contents[67 + noAircraft + noLandcraft + noVegetations
+                            + noControls]
                    .split(":")[1].strip())
         varsStrs = varsStr.split(",")
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setSpeedMultipliers(varsFloat)
 
-        varsStr = (contents[70 + noAircraft + noLandcraft + noControls]
+        varsStr = (contents[68 + noAircraft + noLandcraft + noVegetations
+                            + noControls]
                    .split(":")[1].strip())
         varsStrs = varsStr.split(",")
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setOccurrenceProbMultipliers(varsFloat)
 
-        varsStr = (contents[71 + noAircraft + noLandcraft + noControls]
+        varsStr = (contents[69 + noAircraft + noLandcraft + noVegetations
+                            + noControls]
                    .split(":")[1].strip())
         varsStrs = varsStr.split(",")
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setDamageIntensityMultipliers(varsFloat)
 
-        varsStr = (contents[72 + noAircraft + noLandcraft + noControls]
+        varsStr = (contents[70 + noAircraft + noLandcraft + noVegetations
+                            + noControls]
                    .split(":")[1].strip())
         varsStrs = varsStr.split(",")
         varsFloat = [float(varsStrs[ii]) for ii in range(len(varsStrs))]
         varParams.setWeatherUncertMultipliers(varsFloat)
 
-        self.totalSteps = int(contents[73 + noAircraft + noLandcraft +
-                                       noControls]
+        self.totalSteps = int(contents[71 + noAircraft + noLandcraft
+                                       + noVegetations + noControls]
                               .split(":")[1]
                               .strip())
 
-        self.stepSize = float(contents[74 + noAircraft + noLandcraft +
-                                       noControls]
+        self.stepSize = float(contents[72 + noAircraft + noLandcraft
+                                       + noVegetations + noControls]
                               .split(":")[1].strip())
-        self.hoursPerDay = float(contents[75 + noAircraft + noLandcraft +
-                                          noControls]
+        self.hoursPerDay = float(contents[73 + noAircraft + noLandcraft
+                                          + noVegetations + noControls]
                                  .split(":")[1]
                                  .strip())
 
-        self.rovPaths = int(contents[76 + noAircraft + noLandcraft +
-                                     noControls]
+        self.rovPaths = int(contents[74 + noAircraft + noLandcraft
+                                     + noVegetations + noControls]
                             .split(":")[1]
                             .strip())
 
-        self.nestedOptMethod = int(contents[77 + noAircraft + noLandcraft +
-                                            noControls]
+        self.nestedOptMethod = int(contents[75 + noAircraft + noLandcraft
+                                            + noVegetations + noControls]
                                    .split(":")[1]
                                    .strip())
 
-        self.lookahead = int(contents[78 + noAircraft + noLandcraft +
-                                      noControls]
+        self.lookahead = int(contents[76 + noAircraft + noLandcraft
+                                      + noVegetations + noControls]
                              .split(":")[1]
                              .strip())
 
-        self.coverTime = float(contents[79 + noAircraft + noLandcraft +
-                                        noControls]
+        self.coverTime = float(contents[77 + noAircraft + noLandcraft
+                                        + noVegetations + noControls]
                                .split(":")[1]
                                .strip())
 
-        self.mcPaths = int(contents[80 + noAircraft + noLandcraft +
-                                    noControls]
+        self.mcPaths = int(contents[78 + noAircraft + noLandcraft
+                                    + noVegetations + noControls]
                            .split(":")[1]
                            .strip())
 
-        self.discountFactor = float(contents[81 + noAircraft + noLandcraft +
-                                             noControls]
+        self.discountFactor = float(contents[79 + noAircraft + noLandcraft
+                                             + noVegetations + noControls]
                                     .split(":")[1]
                                     .strip())
 
-        self.algo = float(contents[82 + noAircraft + noLandcraft +
-                                   noControls]
+        self.algo = float(contents[80 + noAircraft + noLandcraft
+                                   + noVegetations + noControls]
                           .split(":")[1]
                           .strip())
 
-        usefulConfigs = (contents[83 + noAircraft + noLandcraft + noControls]
+        usefulConfigs = (contents[81 + noAircraft + noLandcraft
+                                  + noVegetations + noControls]
                          .split(":")[1].strip())
         usefulConfigsSplit = usefulConfigs.split(",")
         self.usefulConfigurationsE = [int(usefulConfigsSplit[ii])
                                      for ii in range(len(usefulConfigsSplit))]
 
-        usefulConfigs = (contents[84 + noAircraft + noLandcraft + noControls]
+        usefulConfigs = (contents[82 + noAircraft + noLandcraft
+                                  + noVegetations + noControls]
                          .split(":")[1].strip())
         usefulConfigsSplit = usefulConfigs.split(",")
         self.usefulConfigurationsP = [int(usefulConfigsSplit[ii])
@@ -414,11 +438,13 @@ class Model():
 
         self.useSamplePaths = [
                 True if int(
-                        contents[85 + noAircraft + noLandcraft + noControls]
+                        contents[83 + noAircraft + noLandcraft
+                                 + noVegetations + noControls]
                         .split(":")[1].strip()) == 1
                 else False]
 
-        self.runs = int(contents[86 + noAircraft + noLandcraft + noControls]
+        self.runs = int(contents[84 + noAircraft + noLandcraft
+                                 + noVegetations + noControls]
                         .split(":")[1].strip())
 
         self.variableParameters = varParams
@@ -538,7 +564,7 @@ class Model():
 
                     iterator = iterator + 2
                     occurrence = {}
-                    for jj in range(self.totalSteps + self.lookahead):
+                    for jj in range(self.totalSteps + self.lookahead + 1):
                         occurrence[int(rows[iterator][1])] = (
                                 [float(col)
                                  for col in
@@ -585,21 +611,35 @@ class Model():
                     vegetation.setInitialSuccess(initialSuccess)
 
                     iterator = iterator + 1
-                    initialSize = {}
+                    initialSizeMean = {}
                     for config in self.configurations:
-                        initialSize[config] = (
+                        initialSizeMean[config] = (
                                 [float(col)
                                  for col in
                                  rows[iterator][2:(len(rows[iterator]))]])
 
                         iterator = iterator + 1
 
-                    vegetation.setInitialSize(initialSuccess)
+                    vegetation.setInitialSizeMean(initialSizeMean)
+
+                    iterator = iterator + 1
+                    initialSizeSD = {}
+                    for config in self.configurations:
+                        initialSizeSD[config] = (
+                                [float(col)
+                                 for col in
+                                 rows[iterator][2:(len(rows[iterator]))]])
+
+                        iterator = iterator + 1
+
+                    vegetation.setInitialSizeSD(initialSizeSD)
 
                 vegetations.append(vegetation)
 
         # REGION CONFIGURATION ################################################
         regionConfig = Path(root + "/Region_Configuration.csv")
+        regionShapefile = Path("../" + self.configurationsDataFile)
+
         if regionConfig.is_file():
             # If exists, just call the pre-created data
             regionConfigFile = open(root + "/Region_Configuration.csv")
@@ -730,6 +770,12 @@ class Model():
             ii = 0
 
             patches = []
+            if regionShapefile.is_file():
+#                shape = shapefile.Reader("../" + self.shapefile)
+                self.shape = gp.GeoDataFrame.from_file("../" + self.shapefile)
+                shapeCart = self.shape.copy()
+                shapeCart = shapeCart.to_crs({'init': 'epsg:32633'})
+
             while test:
                 if (all('' == s or s.isspace()
                         for s in rows[iterator][1:4]) or
@@ -738,8 +784,6 @@ class Model():
                     test = False
                     iterator = iterator + 2
                 else:
-                    x[ii] = float(rows[iterator][1])
-                    y[ii] = float(rows[iterator][2])
                     z[ii] = float(rows[iterator][3])
                     veg[ii] = int(rows[iterator][4]) - 1
                     precip[ii] = float(rows[iterator][5])
@@ -750,19 +794,47 @@ class Model():
                     fireAges[ii] = float(rows[iterator][10])
                     windN[ii] = float(rows[iterator][11])
                     windE[ii] = float(rows[iterator][12])
-                    vertices[ii] = numpy.array(
-                            [[float(rows[iterator][13 + 2*jj]),
-                              float(rows[iterator][13 + 2*jj + 1])]
-                             for jj in range(int((len(rows[iterator]) - 12)/2))
-                             if rows[iterator][13 + 2*jj] != ''])
+
+                    # If we upload a shapefile, get the vertices from there
+                    if regionShapefile.is_file():
+                        regionID = int(rows[iterator][0])
+                        vertices[ii] = self.shape.geometry[regionID - 1]
+
+#                        feature = shape.shapeRecords()[regionID - 1]
+#                        vertices[ii] = []
+#
+#                        for i in range(len(feature.shape.parts)):
+#                            i_start = feature.shape.parts[i]
+#                            if i == len(feature.shape.parts) - 1:
+#                                i_end = len(feature.shape.points)
+#                            else:
+#                                i_end = feature.shape.parts[i + 1]
+#                            vertices[ii].append(
+#                                    numpy.array(feature.shape.points[
+#                                            i_start:i_end]))
+                    else:
+                        vertices[ii] = numpy.array(
+                                [[float(rows[iterator][13 + 2*jj]),
+                                  float(rows[iterator][13 + 2*jj + 1])]
+                                 for jj in range(int((len(rows[iterator]) -
+                                                      12)/2))
+                                 if rows[iterator][13 + 2*jj] != ''])
 
                     # Now create the patch objects
                     patch = Patch()
+                    patch.setShapefileIndex(int(rows[iterator][0]))
                     patch.setVertices(vertices[ii])
                     patch.setAvDanger([float(rows[iterator][3])])
                     patch.setAvSeverity([float(rows[iterator][4])])
-                    patch.computeArea()
-                    patch.computeCentroid()
+#                    patch.computeArea()
+#                    patch.computeCentroid()
+                    patch.setCentroid([
+                            vertices[ii].centroid.xy[0][0],
+                            vertices[ii].centroid.xy[1][0]])
+                    x[ii] = vertices[ii].centroid.xy[0][0]
+                    y[ii] = vertices[ii].centroid.xy[1][0]
+                    # Area in hectares
+                    patch.setArea(shapeCart.geometry[regionID - 1].area*1e-6)
                     patch.setVegetation(
                             vegetations[int(rows[iterator][4]) - 1])
                     patches.append(patch)
@@ -770,6 +842,7 @@ class Model():
                     ii = ii + 1
                     iterator = iterator + 1
 
+            patchIDs = [patch.getShapefileIndex() for patch in patches]
             fires = []
             test = True
             while test:
@@ -788,9 +861,9 @@ class Model():
                              float(rows[iterator][2])]))
                         fire.setSize(float(rows[iterator][3]))
                         fire.setStart(float(rows[iterator][4]))
-                        fire.setInitialSize(float(rows[iterator][5]))
-                        fire.setFinalSize(float(rows[iterator][5]))
-                        fire.setPatchID(int(rows[iterator][6]) - 1)
+                        fire.setInitialSize(float(rows[iterator][3]))
+                        fire.setFinalSize(float(rows[iterator][3]))
+                        fire.setPatchID(patchIDs.index(int(rows[iterator][6])))
                         fires.append(fire)
                         iterator = iterator + 1
 
@@ -1158,12 +1231,19 @@ class Model():
 
     def configureRegion(self):
         # Compute distances between nodes and patches, etc.
+        origin = [self.shape.bounds['minx'].min(),
+                  self.shape.bounds['miny'].min()]
 
         # Stations
         # Air Bases
         airBases = self.region.getStations()[0]
-        X = numpy.array([airBase.getLocation()[0] for airBase in airBases])
-        Y = numpy.array([airBase.getLocation()[1] for airBase in airBases])
+        X = numpy.array([
+                (airBase.getLocation()[0] - origin[0])*40000*math.cos(
+                        (origin[1] + airBase.getLocation()[1])*math.pi/360)/360
+                for airBase in airBases])
+        Y = numpy.array([
+                (origin[1] - airBase.getLocation()[1])*40000/360
+                for airBase in airBases])
 
         X = numpy.transpose(numpy.tile(X, (X.shape[0], 1)))
         Y = numpy.transpose(numpy.tile(Y, (Y.shape[0], 1)))
@@ -1172,10 +1252,13 @@ class Model():
 
         # Fire Stations
         fireStations = self.region.getStations()[1]
-        X = [fireStation.getLocation()[0] for fireStation in fireStations]
-        Y = [fireStation.getLocation()[1] for fireStation in fireStations]
-        X = numpy.array(X)
-        Y = numpy.array(Y)
+        X = numpy.array([
+                (fireStation.getLocation()[0] - origin[0])*40000*math.cos(
+                        (origin[1] + fireStation.getLocation()[1])*math.pi/360)/360
+                for fireStation in fireStations])
+        Y = numpy.array([
+                (origin[1] - fireStation.getLocation()[1])*40000/360
+                for fireStation in fireStations])
 
         X = numpy.transpose(numpy.tile(X, (X.shape[0], 1)))
         Y = numpy.transpose(numpy.tile(Y, (Y.shape[0], 1)))
@@ -1187,10 +1270,20 @@ class Model():
         # Stations to Nodes
         nodes = self.region.getPatches()
         # Air Bases
-        X1 = numpy.array([airBase.getLocation()[0] for airBase in airBases])
-        Y1 = numpy.array([airBase.getLocation()[1] for airBase in airBases])
-        X2 = numpy.array([node.getCentroid()[0] for node in nodes])
-        Y2 = numpy.array([node.getCentroid()[1] for node in nodes])
+        X1 = numpy.array([
+                (airBase.getLocation()[0] - origin[0])*40000*math.cos(
+                        (origin[1] + airBase.getLocation()[1])*math.pi/360)/360
+                for airBase in airBases])
+        Y1 = numpy.array([
+                (origin[1] - airBase.getLocation()[1])*40000/360
+                for airBase in airBases])
+        X2 = numpy.array([
+                (node.getCentroid()[0] - origin[0])*40000*math.cos(
+                        (origin[1] + node.getCentroid()[1])*math.pi/360)/360
+                for node in nodes])
+        Y2 = numpy.array([
+                (origin[1] - node.getCentroid()[1])*40000/360
+                for node in nodes])
 
         noBases = X1.shape
         noNodes = X2.shape
@@ -1202,7 +1295,7 @@ class Model():
 
         airBaseNodeDistances = numpy.sqrt((X1 - X2)**2 + (Y1 - Y2)**2)
 
-        # Fire Stations
+        # Fire Stations - NOT IMPLEMENTED
         X1 = numpy.array([fireStation.getLocation()[0]
                           for fireStation in fireStations])
         Y1 = numpy.array([fireStation.getLocation()[1]

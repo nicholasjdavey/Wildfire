@@ -6,6 +6,7 @@ Created on Sun Dec 10 23:34:56 2017
 """
 
 import numpy
+import math
 from datetime import datetime
 
 
@@ -19,6 +20,7 @@ class Fire():
         self.start = datetime.now()
         self.end = datetime.now()
         self.initialSize = 0.0
+        self.initialSuccess = False
         self.finalSize = 0.0
         self.responseEncoding = ""
         self.respondingStations = []
@@ -54,6 +56,12 @@ class Fire():
 
     def setInitialSize(self, i):
         self.initialSize = i
+
+    def getInitialSuccess(self):
+        return self.initialSuccess
+
+    def setInitialSuccess(self, i):
+        self.initialSuccess = i
 
     def getFinalSize(self):
         return self.finalSize
@@ -95,4 +103,11 @@ class Fire():
         else:
             grSD = 0
 
-        self.size = self.size*(1 + grMean + grSD)
+        # The fire is simply a growing circle. The front progresses from the
+        # circumference radially. The growth rate pulled from the vegetation
+        # object is in m/hr, so we must convert this to a new size given the
+        # current size. Therefore, the current size's radius must be found
+        # first.
+        radCurr = (math.sqrt(self.size*10000/math.pi))
+        radNew = radCurr + max(0, numpy.random.normal(grMean, grSD))
+        self.size = (math.pi * radNew**2)/10000

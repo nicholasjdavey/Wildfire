@@ -7,6 +7,7 @@ Created on Sun Dec 10 23:33:16 2017
 
 import numpy
 import random
+from pyproj import Proj
 from shapely.affinity import affine_transform
 from shapely.geometry import Point, Polygon
 from shapely.ops import triangulate
@@ -23,6 +24,7 @@ class Patch():
         self.vertices = numpy.empty([0, 0])
         self.centroid = numpy.empty([0, 0])
         self.area = 0.0
+        self.areas = numpy.empty([0, 0])
         self.vegetation = None
         self.averageDanger = []
         self.averageFireSeverity = []
@@ -30,7 +32,14 @@ class Patch():
         self.averageHumidity = []
         self.averageWind = []
         self.patchID = Patch.patches
+        self.shapefileIndex = 0
         Patch.patches += 1
+
+    def getShapefileIndex(self):
+        return self.shapefileIndex
+
+    def setShapefileIndex(self, i):
+        self.shapefileIndex = i
 
     def getVertices(self):
         return self.vertices
@@ -80,22 +89,38 @@ class Patch():
     def setIndices(self, i):
         self.indices = i
 
-    def newFires(self, model, ffdi, configID):
+    def newFires(self, model, ffdi, time, configWeights):
         occ = numpy.interp(ffdi,
                            self.vegetation.getFFDIRange(),
-                           self.vegetation.getOccurrence()[configID])
+                           self.vegetation.getOccurrence()[time])
+
+        sizeMean = 0.0
+        sizeSD = 0.0
+        initS = 0.0
+
+        for w, weight in enumerate(configWeights):
+            sizeMean += weight*numpy.interp(ffdi,
+                                     self.vegetation.getFFDIRange(),
+                                     self.vegetation.getInitialSizeMean()[w+1])
+            sizeSD += weight*numpy.interp(ffdi,
+                                   self.vegetation.getFFDIRange(),
+                                   self.vegetation.getInitialSizeSD()[w+1])
+            initS += weight*numpy.interp(ffdi,
+                                  self.vegetation.getFFDIRange(),
+                                  self.vegetation.getInitialSuccess()[w+1])
 
         newFires = numpy.random.poisson(occ*self.area)
         newFiresList = []
 
         for f in range(newFires):
-            size = numpy.interp(ffdi,
-                               self.vegetation.getFFDIRange(),
-                               self.vegetation.getInitialSize()[configID])
+            success = True if initS > numpy.random.rand() else False
+            size = max(0, numpy.random.normal(sizeMean, sizeSD))
             fire = Fire()
             fire.setLocation(self.randomPatchPoint())
             fire.setSize(size)
             fire.setInitialSize(size)
+            fire.setFinalSize(size)
+            fire.setInitialSuccess(success)
             fire.setPatchID(self.patchID)
             newFiresList.append(fire)
 
@@ -120,8 +145,8 @@ class Patch():
 
         self.size = self.size*(1 + grMean + grSD)
 
-    def randomPatchPoint(self):
-        "Return list of k points chosen uniformly at random inside polygon."
+    def randomPatchPointOld(self):
+        "Return a point chosen uniformly at random inside polygon."
         areas = []
         transforms = []
         for t in triangulate(Polygon(self.vertices)):
@@ -142,18 +167,61 @@ class Patch():
 
         return point
 
+
+    def randomPatchPoint(self):
+        "Return a point chosen uniformly at random inside polygon."
+        while True:
+            point = (numpy.random.uniform(self.vertices.bounds[0],
+                                          self.vertices.bounds[2]),
+                     numpy.random.uniform(self.vertices.bounds[1],
+                                          self.vertices.bounds[3]))
+
+            if Point(point).within(self.vertices):
+                return point
+
+    # DEPRECATED
     def computeArea(self):
         """ Computes the area of a patch based on its vertices """
-        x = [self.vertices[ii][0] for ii in range(len(self.vertices))]
-        y = [self.vertices[ii][1] for ii in range(len(self.vertices))]
+        self.area = 0.0
+        self.areas = numpy.empty(len(self.vertices))
 
-        self.area = (
-                0.5*numpy.abs(numpy.dot(x, numpy.roll(y,1))
-                -numpy.dot(y,numpy.roll(x,1))))
+        for ii in range(len(self.vertices)):
+            # X is longitude
+            lon = [self.vertices[ii][jj][0] for jj in range(len(self.vertices))]
+            # Y is latitude
+            lat = [self.vertices[ii][jj][1] for jj in range(len(self.vertices))]
 
+            yMax = self.vertices[ii].max()[1]
+            yMin = self.vertices[ii].min()[1]
+            xMax = self.vertices[ii].max()[0]
+            xMin = self.vertices[ii].min()[0]
+
+            pa = Proj("+proj=aea +lat_1=" + str(yMin) + " +lat_2=" + str(yMax)
+                      + " +lat_0=" + str((yMin + yMax)*0.5) + " +lon_0="
+                      + str((xMin + xMax)*0.5))
+
+            x, y = pa(lon, lat)
+
+            self.areas[ii] = Polygon(zip(x, y)).area
+#                    0.5*numpy.abs(numpy.dot(x, numpy.roll(y,1))
+#                    -numpy.dot(y,numpy.roll(x,1))))
+            self.area += self.areas[ii]
+
+    # DEPRECATED
     def computeCentroid(self):
         """ Computes the centroid of a patch based on its vertices """
-        ref_polygon = Polygon(self.vertices)
+        centroids = numpy.empty([len(self.vertices), 2])
 
-        self.centroid = [ref_polygon.centroid.x,
-                         ref_polygon.centroid.y]
+        for ii in range(len(self.vertices)):
+            ref_polygon = Polygon(self.vertices[ii])
+
+            centroids[ii] = [ref_polygon.centroid.x,
+                             ref_polygon.centroid.y]
+
+        self.centroid = numpy.array([
+                sum(centroids[ii][0]*self.areas[ii]
+                    for ii in range(len(self.vertices)))/
+                sum(self.area),
+                sum(centroids[ii][1]*self.areas[ii]
+                    for ii in range(len(self.vertices)))/
+                sum(self.area)])
