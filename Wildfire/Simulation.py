@@ -821,6 +821,8 @@ class Simulation():
                 """Save the results for this sample"""
                 self.writeOutResults(ii, run)
 
+        self.writeOutSummary()
+
     def fixBaseAssignments(self, assignments):
         """ Non-assignments """
         self.relocationModel.variables.set_upper_bounds([(
@@ -1041,13 +1043,14 @@ class Simulation():
 
         lambdaVals = tempModel.lambdas[1]
 
-        tempModel.objective.set_linear(list(zip(
-                [startYMR + m*(lenR + lenKE) + lenR + k
-                 for m in tempModel.M
-                 for k in tempModel.KE],
-                [tempModel.D1_MK[m, k]*lambdaVals[0]*lambdaVals[1]
-                 for m in tempModel.M
-                 for k in tempModel.KE])))
+        if len(tempModel.M) > 0:
+            tempModel.objective.set_linear(list(zip(
+                    [startYMR + m*(lenR + lenKE) + lenR + k
+                     for m in tempModel.M
+                     for k in tempModel.KE],
+                    [tempModel.D1_MK[m, k]*lambdaVals[0]*lambdaVals[1]
+                     for m in tempModel.M
+                     for k in tempModel.KE])))
 
         tempModel.objective.set_linear(list(zip(
                 [startDeltaNK + n*lenKE + k
@@ -1149,32 +1152,38 @@ class Simulation():
 
         """ CONSTRAINT 4 """
         startC4 = tempModel.constraintIdxStarts["C_4"]
-        coefficients = [
-                (startC4 + r, startYMR + m*(lenR + lenKE) + r, 1)
-                for r in tempModel.R
-                for m in tempModel.M]
 
-        tempModel.linear_constraints.set_coefficients(coefficients)
+        if len(tempModel.M) > 0:
+            coefficients = [
+                    (startC4 + r, startYMR + m*(lenR + lenKE) + r, 1)
+                    for r in tempModel.R
+                    for m in tempModel.M]
+
+            tempModel.linear_constraints.set_coefficients(coefficients)
 
         """ CONSTRAINT 6 """
         startC6 = tempModel.constraintIdxStarts["C_6"]
-        coefficients = [
-                (startC6 + r,
-                 startYMR + m*(lenR + lenKP) + r,
-                 1)
-                for r in tempModel.R
-                for m in tempModel.M]
 
-        tempModel.linear_constraints.set_coefficients(coefficients)
+        if len(tempModel.M) >0:
+            coefficients = [
+                    (startC6 + r,
+                     startYMR + m*(lenR + lenKP) + r,
+                     1)
+                    for r in tempModel.R
+                    for m in tempModel.M]
+
+            tempModel.linear_constraints.set_coefficients(coefficients)
 
         """ CONSTRAINT 9 """
         startC9 = tempModel.constraintIdxStarts["C_9"]
-        coefficients = [
-                (startC9 + r,
-                 startYMR + m*(lenR + lenKE) + r,
-                 tempModel.d2_RM[r, m])
-                for r in tempModel.R
-                for m in tempModel.M]
+        coefficients = []
+        if len(tempModel.M) > 0:
+            coefficients.extend([
+                    (startC9 + r,
+                     startYMR + m*(lenR + lenKE) + r,
+                     tempModel.d2_RM[r, m])
+                    for r in tempModel.R
+                    for m in tempModel.M])
 
         coefficients.extend([
                 (startC9 + r,
@@ -1194,7 +1203,7 @@ class Simulation():
         tempModel.solve()
 
         """ UPDATE THE RESOURCE ASSIGNMENTS IN THE SYSTEM """
-        assignments = numpy.empty([len(tempModel.R), 2])
+        assignments = numpy.zeros([len(tempModel.R), 2])
 
         x_RB = [[round(tempModel.solution.get_values(
                        tempModel.decisionVarsIdxStarts["X_RB"]
@@ -1992,6 +2001,44 @@ class Simulation():
             """ ROV Regressions """
             # Need to do after conference paper
             pass
+
+    def writeOutSummary(self):
+        root = ("../Experiments/Experiments/" +
+                self.model.getInputFile().split(
+                        "../Experiments/Experiments/")[1].split("/")[0])
+
+        """ Output folder """
+        outfolder = (root + "/Outputs/Scenario_" + str(self.id))
+
+        if not os.path.exists(os.path.dirname(outfolder)):
+            try:
+                os.makedirs(os.path.dirname(outfolder))
+            except OSError as exc: # Guard against race condition
+                if exc.errno != errno.EEXIST:
+                    raise
+
+        """ FFDI Data """
+        outputfile = outfolder + "_Summary.csv"
+        with open(outputfile, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile, delimiter=',')
+
+            # Compute columns
+            columns = int(self.model.getRuns() + 1)
+
+            writer.writerow(
+                    ['SUMMARY_DAMAGES_HECTARES']
+                    + ['']*(columns-1))
+
+            writer.writerow(
+                    ['SAMPLE_PATH']
+                    + ['']*(columns-1))
+
+            writer.writerows([
+                    [str(path + 1)]
+                    + [self.expectedDamages[path][run]
+                       for run in range(self.model.getRuns())]
+                    for path in range(len(
+                            self.model.getSamplePaths()))])
 
     def currPos2Fire(self, currLocs, fires):
         # Computes the distance between each aircraft and each fire

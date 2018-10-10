@@ -70,7 +70,7 @@ Vegetation 5              : Experiments/Input_Data/Regions/Region_Provinces/Prob
 # that lie in the unit square ([0,1]^2):
 Number of Control Options : 5
 #                       lambda_1                lambda_2
-Control 1       :              0.9                     0.1
+Control 1       :              0.5                     0.05
 Control 2       :              0.9                     0.9
 Control 3       :              0.1                     0.1
 Control 4       :              0.9                     0.1
@@ -95,4 +95,4 @@ Algorithm (0=Static, 1=MPC, 2=ROV)          : 1
 Used Configurations (Exist)                 : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
 Used Configurations (Poten)                 : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
 Use Sample Paths                            : 1
-Runs                                        : 5
+Runs                                        : 20
