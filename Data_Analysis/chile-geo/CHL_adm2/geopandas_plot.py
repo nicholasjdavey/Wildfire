@@ -64,14 +64,14 @@ aeqd_to_wgs84 = partial(
 
 radii = []
 
-for base in stations:
-    point = Point(base[0], base[1])
-
-    point_transformed = transform(wgs84_to_aeqd, point)
-
-    buff = point_transformed.buffer(120000)
-    buffer_wgs84 = transform(aeqd_to_wgs84, buff)
-    radii.append(buffer_wgs84)
+#for base in stations:
+#   point = Point(base[0], base[1])
+#
+#    point_transformed = transform(wgs84_to_aeqd, point)
+#
+#    buff = point_transformed.buffer(120000)
+#    buffer_wgs84 = transform(aeqd_to_wgs84, buff)
+#    radii.append(buffer_wgs84)
 
 #    x, y = buffer_wgs84.exterior.xy
 #    ax.plot(x, y, color='black')
@@ -82,7 +82,7 @@ cmap = clrmp.get_cmap('Oranges')
 
 #shape.loc[[provinceID-1], 'geometry'].plot(ax = ax, edgecolor='black', color=cmap(numpy.random.rand()))
 for regionID in relevant:
-    newRegions.loc[[regionID], 'geometry'].plot(ax = ax, edgecolor='black', color=cmap(numpy.random.rand()))
+    newRegions.loc[[regionID], 'geometry'].plot(ax = ax, edgecolor='black')
 
 basePolys = []
 # Annotate with bases

@@ -69,6 +69,7 @@ class Model():
         self.useSamplePaths = False
         self.runs = 0
         self.shape = None
+        self.plot = False
 
     def getShape(self):
         return self.shape
@@ -285,6 +286,9 @@ class Model():
 
     def setRuns(self, r):
         self.runs = r
+
+    def generatePlots(self, setting):
+        self.plots = setting
 
     def readInSourceData(self, filename):
         # First read the raw source files

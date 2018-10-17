@@ -1650,6 +1650,7 @@ class Simulation():
                 expDE_lm[ll, mm] = expDE[index]
 
     def writeOutResults(self, sample, run):
+        plot = self.model.plot
         root = ("../Experiments/Experiments/" +
                 self.model.getInputFile().split(
                         "../Experiments/Experiments/")[1].split("/")[0])
@@ -1705,82 +1706,83 @@ class Simulation():
                     for patch in range(len(
                             self.model.getRegion().getPatches()))])
 
-        """ FFDI Map """
-        outputGraphs = pdf.PdfPages(subOutfolder + "FFDI_Map.pdf")
+        if plot:
+            """ FFDI Map """
+            outputGraphs = pdf.PdfPages(subOutfolder + "FFDI_Map.pdf")
 
-        rawPatches = self.model.getRegion().getPatches()
-        xMin = rawPatches[0].getVertices().bounds[0]
-        yMin = rawPatches[0].getVertices().bounds[1]
-        xMax = rawPatches[0].getVertices().bounds[2]
-        yMax = rawPatches[0].getVertices().bounds[3]
+            rawPatches = self.model.getRegion().getPatches()
+            xMin = rawPatches[0].getVertices().bounds[0]
+            yMin = rawPatches[0].getVertices().bounds[1]
+            xMax = rawPatches[0].getVertices().bounds[2]
+            yMax = rawPatches[0].getVertices().bounds[3]
 
-        for patch in rawPatches:
-            xMinP = patch.getVertices().bounds[0]
-            yMinP = patch.getVertices().bounds[1]
-            xMaxP = patch.getVertices().bounds[2]
-            yMaxP = patch.getVertices().bounds[3]
+            for patch in rawPatches:
+                xMinP = patch.getVertices().bounds[0]
+                yMinP = patch.getVertices().bounds[1]
+                xMaxP = patch.getVertices().bounds[2]
+                yMaxP = patch.getVertices().bounds[3]
 
-            xMax = xMaxP if xMaxP > xMax else xMax
-            yMax = yMaxP if yMaxP > yMax else yMax
-            xMin = xMinP if xMinP < xMin else xMin
-            yMin = yMinP if yMinP < yMin else yMin
+                xMax = xMaxP if xMaxP > xMax else xMax
+                yMax = yMaxP if yMaxP > yMax else yMax
+                xMin = xMinP if xMinP < xMin else xMin
+                yMin = yMinP if yMinP < yMin else yMin
 
-        xSpan = xMax - xMin
+            xSpan = xMax - xMin
 
-        for tt in range(self.model.getTotalSteps() + 1):
-            fig = plt.figure(figsize=(5,5*(yMax - yMin)/(xMax - xMin)))
-            ax = fig.add_subplot(111)
-            ax.set_xlim(xMin, xMax)
-            ax.set_ylim(yMin, yMax)
-            ax.set_aspect('equal')
+            for tt in range(self.model.getTotalSteps() + 1):
+                fig = plt.figure(figsize=(5,5*(yMax - yMin)/(xMax - xMin)))
+                ax = fig.add_subplot(111)
+                ax.set_xlim(xMin, xMax)
+                ax.set_ylim(yMin, yMax)
+                ax.set_aspect('equal')
 
-            cmap = clrmp.get_cmap('Oranges')
+                cmap = clrmp.get_cmap('Oranges')
 
-            for rp, patch in enumerate(rawPatches):
-                colorFloat = (self.realisedFFDIs[sample][run][tt, rp] -
-                               minFFDI)/maxFFDI
-                self.model.shape.loc[[patch.getShapefileIndex() - 1],
-                                     'geometry'].plot(
-                        ax=ax, color=cmap(colorFloat), edgecolor='black')
+                for rp, patch in enumerate(rawPatches):
+                    colorFloat = (self.realisedFFDIs[sample][run][tt, rp] -
+                                   minFFDI)/maxFFDI
+                    self.model.shape.loc[[patch.getShapefileIndex() - 1],
+                                         'geometry'].plot(
+                            ax=ax, color=cmap(colorFloat), edgecolor='black')
 
-            basePolys = []
-            # Annotate with bases
-            for base in range(len(self.model.getRegion().getStations()[0])):
-                polygon = mpp.Polygon(
-                        [(self.model.getRegion().getStations()[0][base]
-                                .getLocation()[0] - 1.05*xSpan/40,
-                         self.model.getRegion().getStations()[0][base]
-                                .getLocation()[1] - 0.95*xSpan/40),
-                         (self.model.getRegion().getStations()[0][base]
-                                .getLocation()[0] - 0.95*xSpan/40,
-                         self.model.getRegion().getStations()[0][base]
-                                .getLocation()[1] - 1.05*xSpan/40),
-                         (self.model.getRegion().getStations()[0][base]
-                                .getLocation()[0] + 1.95*xSpan/40,
-                         self.model.getRegion().getStations()[0][base]
-                                .getLocation()[1] + 0.95*xSpan/40),
-                         (self.model.getRegion().getStations()[0][base]
-                                .getLocation()[0] + 0.95*xSpan/40,
-                         self.model.getRegion().getStations()[0][base]
-                                .getLocation()[1] + 1.05*xSpan/40)],
-                        closed=True)
-                basePolys.append(polygon)
+                basePolys = []
+                # Annotate with bases
+                for base in range(len(self.model.getRegion().getStations()[0])):
+                    polygon = mpp.Polygon(
+                            [(self.model.getRegion().getStations()[0][base]
+                                    .getLocation()[0] - 1.05*xSpan/40,
+                             self.model.getRegion().getStations()[0][base]
+                                    .getLocation()[1] - 0.95*xSpan/40),
+                             (self.model.getRegion().getStations()[0][base]
+                                    .getLocation()[0] - 0.95*xSpan/40,
+                             self.model.getRegion().getStations()[0][base]
+                                    .getLocation()[1] - 1.05*xSpan/40),
+                             (self.model.getRegion().getStations()[0][base]
+                                    .getLocation()[0] + 1.95*xSpan/40,
+                             self.model.getRegion().getStations()[0][base]
+                                    .getLocation()[1] + 0.95*xSpan/40),
+                             (self.model.getRegion().getStations()[0][base]
+                                    .getLocation()[0] + 0.95*xSpan/40,
+                             self.model.getRegion().getStations()[0][base]
+                                    .getLocation()[1] + 1.05*xSpan/40)],
+                            closed=True)
+                    basePolys.append(polygon)
 
-            p = mpc.PatchCollection(basePolys)
-            p.set_array(numpy.ones(len(self.model.getRegion().getStations()[0])))
-            ax.add_collection(p)
+                p = mpc.PatchCollection(basePolys)
+                p.set_array(numpy.ones(len(self.model.getRegion().getStations()[0])))
+                ax.add_collection(p)
 
-            for base in basePolys:
-                ax.add_patch(mpp.Polygon(base.get_xy(),
-                             closed=True,
-                             ec='b',
-                             lw=1,
-                             fill='b'))
+                for base in basePolys:
+                    ax.add_patch(mpp.Polygon(base.get_xy(),
+                                 closed=True,
+                                 ec='b',
+                                 lw=1,
+                                 fill='b'))
 
-            fig.canvas.draw()
-            outputGraphs.savefig(fig)
+                fig.canvas.draw()
+                outputGraphs.savefig(fig)
 
-        outputGraphs.close()
+            outputGraphs.close()
 
         if self.model.getAlgo() > 0:
             outputfile = subOutfolder + "Resource_States.csv"
@@ -1879,123 +1881,124 @@ class Simulation():
 
                     writer.writerow(['']*5)
 
-            """ Accumulated Damage Maps with Active Fires """
-            outputGraphs = pdf.PdfPages(subOutfolder + "Damage_Map.pdf")
-            for tt in range(self.model.getTotalSteps() + 1):
-                fig = plt.figure(figsize=(5,5*(yMax - yMin)/(xMax - xMin)))
-                ax = fig.add_subplot(111)
-                ax.set_xlim(xMin, xMax)
-                ax.set_ylim(yMin, yMax)
-                ax.set_aspect('equal')
+            if plot:
+                """ Accumulated Damage Maps with Active Fires """
+                outputGraphs = pdf.PdfPages(subOutfolder + "Damage_Map.pdf")
+                for tt in range(self.model.getTotalSteps() + 1):
+                    fig = plt.figure(figsize=(5,5*(yMax - yMin)/(xMax - xMin)))
+                    ax = fig.add_subplot(111)
+                    ax.set_xlim(xMin, xMax)
+                    ax.set_ylim(yMin, yMax)
+                    ax.set_aspect('equal')
 
-                cmap = clrmp.get_cmap('Oranges')
+                    cmap = clrmp.get_cmap('Oranges')
 
-                # Damage heat map
-                for rp, patch in enumerate(rawPatches):
-                    colorFloat = (self.finalDamageMaps[sample][run][tt, rp] -
-                                   minDamage)/maxDamage
-                    self.model.shape.loc[[patch.getShapefileIndex() - 1],
-                                     'geometry'].plot(
-                    ax=ax, color=cmap(colorFloat), edgecolor='black')
+                    # Damage heat map
+                    for rp, patch in enumerate(rawPatches):
+                        colorFloat = (self.finalDamageMaps[sample][run][tt, rp] -
+                                       minDamage)/maxDamage
+                        self.model.shape.loc[[patch.getShapefileIndex() - 1],
+                                         'geometry'].plot(
+                        ax=ax, color=cmap(colorFloat), edgecolor='black')
 
-                basePolys = []
-                # Annotate with bases
-                for base in range(len(self.model.getRegion().getStations()[0])):
-                    polygon = mpp.Polygon(
-                            [(self.model.getRegion().getStations()[0][base]
-                                .getLocation()[0] - 1.05*xSpan/40,
-                             self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[1] - 0.95*xSpan/40),
-                             (self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[0] - 0.95*xSpan/40,
-                             self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[1] - 1.05*xSpan/40),
-                             (self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[0] + 1.95*xSpan/40,
-                             self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[1] + 0.95*xSpan/40),
-                             (self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[0] + 0.95*xSpan/40,
-                             self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[1] + 1.05*xSpan/40)],
-                            closed=True)
-                    basePolys.append(polygon)
+                    basePolys = []
+                    # Annotate with bases
+                    for base in range(len(self.model.getRegion().getStations()[0])):
+                        polygon = mpp.Polygon(
+                                [(self.model.getRegion().getStations()[0][base]
+                                    .getLocation()[0] - 1.05*xSpan/40,
+                                 self.model.getRegion().getStations()[0][base]
+                                        .getLocation()[1] - 0.95*xSpan/40),
+                                 (self.model.getRegion().getStations()[0][base]
+                                        .getLocation()[0] - 0.95*xSpan/40,
+                                 self.model.getRegion().getStations()[0][base]
+                                        .getLocation()[1] - 1.05*xSpan/40),
+                                 (self.model.getRegion().getStations()[0][base]
+                                        .getLocation()[0] + 1.95*xSpan/40,
+                                 self.model.getRegion().getStations()[0][base]
+                                        .getLocation()[1] + 0.95*xSpan/40),
+                                 (self.model.getRegion().getStations()[0][base]
+                                        .getLocation()[0] + 0.95*xSpan/40,
+                                 self.model.getRegion().getStations()[0][base]
+                                        .getLocation()[1] + 1.05*xSpan/40)],
+                                closed=True)
+                        basePolys.append(polygon)
 
-                p = mpc.PatchCollection(basePolys)
-                p.set_array(numpy.ones(len(self.model.getRegion().getStations()[0])))
-                ax.add_collection(p)
+                    p = mpc.PatchCollection(basePolys)
+                    p.set_array(numpy.ones(len(self.model.getRegion().getStations()[0])))
+                    ax.add_collection(p)
 
-                for base in basePolys:
-                    ax.add_patch(mpp.Polygon(base.get_xy(),
-                                 closed=True,
-                                 ec='b',
-                                 lw=1,
-                                 fill='b'))
+                    for base in basePolys:
+                        ax.add_patch(mpp.Polygon(base.get_xy(),
+                                     closed=True,
+                                     ec='b',
+                                     lw=1,
+                                     fill='b'))
 
-                # Annotate with active fires (only fires that survive to end of period)
-                for fire in self.realisedFires[sample][run][tt]:
-                    circle = mpp.Circle(
-                            (fire.getLocation()[0], fire.getLocation()[1]),
-                            math.sqrt(fire.getFinalSize()/(math.pi))*9/150,
-                            edgecolor="red",
-                            facecolor="red",
-                            alpha=0.5)
-                    ax.add_patch(circle)
+                    # Annotate with active fires (only fires that survive to end of period)
+                    for fire in self.realisedFires[sample][run][tt]:
+                        circle = mpp.Circle(
+                                (fire.getLocation()[0], fire.getLocation()[1]),
+                                math.sqrt(fire.getFinalSize()/(math.pi))*9/150,
+                                edgecolor="red",
+                                facecolor="red",
+                                alpha=0.5)
+                        ax.add_patch(circle)
 
-                fig.canvas.draw()
+                    fig.canvas.draw()
 
-                # Base assignment annotations
-                for b, base in enumerate(self.model.getRegion().getStations()[0]):
-                    tankers = sum([
-                            1
-                            for ii in range(len(self.model.getRegion().getResources()))
-                            if (self.model.getRegion().getResources()[ii] in
-                                self.model.getRegion().getAirTankers()
-                                and self.realisedAssignments[sample][run][tt][ii, 0] == b + 1)])
-                    helis = sum([
-                            1
-                            for ii in range(len(self.model.getRegion().getResources()))
-                            if (self.model.getRegion().getResources()[ii] in
-                                self.model.getRegion().getHelicopters()
-                                and self.realisedAssignments[sample][run][tt][ii, 0] == b + 1)])
+                    # Base assignment annotations
+                    for b, base in enumerate(self.model.getRegion().getStations()[0]):
+                        tankers = sum([
+                                1
+                                for ii in range(len(self.model.getRegion().getResources()))
+                                if (self.model.getRegion().getResources()[ii] in
+                                    self.model.getRegion().getAirTankers()
+                                    and self.realisedAssignments[sample][run][tt][ii, 0] == b + 1)])
+                        helis = sum([
+                                1
+                                for ii in range(len(self.model.getRegion().getResources()))
+                                if (self.model.getRegion().getResources()[ii] in
+                                    self.model.getRegion().getHelicopters()
+                                    and self.realisedAssignments[sample][run][tt][ii, 0] == b + 1)])
 
-                    plt.text(base.getLocation()[0] + 1.2*xSpan/40,
-                             base.getLocation()[1],
-                             "T=" + str(tankers) + ", H=" + str(helis),
-                             color="blue")
+                        plt.text(base.getLocation()[0] + 1.2*xSpan/40,
+                                 base.getLocation()[1],
+                                 "T=" + str(tankers) + ", H=" + str(helis),
+                                 color="blue")
 
-                # Fire assignment annotations
-                for f, fire in enumerate(self.realisedFires[sample][run][tt]):
-                    tankers = sum([
-                            1
-                            for ii in range(len(self.model.getRegion().getResources()))
-                            if (self.model.getRegion().getResources()[ii] in
-                                self.model.getRegion().getAirTankers()
-                                and self.realisedAssignments[sample][run][tt][ii, 1] == f + 1)])
-                    helis = sum([
-                            1
-                            for ii in range(len(self.model.getRegion().getResources()))
-                            if (self.model.getRegion().getResources()[ii] in
-                                self.model.getRegion().getHelicopters()
-                                and self.realisedAssignments[sample][run][tt][ii, 1] == f + 1)])
+                    # Fire assignment annotations
+                    for f, fire in enumerate(self.realisedFires[sample][run][tt]):
+                        tankers = sum([
+                                1
+                                for ii in range(len(self.model.getRegion().getResources()))
+                                if (self.model.getRegion().getResources()[ii] in
+                                    self.model.getRegion().getAirTankers()
+                                    and self.realisedAssignments[sample][run][tt][ii, 1] == f + 1)])
+                        helis = sum([
+                                1
+                                for ii in range(len(self.model.getRegion().getResources()))
+                                if (self.model.getRegion().getResources()[ii] in
+                                    self.model.getRegion().getHelicopters()
+                                    and self.realisedAssignments[sample][run][tt][ii, 1] == f + 1)])
 
-                    config = ""
-                    if tankers > 0:
-                        config += "T=" + str(tankers)
-                    if helis > 0 and tankers > 0:
-                        config += ", H=" + str(helis)
-                    elif helis > 0:
-                        config = "H=" + str(helis)
+                        config = ""
+                        if tankers > 0:
+                            config += "T=" + str(tankers)
+                        if helis > 0 and tankers > 0:
+                            config += ", H=" + str(helis)
+                        elif helis > 0:
+                            config = "H=" + str(helis)
 
-                    if tankers > 0 or helis > 0:
-                        plt.text(fire.getLocation()[0],
-                                 fire.getLocation()[1],
-                                 config,
-                                 color="red")
+                        if tankers > 0 or helis > 0:
+                            plt.text(fire.getLocation()[0],
+                                     fire.getLocation()[1],
+                                     config,
+                                     color="red")
 
-                outputGraphs.savefig(fig)
+                    outputGraphs.savefig(fig)
 
-            outputGraphs.close()
+                outputGraphs.close()
 
         if self.model.getAlgo() == 2:
             """ ROV Regressions """
