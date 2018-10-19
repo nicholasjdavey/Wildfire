@@ -17,7 +17,7 @@ import matplotlib.patches as mpp
 import matplotlib.collections as mpc
 import matplotlib.cm as clrmp
 import matplotlib.backends.backend_pdf as pdf
-#import multiprocessing as mp
+# import multiprocessing as mp
 
 
 class Simulation():
@@ -210,13 +210,13 @@ class Simulation():
         """ PARAMETERS """
 
         """ Control Parameters """
-        self.relocationModel.lambdas = {
+        cplxMod.lambdas = {
                 ii+1:
                 (self.model.getControls()[ii].getLambda1(),
                  self.model.getControls()[ii].getLambda2())
                 for ii in range(len(self.model.getControls()))}
 
-        self.relocationModel.nus = {
+        cplxMod.nus = {
                 1: [0, 0, 0],
                 2: [1, 0, 0],
                 3: [0, 1, 0],
@@ -233,6 +233,12 @@ class Simulation():
         cplxMod.Gmax_R = {
                 r: self.model.getRegion().getResources()[r].getMaxDailyHours()
                 for r in cplxMod.R}
+
+        """ Number of aircraft required for component C of configuration K """
+        cplxMod.Q_KC = {
+                (k, c): self.model.getConfigurations()[k+1][c-1]
+                for k in self.relocationModel.K
+                for c in self.relocationModel.C}
 
         """ Travel times between aircraft and bases """
         cplxMod.d1_RB = {
@@ -281,7 +287,7 @@ class Simulation():
 
         cplxMod.variables.add(
                 types=([cplxMod.variables.type.binary]
-                       *len(cplxMod.decisionVars["X_RB"])))
+                       * len(cplxMod.decisionVars["X_RB"])))
 
         """ Aircraft availability at base assignments """
         cplxMod.decisionVars["A_RB"] = [
@@ -293,7 +299,7 @@ class Simulation():
 
         cplxMod.variables.add(
                 types=([cplxMod.variables.type.binary]
-                       *len(cplxMod.decisionVars["A_RB"])))
+                       * len(cplxMod.decisionVars["A_RB"])))
 
         """ CONSTRAINTS """
         cplxMod.constraintNames = {}
@@ -307,7 +313,8 @@ class Simulation():
                 for r in cplxMod.R
                 for b in cplxMod.B]
         cplxMod.constraintIdxStarts["C_3"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_3"])
+        totalConstraints = totalConstraints + len(
+                cplxMod.constraintNames["C_3"])
 
         startXRB = cplxMod.decisionVarsIdxStarts["X_RB"]
         startARB = cplxMod.decisionVarsIdxStarts["A_RB"]
@@ -331,7 +338,8 @@ class Simulation():
         attending a fire"""
         cplxMod.constraintNames["C_4"] = ["C_4_R" + str(r) for r in cplxMod.R]
         cplxMod.constraintIdxStarts["C_4"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_4"])
+        totalConstraints = totalConstraints + len(
+                cplxMod.constraintNames["C_4"])
 
         varIdxs = {(r): [startARB + r*lenB + b for b in cplxMod.B]
                    for r in cplxMod.R}
@@ -352,7 +360,8 @@ class Simulation():
                 "C_5_R" + str(r)
                 for r in cplxMod.R]
         cplxMod.constraintIdxStarts["C_5"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_5"])
+        totalConstraints = totalConstraints + len(
+                cplxMod.constraintNames["C_5"])
 
         varIdxs = {(r): [startXRB + r*lenB + b for b in cplxMod.B]
                    for r in cplxMod.R}
@@ -374,7 +383,8 @@ class Simulation():
                 for r in cplxMod.R
                 for b in cplxMod.B]
         cplxMod.constraintIdxStarts["C_6"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_6"])
+        totalConstraints = totalConstraints + len(
+                cplxMod.constraintNames["C_6"])
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
@@ -391,7 +401,8 @@ class Simulation():
                 "C_9_K" + str(r)
                 for r in cplxMod.R]
         cplxMod.constraintIdxStarts["C_9"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_9"])
+        totalConstraints = totalConstraints + len(
+                cplxMod.constraintNames["C_9"])
 
         varIdxs = {(r): [startXRB + r*lenB + b for b in cplxMod.B]
                    for r in cplxMod.R}
@@ -407,7 +418,7 @@ class Simulation():
                         for r in cplxMod.R],
                 senses=["L"]*len(cplxMod.R),
                 rhs=[cplxMod.Gmax_R[r] - cplxMod.G_R[r]
-                        for r in cplxMod.R])
+                     for r in cplxMod.R])
 
         """Enforces base relocation options based on the control"""
         cplxMod.constraintNames["C_11"] = [
@@ -415,11 +426,12 @@ class Simulation():
                 for r in cplxMod.R
                 for b in cplxMod.B]
         cplxMod.constraintIdxStarts["C_11"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_11"])
+        totalConstraints = totalConstraints + len(
+                cplxMod.constraintNames["C_11"])
 
         varIdxs = {(r, b): [startXRB + r*lenB + b]
-                for r in cplxMod.R
-                for b in cplxMod.B}
+                   for r in cplxMod.R
+                   for b in cplxMod.B}
 
         varCoeffs = {(r, b): [1] for r in cplxMod.R for b in cplxMod.B}
 
@@ -498,17 +510,11 @@ class Simulation():
                 for m in self.relocationModel.M
                 for k in self.relocationModel.KE}
 
-        """ Initial expected damage increase of each patch under each config """
+        """ Init expected damage increase of each patch under each config """
         self.relocationModel.D2_NK = {
                 (n, k+1): 0
                 for n in self.relocationModel.N
                 for k in self.relocationModel.KP}
-
-        """ Number of aircraft required for component C of configuration K """
-        self.relocationModel.Q_KC = {
-                (k, c): self.model.getConfigurations()[k+1][c-1]
-                for k in self.relocationModel.K
-                for c in self.relocationModel.C}
 
         """ DECISION VARIABLES """
         totalVars = self.relocationModel.variables.get_num()
@@ -519,7 +525,8 @@ class Simulation():
                 for n in self.relocationModel.N
                 for k in self.relocationModel.KP]
         self.relocationModel.decisionVarsIdxStarts["Delta_NK"] = totalVars
-        totalVars = totalVars + len(self.relocationModel.decisionVars["Delta_NK"])
+        totalVars = totalVars + len(
+                self.relocationModel.decisionVars["Delta_NK"])
 
         self.relocationModel.variables.add(
                 ub=[1]*len(self.relocationModel.decisionVars["Delta_NK"]),
@@ -546,8 +553,10 @@ class Simulation():
         self.relocationModel.decisionVars["Y_MR_Delta_MK"] = []
 
         for m in self.relocationModel.M:
-            self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(component1[m-1])
-            self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(component2[m-1])
+            self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(
+                    component1[m-1])
+            self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(
+                    component2[m-1])
 
         self.relocationModel.decisionVarsIdxStarts["Y_MR_Delta_MK"] = totalVars
         totalVars = totalVars + len(
@@ -555,153 +564,8 @@ class Simulation():
 
         self.relocationModel.variables.add(
                 types=([self.relocationModel.variables.type.binary]
-                       *len(self.relocationModel.decisionVars["Y_MR_Delta_MK"])))
-
-        """ CONSTRAINTS """
-        totalConstraints = self.relocationModel.linear_constraints.get_num()
-
-        """Probability-adjusted patch covers to account for possibility that
-        multiple fires may need to be covered by the aircraft and therefore
-        there is a non-zero probability for each configuration possible for a
-        patch"""
-        self.relocationModel.constraintNames["C_2"] = [
-                "C_2_K" + str(k+1) + "_C" + str(c) + "_N" + str(n)
-                for k in self.relocationModel.KP
-                for c in self.relocationModel.C
-                for n in self.relocationModel.N]
-        self.relocationModel.constraintIdxStarts["C_2"] = totalConstraints
-        totalConstraints = totalConstraints + len(
-                self.relocationModel.constraintNames["C_2"])
-
-        lenB = len(self.relocationModel.B)
-        startARB = self.relocationModel.decisionVarsIdxStarts["A_RB"]
-        startDeltaNK = self.relocationModel.decisionVarsIdxStarts["Delta_NK"]
-        varIdxs = {
-                (k, c, n):
-                [startARB + r*lenB + b
-                for r in self.relocationModel.R
-                for b in self.relocationModel.B]
-                + [startDeltaNK + n*lenKP + k]
-                for k in range(lenKP)
-                for c in self.relocationModel.C
-                for n in self.relocationModel.N}
-
-        varCoeffs = {
-                (k, c, n):
-                [-self.relocationModel.d3_BCN[b, c, n]/self.relocationModel.no_CB[c, b]
-                        for r in self.relocationModel.R
-                        for b in self.relocationModel.B]
-                + [self.relocationModel.Q_KC[self.relocationModel.KP[k], c]]
-                for k in range(lenKP)
-                for c in self.relocationModel.C
-                for n in self.relocationModel.N}
-
-        self.relocationModel.linear_constraints.add(
-                lin_expr=[
-                        cplex.SparsePair(
-                                ind=varIdxs[k, c, n],
-                                val=varCoeffs[k, c, n])
-                        for k in range(len(self.relocationModel.KP))
-                        for c in self.relocationModel.C
-                        for n in self.relocationModel.N],
-                senses=["L"]*(len(varIdxs)),
-                rhs=[0]*len(varIdxs))
-
-        """Ensures that the sum of probabilities of applying each configuration
-        to a patch is 1"""
-        self.relocationModel.constraintNames["C_8"] = [
-                "C_8_N" + str(n)
-                for n in self.relocationModel.N]
-        self.relocationModel.constraintIdxStarts["C_8"] = totalConstraints
-        totalConstraints = totalConstraints + len(
-                self.relocationModel.constraintNames["C_8"])
-
-        varIdxs = {(n):
-                   [startDeltaNK + n*lenKP + k
-                    for k in range(len(self.relocationModel.KP))]
-                    for n in self.relocationModel.N}
-
-        varCoeffs = {(n): [1]*len(varIdxs[n]) for n in self.relocationModel.N}
-
-        self.relocationModel.linear_constraints.add(
-                lin_expr=[
-                        cplex.SparsePair(
-                                ind=varIdxs[n],
-                                val=varCoeffs[n])
-                        for n in self.relocationModel.N],
-                senses=["E"]*len(varIdxs),
-                rhs=[1]*len(varIdxs))
-
-    def buildAssignment2(self):
-        self.relocationModel.objective.set_sense(
-                self.relocationModel.objective.sense.minimize)
-
-        lenKP = len(self.relocationModel.KP)
-
-        """ Initial expected damage increase of each fire under each config """
-        self.relocationModel.D1_MK = {
-                (m, k+1): 0
-                for m in self.relocationModel.M
-                for k in self.relocationModel.KE}
-
-        """ Initial expected damage increase of each patch under each config """
-        self.relocationModel.D2_NK = {
-                (n, k+1): 0
-                for n in self.relocationModel.N
-                for k in self.relocationModel.KP}
-
-        """ Number of aircraft required for component C of configuration K """
-        self.relocationModel.Q_KC = {
-                (k, c): self.model.getConfigurations()[k+1][c-1]
-                for k in self.relocationModel.K
-                for c in self.relocationModel.C}
-
-        """ DECISION VARIABLES """
-        totalVars = self.relocationModel.variables.get_num()
-
-        """ Patch configuration covers """
-        self.relocationModel.decisionVars["Delta_NK"] = [
-                "Delta_NK_Adj_N" + str(n) + "_K" + str(k+1)
-                for n in self.relocationModel.N
-                for k in self.relocationModel.KP]
-        self.relocationModel.decisionVarsIdxStarts["Delta_NK"] = totalVars
-        totalVars = totalVars + len(self.relocationModel.decisionVars["Delta_NK"])
-
-        self.relocationModel.variables.add(
-                ub=[1]*len(self.relocationModel.decisionVars["Delta_NK"]),
-                lb=[0]*len(self.relocationModel.decisionVars["Delta_NK"]))
-
-        """ Aircraft-fire assignments and fire configuration covers """
-        """
-        More complex:
-        For each fire (created to date)
-        1. Y_MR
-        2. Delta_MK
-        For fires that are extinguished during simulation, the variable's upper
-        bound is set to 0. This effectively eliminates the column
-        """
-        component1 = [
-                ["Y_MR_M" + str(m) + "_R" + str(r)
-                 for r in self.relocationModel.R]
-                for m in self.relocationModel.M]
-        component2 = [
-                ["Delta_MK_M" + str(m) + "_K" + str(k+1)
-                 for k in self.relocationModel.KE]
-                for m in self.relocationModel.M]
-
-        self.relocationModel.decisionVars["Y_MR_Delta_MK"] = []
-
-        for m in self.relocationModel.M:
-            self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(component1[m-1])
-            self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(component2[m-1])
-
-        self.relocationModel.decisionVarsIdxStarts["Y_MR_Delta_MK"] = totalVars
-        totalVars = totalVars + len(
-                self.relocationModel.decisionVars["Y_MR_Delta_MK"])
-
-        self.relocationModel.variables.add(
-                types=([self.relocationModel.variables.type.binary]
-                       *len(self.relocationModel.decisionVars["Y_MR_Delta_MK"])))
+                       * len(self.relocationModel.decisionVars[
+                               "Y_MR_Delta_MK"])))
 
         """ CONSTRAINTS """
         totalConstraints = self.relocationModel.linear_constraints.get_num()
@@ -734,9 +598,10 @@ class Simulation():
 
         varCoeffs = {
                 (k, c, n):
-                [-self.relocationModel.d3_BCN[b, c, n]/self.relocationModel.no_CB[c, b]
-                        for r in self.relocationModel.R
-                        for b in self.relocationModel.B]
+                [-self.relocationModel.d3_BCN[b, c, n] /
+                 self.relocationModel.no_CB[c, b]
+                 for r in self.relocationModel.R
+                 for b in self.relocationModel.B]
                 + [self.relocationModel.Q_KC[self.relocationModel.KP[k], c]]
                 for k in range(lenKP)
                 for c in self.relocationModel.C
@@ -765,7 +630,158 @@ class Simulation():
         varIdxs = {(n):
                    [startDeltaNK + n*lenKP + k
                     for k in range(len(self.relocationModel.KP))]
-                    for n in self.relocationModel.N}
+                   for n in self.relocationModel.N}
+
+        varCoeffs = {(n): [1]*len(varIdxs[n]) for n in self.relocationModel.N}
+
+        self.relocationModel.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[n],
+                                val=varCoeffs[n])
+                        for n in self.relocationModel.N],
+                senses=["E"]*len(varIdxs),
+                rhs=[1]*len(varIdxs))
+
+    def buildAssignment2(self):
+        self.relocationModel.objective.set_sense(
+                self.relocationModel.objective.sense.minimize)
+
+        lenKP = len(self.relocationModel.KP)
+
+        """ Initial expected damage increase of each fire under each config """
+        self.relocationModel.D1_MK = {
+                (m, k+1): 0
+                for m in self.relocationModel.M
+                for k in self.relocationModel.KE}
+
+        """ Init expected damage increase of each patch under each config """
+        self.relocationModel.D2_NK = {
+                (n, k+1): 0
+                for n in self.relocationModel.N
+                for k in self.relocationModel.KP}
+
+        """ Number of aircraft required for component C of configuration K """
+        self.relocationModel.Q_KC = {
+                (k, c): self.model.getConfigurations()[k+1][c-1]
+                for k in self.relocationModel.K
+                for c in self.relocationModel.C}
+
+        """ DECISION VARIABLES """
+        totalVars = self.relocationModel.variables.get_num()
+
+        """ Patch configuration covers """
+        self.relocationModel.decisionVars["Delta_NK"] = [
+                "Delta_NK_Adj_N" + str(n) + "_K" + str(k+1)
+                for n in self.relocationModel.N
+                for k in self.relocationModel.KP]
+        self.relocationModel.decisionVarsIdxStarts["Delta_NK"] = totalVars
+        totalVars = totalVars + len(self.relocationModel.decisionVars[
+                "Delta_NK"])
+
+        self.relocationModel.variables.add(
+                ub=[1]*len(self.relocationModel.decisionVars["Delta_NK"]),
+                lb=[0]*len(self.relocationModel.decisionVars["Delta_NK"]))
+
+        """ Aircraft-fire assignments and fire configuration covers """
+        """
+        More complex:
+        For each fire (created to date)
+        1. Y_MR
+        2. Delta_MK
+        For fires that are extinguished during simulation, the variable's upper
+        bound is set to 0. This effectively eliminates the column
+        """
+        component1 = [
+                ["Y_MR_M" + str(m) + "_R" + str(r)
+                 for r in self.relocationModel.R]
+                for m in self.relocationModel.M]
+        component2 = [
+                ["Delta_MK_M" + str(m) + "_K" + str(k+1)
+                 for k in self.relocationModel.KE]
+                for m in self.relocationModel.M]
+
+        self.relocationModel.decisionVars["Y_MR_Delta_MK"] = []
+
+        for m in self.relocationModel.M:
+            self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(
+                    component1[m-1])
+            self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(
+                    component2[m-1])
+
+        self.relocationModel.decisionVarsIdxStarts["Y_MR_Delta_MK"] = totalVars
+        totalVars = totalVars + len(
+                self.relocationModel.decisionVars["Y_MR_Delta_MK"])
+
+        self.relocationModel.variables.add(
+                types=([self.relocationModel.variables.type.binary]
+                       * len(self.relocationModel.decisionVars[
+                               "Y_MR_Delta_MK"])))
+
+        """ CONSTRAINTS """
+        totalConstraints = self.relocationModel.linear_constraints.get_num()
+
+        """Probability-adjusted patch covers to account for possibility that
+        multiple fires may need to be covered by the aircraft and therefore
+        there is a non-zero probability for each configuration possible for a
+        patch"""
+        self.relocationModel.constraintNames["C_2"] = [
+                "C_2_K" + str(k+1) + "_C" + str(c) + "_N" + str(n)
+                for k in self.relocationModel.KP
+                for c in self.relocationModel.C
+                for n in self.relocationModel.N]
+        self.relocationModel.constraintIdxStarts["C_2"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                self.relocationModel.constraintNames["C_2"])
+
+        lenB = len(self.relocationModel.B)
+        startARB = self.relocationModel.decisionVarsIdxStarts["A_RB"]
+        startDeltaNK = self.relocationModel.decisionVarsIdxStarts["Delta_NK"]
+        varIdxs = {
+                (k, c, n):
+                [startARB + r*lenB + b
+                 for r in self.relocationModel.R
+                 for b in self.relocationModel.B]
+                + [startDeltaNK + n*lenKP + k]
+                for k in range(lenKP)
+                for c in self.relocationModel.C
+                for n in self.relocationModel.N}
+
+        varCoeffs = {
+                (k, c, n):
+                [-self.relocationModel.d3_BCN[b, c, n] /
+                 self.relocationModel.no_CB[c, b]
+                 for r in self.relocationModel.R
+                 for b in self.relocationModel.B]
+                + [self.relocationModel.Q_KC[self.relocationModel.KP[k], c]]
+                for k in range(lenKP)
+                for c in self.relocationModel.C
+                for n in self.relocationModel.N}
+
+        self.relocationModel.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[k, c, n],
+                                val=varCoeffs[k, c, n])
+                        for k in range(len(self.relocationModel.KP))
+                        for c in self.relocationModel.C
+                        for n in self.relocationModel.N],
+                senses=["L"]*(len(varIdxs)),
+                rhs=[0]*len(varIdxs))
+
+        """Ensures that the sum of probabilities of applying each configuration
+        to a patch is 1"""
+        self.relocationModel.constraintNames["C_8"] = [
+                "C_8_N" + str(n)
+                for n in self.relocationModel.N]
+        self.relocationModel.constraintIdxStarts["C_8"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                self.relocationModel.constraintNames["C_8"])
+
+        varIdxs = {(n):
+                   [startDeltaNK + n*lenKP + k
+                    for k in range(len(self.relocationModel.KP))]
+                   for n in self.relocationModel.N}
 
         varCoeffs = {(n): [1]*len(varIdxs[n]) for n in self.relocationModel.N}
 
@@ -883,8 +899,8 @@ class Simulation():
                     writer.writerow(
                             [str(patch + 1)]
                             + [simPaths[path][tt, patch]
-                            for tt in range(self.model.getTotalSteps() + 1
-                                            + self.model.getLookahead())])
+                               for tt in range(self.model.getTotalSteps() + 1
+                                               + self.model.getLookahead())])
 
     def simulateMPC(self, static=False):
         # Computes a Model Predictive Control approach for reallocating
@@ -940,17 +956,22 @@ class Simulation():
                 activeFires = [fire for fire in firesPath]
                 self.realisedFires[ii][run] = [None]*(timeSteps + 1)
                 self.realisedFires[ii][run][0] = copy.copy(activeFires)
-                self.finalDamageMaps[ii][run] = numpy.empty([timeSteps + 1, patches])
+                self.finalDamageMaps[ii][run] = numpy.empty([timeSteps + 1,
+                                                             patches])
                 self.finalDamageMaps[ii][run][0] = numpy.zeros([patches])
-                self.aircraftHours[ii][run] = numpy.zeros([timeSteps + 1, len(resources)])
+                self.aircraftHours[ii][run] = numpy.zeros([timeSteps + 1,
+                                                           len(resources)])
 
                 rain = numpy.zeros([timeSteps+1+lookahead, regionSize])
                 rain[0] = region.getRain()
-                precipitation = numpy.zeros([timeSteps+1+lookahead, regionSize])
+                precipitation = numpy.zeros([timeSteps+1+lookahead,
+                                             regionSize])
                 precipitation[0] = region.getHumidity()
-                temperatureMin = numpy.zeros([timeSteps+1+lookahead, regionSize])
+                temperatureMin = numpy.zeros([timeSteps+1+lookahead,
+                                              regionSize])
                 temperatureMin[0] = region.getTemperatureMin()
-                temperatureMax = numpy.zeros([timeSteps+1+lookahead, regionSize])
+                temperatureMax = numpy.zeros([timeSteps+1+lookahead,
+                                              regionSize])
                 temperatureMax[0] = region.getTemperatureMax()
                 windNS = numpy.zeros([timeSteps+1+lookahead, regionSize])
                 windNS[0] = region.getWindN()
@@ -963,15 +984,16 @@ class Simulation():
                 accumulatedDamage = numpy.zeros([timeSteps+1, patches])
                 accumulatedHours = numpy.zeros([timeSteps+1, len(resources)])
 
-                """ If not MPC, we need to know the initial assignments of aircraft
-                based on the ENTIRE horizon """
+                """ If not MPC, we need to know the initial assignments of
+                aircraft based on the ENTIRE horizon """
                 if static:
                     expectedFFDI = sampleFFDIs[ii]
                     expDamageExist = {
                             (jj, kk):
                             self.expectedDamageExisting(
-                                    activeFires[jj], expectedFFDI, configsE[kk],
-                                    0, self.model.getTotalSteps())
+                                    activeFires[jj], expectedFFDI,
+                                    configsE[kk], 0,
+                                    self.model.getTotalSteps())
                             for jj in range(len(activeFires))
                             for kk in range(len(configsE))}
 
@@ -987,7 +1009,7 @@ class Simulation():
                             self.assignAircraft(
                                     assignmentsPath, expDamageExist,
                                     expDamagePoten, activeFires, resourcesPath,
-                                    expectedFFDI, 0, static))
+                                    expectedFFDI, 0, 1, static))
 
                     self.fixBaseAssignments(assignmentsPath[0])
 
@@ -1014,7 +1036,8 @@ class Simulation():
                         FFDITemp = numpy.zeros([
                                 timeSteps + lookahead + 1, regionSize])
                         FFDITemp[tt] = FFDI[tt]
-                        windRegimesTemp = numpy.zeros([timeSteps + lookahead + 1])
+                        windRegimesTemp = numpy.zeros([timeSteps
+                                                       + lookahead + 1])
                         windRegimesTemp[tt] = windRegimes[tt]
 
                         FFDISamples = numpy.zeros([
@@ -1038,7 +1061,8 @@ class Simulation():
                         expectedFFDI = FFDISamples.sum(0)/len(samplePaths2)
 
                     else:
-                        expectedFFDI = sampleFFDIs[ii][:, tt:(tt + lookahead + 1)]
+                        expectedFFDI = sampleFFDIs[ii][:, tt:(tt + lookahead
+                                                              + 1)]
 
                     """ Compute the new assignments. If static, only fire
                     assignments are computed here. Otherwise, we also compute
@@ -1046,8 +1070,9 @@ class Simulation():
                     expDamageExist = {
                             (jj, kk):
                             self.expectedDamageExisting(
-                                    activeFires[jj], expectedFFDI, configsE[kk],
-                                    tt, self.model.getLookahead())
+                                    activeFires[jj], expectedFFDI,
+                                    configsE[kk], tt,
+                                    self.model.getLookahead())
                             for jj in range(len(activeFires))
                             for kk in range(len(configsE))}
 
@@ -1066,13 +1091,14 @@ class Simulation():
                             self.assignAircraft(
                                     assignmentsPath, expDamageExist,
                                     expDamagePoten, activeFires, resourcesPath,
-                                    expectedFFDI, tt + 1))
+                                    expectedFFDI, tt + 1, 1))
 
                     # Save the active fires to the path history
-                    self.realisedFires[ii][run][tt + 1] = copy.copy(activeFires)
+                    self.realisedFires[ii][run][tt + 1] = copy.copy(
+                            activeFires)
 
-                    # Simulate the fire growth, firefighting success and the new
-                    # positions of each resources
+                    # Simulate the fire growth, firefighting success and the
+                    # new positions of each resources
                     damage += self.simulateSinglePeriod(
                             assignmentsPath, resourcesPath, firesPath,
                             activeFires, accumulatedDamage, accumulatedHours,
@@ -1086,8 +1112,9 @@ class Simulation():
                     # Simulate the realised weather for the next time step
                     if len(sampleFFDIs) == 0:
                         wg.computeWeather(
-                                rain, precipitation, temperatureMin, temperatureMax,
-                                windRegimes, windNS, windEW, FFDI, tt)
+                                rain, precipitation, temperatureMin,
+                                temperatureMax, windRegimes, windNS, windEW,
+                                FFDI, tt)
                     else:
                         FFDI[tt + 1] = sampleFFDIs[ii][:, tt + 1]
 
@@ -1108,7 +1135,7 @@ class Simulation():
         self.relocationModel.variables.set_upper_bounds([(
                 (self.relocationModel.decisionVarsIdxStarts["X_RB"] +
                  r*len(self.relocationModel.B) + b,
-                1 if assignments[r, 0] == b + 1 else 0))
+                 1 if assignments[r, 0] == b + 1 else 0))
                 for r in self.relocationModel.R
                 for b in self.relocationModel.B])
 
@@ -1116,17 +1143,184 @@ class Simulation():
         self.relocationModel.variables.set_lower_bounds([
                 (self.relocationModel.decisionVarsIdxStarts["X_RB"] +
                  r*len(self.relocationModel.B) + b,
-                1 if assignments[r, 0] == b + 1 else 0)
+                 1 if assignments[r, 0] == b + 1 else 0)
                 for r in self.relocationModel.R
                 for b in self.relocationModel.B])
 
-    def assignAircraft(self, assignmentsPath, expDamageExist, expDamagePoten,
-                       activeFires, resourcesPath, ffdiPath, timeStep,
-                       static=False):
+    def assignAircraft(self, assignmentsPath, expDamageExist,
+                       expDamagePoten, activeFires, resourcesPath, ffdiPath,
+                       timeStep, control, static=False):
+
+        """First compute the parts common to all relocation programs"""
+        """ First copy the relocation model """
+        tempModel = cplex.Cplex(self.relocationModel)
+        self.copyNonCplexComponents(tempModel, self.relocationModel)
+        bases = self.model.getRegion().getStations()[0]
+        patches = self.model.getRegion().getPatches()
+
+        """ Cumulative flying hours """
+        tempModel.G_R = {
+                r: resourcesPath[r].getFlyingHours()
+                for r in tempModel.R}
+
+        tempModel.d1_RB = {
+                (r, b):
+                (math.sqrt(
+                        ((bases[b].getLocation()[0]
+                         - resourcesPath[r].getLocation()[0])*40000*math.cos(
+                                 (bases[b].getLocation()[1]
+                                  + resourcesPath[r].getLocation()[1])
+                                 * math.pi/360)/360) ** 2
+                        + ((resourcesPath[r].getLocation()[1]
+                            - bases[b].getLocation()[1])*40000/360)**2)) /
+                resourcesPath[r].getSpeed()
+                for r in tempModel.R
+                for b in tempModel.B}
+
+        """ Travel times between resource R and fire M """
+        tempModel.d2_RM = {
+                (r, m):
+                (math.sqrt(
+                        ((activeFires[m].getLocation()[0]
+                         - resourcesPath[r].getLocation()[0])*40000*math.cos(
+                                 (activeFires[m].getLocation()[1]
+                                  + resourcesPath[r].getLocation()[1])
+                                 * math.pi/360)/360) ** 2
+                        + ((resourcesPath[r].getLocation()[1]
+                            - activeFires[m].getLocation()[1])*40000/360)**2) /
+                 resourcesPath[r].getSpeed())
+                for r in tempModel.R
+                for m in tempModel.M}
+
+        """ Distances between baes B and patch N"""
+        tempModel.d3_BN = {
+                (b, n):
+                (math.sqrt(
+                        ((patches[n].getCentroid()[0]
+                         - bases[b].getLocation()[0])*40000*math.cos(
+                                 (patches[n].getCentroid()[1]
+                                  + bases[b].getLocation()[1])
+                                 * math.pi/360)/360) ** 2
+                        + ((bases[b].getLocation()[1]
+                           - patches[n].getCentroid()[1])*40000/360)**2))
+                for b in tempModel.B
+                for n in tempModel.N}
+
+        """ Expected number of fires for patch N over horizon """
+        look = (self.model.getLookahead() + self.model.getTotalSteps()
+                if static
+                else self.model.getLookahead())
+
+        tempModel.no_N = {
+                n:
+                sum([numpy.interp(ffdiPath[n, t],
+                                  self.model.getRegion().getPatches()[n].
+                                  getVegetation().getFFDIRange(),
+                                  self.model.getRegion().getPatches()[n].
+                                  getVegetation().getOccurrence()[
+                                          timeStep + t]) *
+                     self.model.getRegion().getPatches()[n].getArea()
+                     for t in range(look)])
+                for n in tempModel.N}
+
+        switch = {
+            1: self.assignMaxCover,
+            2: self.assignPMedian,
+            3: self.assignAssignment1,
+            4: self.assignAssignment2
+        }
+
+        lpModel = self.model.getNestedOptMethod()
+        prog = switch.get(lpModel)
+        prog(assignmentsPath, expDamageExist, expDamagePoten, activeFires,
+             resourcesPath, ffdiPath, timeStep, control, static, tempModel)
+
+    def assignMaxCover(self, assignmentsPath, expDamageExist, expDamagePoten,
+                       activeFires, resourcesPath, ffdiPath, timeStep, control,
+                       static, tempModel):
+
+        """////////////////////////////////////////////////////////////////////
+        /////////////////////////// DECISION VARIABLES ////////////////////////
+        ////////////////////////////////////////////////////////////////////"""
+
+        """ Set lengths """
+        lenR = len(tempModel.R)
+        lenB = len(tempModel.B)
+        lenN = len(tempModel.N)
+        lenKP = len(tempModel.KP)
+        lenKE = len(tempModel.KE)
+        lenC = len(tempModel.C)
+
+        """ Set the fire details for the sets and decision variables """
+        tempModel.M = [ii for ii in range(len(activeFires))]
+
+        """ Aircraft-fire assignments and fire configuration covers """
+        """
+        For each fire (created to date)
+        1. Y_MR
+        2. Z_CM
+        For fires that are extinguished during simulation, the variable's upper
+        bound is set to 0. This effectively eliminates the column
+        """
+        component1 = [
+                ["Y_MR_M" + str(m) + "_R" + str(r)
+                 for r in tempModel.R]
+                for m in tempModel.M]
+        component2 = [
+                ["Z_CM" + str(c) + "_M" + str(m)
+                 for c in [0, 1]]
+                for m in tempModel.M]
+
+        tempModel.decisionVars["Y_MR_Z_CM"] = []
+
+        for m in tempModel.M:
+            tempModel.decisionVars["Y_MR_Z_CM"].extend(component1[m-1])
+            tempModel.decisionVars["Y_MR_Z_CM"].extend(component2[m-1])
+
+        totalVars = tempModel.variables.get_num()
+        tempModel.decisionVarsIdxStarts["Y_MR_Z_CM"] = totalVars
+        totalVars = totalVars + len(tempModel.decisionVars["Y_MR_Z_CM"])
+
+        tempModel.variables.add(
+                types=([tempModel.variables.type.binary]
+                       * len(tempModel.decisionVars["Y_MR_Z_CM"])))
+
+        """////////////////////////////////////////////////////////////////////
+        ///////////////////////////// PARAMETERS //////////////////////////////
+        ////////////////////////////////////////////////////////////////////"""
+        """Expected damage of existing fires if uncontrolled burn"""
+        tempModel.D1_M = expDamageExist[0]
+
+        """Expected damage of potential fires if uncontrolled burn"""
+        tempModel.D2_N = expDamagePoten[0]
+
+
+
+    def assignPMedian(self, assignmentsPath, expDamageExist, expDamagePoten,
+                      activeFires, resourcesPath, ffdiPath, timeStep, control,
+                      static):
 
         """ First copy the relocation model """
         tempModel = cplex.Cplex(self.relocationModel)
         self.copyNonCplexComponents(tempModel, self.relocationModel)
+        bases = self.model.getRegion().getStations()[0]
+        patches = self.model.getRegion().getPatches()
+
+    def assignAssignment2(self, assignmentsPath, expDamageExist,
+                          expDamagePoten, activeFires, resourcesPath, ffdiPath,
+                          timeStep, control, static):
+
+        """ First copy the relocation model """
+        tempModel = cplex.Cplex(self.relocationModel)
+        self.copyNonCplexComponents(tempModel, self.relocationModel)
+        bases = self.model.getRegion().getStations()[0]
+        patches = self.model.getRegion().getPatches()
+
+    def assignAssignment1(self, assignmentsPath, expDamageExist,
+                          expDamagePoten, activeFires, resourcesPath, ffdiPath,
+                          timeStep, control, static, tempModel):
+
+        """ First copy the relocation model """
         bases = self.model.getRegion().getStations()[0]
         patches = self.model.getRegion().getPatches()
 
@@ -1174,7 +1368,7 @@ class Simulation():
 
         tempModel.variables.add(
                 types=([tempModel.variables.type.binary]
-                       *len(tempModel.decisionVars["Y_MR_Delta_MK"])))
+                       * len(tempModel.decisionVars["Y_MR_Delta_MK"])))
 
         """////////////////////////////////////////////////////////////////////
         ///////////////////////////// PARAMETERS //////////////////////////////
@@ -1187,65 +1381,6 @@ class Simulation():
         """ Expected damage increase of each patch under each config """
         tempModel.D2_NK = expDamagePoten
 
-        """ Cumulative flying hours """
-        tempModel.G_R = {
-                r: resourcesPath[r].getFlyingHours()
-                for r in tempModel.R}
-
-        """ Travel times between aircraft and bases """
-#        tempModel.d1_RB = {
-#                (r, b):
-#                (math.sqrt(
-#                        (bases[b].getLocation()[0]
-#                         - resourcesPath[r].getLocation()[0])**2
-#                        + (bases[b].getLocation()[1]
-#                           - resourcesPath[r].getLocation()[1])**2)/
-#                        resourcesPath[r].getSpeed())
-#                for r in tempModel.R
-#                for b in tempModel.B}
-        tempModel.d1_RB = {
-                (r, b):
-                (math.sqrt(
-                        ((bases[b].getLocation()[0]
-                         - resourcesPath[r].getLocation()[0])*40000*math.cos(
-                                 (bases[b].getLocation()[1]
-                                 + resourcesPath[r].getLocation()[1])
-                                 *math.pi/360)/360)**2
-                        + ((resourcesPath[r].getLocation()[1]
-                           - bases[b].getLocation()[1])*40000/360)**2))/
-                 resourcesPath[r].getSpeed()
-                for r in tempModel.R
-                for b in tempModel.B}
-
-        """ Travel times between resource R and fire M """
-        tempModel.d2_RM = {
-                (r, m):
-                (math.sqrt(
-                        ((activeFires[m].getLocation()[0]
-                         - resourcesPath[r].getLocation()[0])*40000*math.cos(
-                                 (activeFires[m].getLocation()[1]
-                                 + resourcesPath[r].getLocation()[1])
-                                 *math.pi/360)/360)**2
-                        + ((resourcesPath[r].getLocation()[1]
-                           - activeFires[m].getLocation()[1])*40000/360)**2)/
-                 resourcesPath[r].getSpeed())
-                for r in tempModel.R
-                for m in tempModel.M}
-
-        """ Distances between baes B and patch N"""
-        tempModel.d3_BN = {
-                (b, n):
-                (math.sqrt(
-                        ((patches[n].getCentroid()[0]
-                         - bases[b].getLocation()[0])*40000*math.cos(
-                                 (patches[n].getCentroid()[1]
-                                 + bases[b].getLocation()[1])
-                                 *math.pi/360)/360)**2
-                        + ((bases[b].getLocation()[1]
-                           - patches[n].getCentroid()[1])*40000/360)**2))
-                for b in tempModel.B
-                for n in tempModel.N}
-
         """ Travel times between base B and patch N for component C"""
         tempModel.d4_BNC = {
                 (b, n, c):
@@ -1253,10 +1388,10 @@ class Simulation():
                         ((patches[n].getCentroid()[0]
                          - bases[b].getLocation()[0])*40000*math.cos(
                                  (patches[n].getCentroid()[1]
-                                 + bases[b].getLocation()[1])
-                                 *math.pi/360)/360)**2
+                                  + bases[b].getLocation()[1])
+                                 * math.pi/360)/360) ** 2
                         + ((bases[b].getLocation()[1]
-                           - patches[n].getCentroid()[1])*40000/360)**2)/
+                            - patches[n].getCentroid()[1])*40000/360)**2) /
                  (self.model.getResourceTypes()[0].getSpeed() if c in [1, 3]
                   else self.model.getResourceTypes()[1].getSpeed()))
                 for b in tempModel.B
@@ -1275,7 +1410,7 @@ class Simulation():
                                   getVegetation().getFFDIRange(),
                                   self.model.getRegion().getPatches()[n].
                                   getVegetation().getOccurrence()[
-                                          timeStep + t])*
+                                          timeStep + t]) *
                      self.model.getRegion().getPatches()[n].getArea()
                      for t in range(look)])
                 for n in tempModel.N}
@@ -1306,8 +1441,10 @@ class Simulation():
         tempModel.no_CB = {
                 (c, b):
                 sum([tempModel.d4_BNC[b, n, c]*tempModel.no_N[n]
-                     if (((c == 1 or c == 3) and tempModel.d4_BNC[b, n, c] <= 1/3)
-                         or (c == 2 or c == 4 and tempModel.d4_BNC[b, n, c] > 1/3))
+                     if (((c == 1 or c == 3)
+                          and tempModel.d4_BNC[b, n, c] <= 1/3)
+                         or (c == 2 or c == 4
+                             and tempModel.d4_BNC[b, n, c] > 1/3))
                      else 0
                      for n in tempModel.N])
                 for c in tempModel.C
@@ -1321,7 +1458,7 @@ class Simulation():
         startXRB = tempModel.decisionVarsIdxStarts["X_RB"]
         startDeltaNK = tempModel.decisionVarsIdxStarts["Delta_NK"]
 
-        lambdaVals = tempModel.lambdas[1]
+        lambdaVals = tempModel.lambdas[control]
 
         if len(tempModel.M) > 0:
             tempModel.objective.set_linear(list(zip(
@@ -1362,7 +1499,8 @@ class Simulation():
                 for c in tempModel.C
                 for m in tempModel.M]
         tempModel.constraintIdxStarts["C_1"] = totalConstraints
-        totalConstraints = totalConstraints + len(tempModel.constraintNames["C_1"])
+        totalConstraints = totalConstraints + len(
+                tempModel.constraintNames["C_1"])
 
         varIdxs = {
                 (k, c, m):
@@ -1396,7 +1534,8 @@ class Simulation():
                 "C_7_M" + str(m)
                 for m in tempModel.M]
         tempModel.constraintIdxStarts["C_7"] = totalConstraints
-        totalConstraints = totalConstraints + len(tempModel.constraintNames["C_7"])
+        totalConstraints = totalConstraints + len(
+                tempModel.constraintNames["C_7"])
 
         varIdxs = {(m): [startYMR + m*(lenR + lenKE) + lenR + k
                          for k in range(len(tempModel.KE))]
@@ -1414,7 +1553,7 @@ class Simulation():
                 senses=["E"]*len(varIdxs),
                 rhs=[1]*len(varIdxs))
 
-        """ MODIFY THE COEFFICIENTS AND COMPONENTS OF MANY OTHER CONSTRAINTS """
+        """ MODIFY THE COEFFICIENTS AND COMPONENTS OF OTHER CONSTRAINTS """
         """ CONSTRAINT 2 """
         startARB = tempModel.decisionVarsIdxStarts["A_RB"]
         startC2 = tempModel.constraintIdxStarts["C_2"]
@@ -1444,7 +1583,7 @@ class Simulation():
         """ CONSTRAINT 6 """
         startC6 = tempModel.constraintIdxStarts["C_6"]
 
-        if len(tempModel.M) >0:
+        if len(tempModel.M) > 0:
             coefficients = [
                     (startC6 + r,
                      startYMR + m*(lenR + lenKP) + r,
@@ -1497,8 +1636,8 @@ class Simulation():
         y_RM = [[round(tempModel.solution.get_values(
                          tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
                          + m*(lenR + lenKE) + r))
-                   for m in tempModel.M]
-                 for r in tempModel.R]
+                 for m in tempModel.M]
+                for r in tempModel.R]
 
         for r in tempModel.R:
             for m in tempModel.M:
@@ -1667,17 +1806,18 @@ class Simulation():
                                 vegetation.getInitialSizeMean()[configID])
 
             success = numpy.interp(ffdi,
-                                vegetation.getFFDIRange(),
-                                vegetation.getInitialSuccess()[configID])
+                                   vegetation.getFFDIRange(),
+                                   vegetation.getInitialSuccess()[configID])
 
             sizeInitial = size
 
             for t2 in range(tt, look):
                 ffdi = ffdiPath[patchID, t2]
 
-                grMean = numpy.interp(ffdi,
-                          vegetation.getFFDIRange(),
-                          vegetation.getROCA2PerHourMean()[configID])
+                grMean = numpy.interp(
+                        ffdi,
+                        vegetation.getFFDIRange(),
+                        vegetation.getROCA2PerHourMean()[configID])
 
                 radCurr = (math.sqrt(size*10000/math.pi))
                 radNew = radCurr + max(0, grMean)
@@ -1949,7 +2089,7 @@ class Simulation():
         if not os.path.exists(os.path.dirname(subOutfolder)):
             try:
                 os.makedirs(os.path.dirname(subOutfolder))
-            except OSError as exc: # Guard against race condition
+            except OSError as exc:  # Guard against race condition
                 if exc.errno != errno.EEXIST:
                     raise
 
@@ -2010,7 +2150,7 @@ class Simulation():
             xSpan = xMax - xMin
 
             for tt in range(self.model.getTotalSteps() + 1):
-                fig = plt.figure(figsize=(5,5*(yMax - yMin)/(xMax - xMin)))
+                fig = plt.figure(figsize=(5, 5*(yMax - yMin)/(xMax - xMin)))
                 ax = fig.add_subplot(111)
                 ax.set_xlim(xMin, xMax)
                 ax.set_ylim(yMin, yMax)
@@ -2020,36 +2160,38 @@ class Simulation():
 
                 for rp, patch in enumerate(rawPatches):
                     colorFloat = (self.realisedFFDIs[sample][run][tt, rp] -
-                                   minFFDI)/maxFFDI
+                                  minFFDI)/maxFFDI
                     self.model.shape.loc[[patch.getShapefileIndex() - 1],
                                          'geometry'].plot(
                             ax=ax, color=cmap(colorFloat), edgecolor='black')
 
                 basePolys = []
                 # Annotate with bases
-                for base in range(len(self.model.getRegion().getStations()[0])):
+                for base in range(
+                        len(self.model.getRegion().getStations()[0])):
                     polygon = mpp.Polygon(
                             [(self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[0] - 1.05*xSpan/40,
+                              .getLocation()[0] - 1.05 * xSpan / 40,
                              self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[1] - 0.95*xSpan/40),
+                              .getLocation()[1] - 0.95 * xSpan / 40),
                              (self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[0] - 0.95*xSpan/40,
+                              .getLocation()[0] - 0.95 * xSpan / 40,
                              self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[1] - 1.05*xSpan/40),
+                              .getLocation()[1] - 1.05 * xSpan / 40),
                              (self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[0] + 1.95*xSpan/40,
+                              .getLocation()[0] + 1.95 * xSpan / 40,
                              self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[1] + 0.95*xSpan/40),
+                              .getLocation()[1] + 0.95 * xSpan / 40),
                              (self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[0] + 0.95*xSpan/40,
+                              .getLocation()[0] + 0.95 * xSpan / 40,
                              self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[1] + 1.05*xSpan/40)],
+                              .getLocation()[1] + 1.05 * xSpan / 40)],
                             closed=True)
                     basePolys.append(polygon)
 
                 p = mpc.PatchCollection(basePolys)
-                p.set_array(numpy.ones(len(self.model.getRegion().getStations()[0])))
+                p.set_array(numpy.ones(len(
+                        self.model.getRegion().getStations()[0])))
                 ax.add_collection(p)
 
                 for base in basePolys:
@@ -2098,8 +2240,8 @@ class Simulation():
 
                     row.extend([
                             (self.model.getRegion().getStations()[0][
-                                    self.realisedAssignments[sample][run][tt][ii][0] - 1]
-                                    .getLocation()[pp])
+                             self.realisedAssignments[sample][run][tt][ii][0]
+                             - 1].getLocation()[pp])
                             for tt in range(self.model.getTotalSteps() + 1)
                             for pp in [0, 1]])
                     row.extend([
@@ -2140,24 +2282,26 @@ class Simulation():
                             + ['']*3)
 
                     writer.writerow(
-                            ['Fires', str(len(self.realisedFires[sample][run][tt]))]
+                            ['Fires',
+                             str(len(self.realisedFires[sample][run][tt]))]
                             + ['']*3)
 
                     writer.writerow(
                             ['Fire_ID', 'Start_Size', 'End_Size',
                              'X_Pos', 'Y_Pos'])
 
-                    for fire in range(len(self.realisedFires[sample][run][tt])):
+                    for fire in range(len(
+                            self.realisedFires[sample][run][tt])):
                         writer.writerow(
                                 [str(fire+1),
                                  self.realisedFires[sample][run][tt][fire]
-                                         .getInitialSize(),
+                                 .getInitialSize(),
                                  self.realisedFires[sample][run][tt][fire]
-                                         .getFinalSize(),
+                                 .getFinalSize(),
                                  self.realisedFires[sample][run][tt][fire]
-                                         .getLocation()[0],
+                                 .getLocation()[0],
                                  self.realisedFires[sample][run][tt][fire]
-                                         .getLocation()[1]])
+                                 .getLocation()[1]])
 
                     writer.writerow(['']*5)
 
@@ -2165,7 +2309,8 @@ class Simulation():
                 """ Accumulated Damage Maps with Active Fires """
                 outputGraphs = pdf.PdfPages(subOutfolder + "Damage_Map.pdf")
                 for tt in range(self.model.getTotalSteps() + 1):
-                    fig = plt.figure(figsize=(5,5*(yMax - yMin)/(xMax - xMin)))
+                    fig = plt.figure(figsize=(5, 5*(yMax - yMin) /
+                                              (xMax - xMin)))
                     ax = fig.add_subplot(111)
                     ax.set_xlim(xMin, xMax)
                     ax.set_ylim(yMin, yMax)
@@ -2175,37 +2320,41 @@ class Simulation():
 
                     # Damage heat map
                     for rp, patch in enumerate(rawPatches):
-                        colorFloat = (self.finalDamageMaps[sample][run][tt, rp] -
-                                       minDamage)/maxDamage
+                        colorFloat = (self.finalDamageMaps[sample][run][tt, rp]
+                                      - minDamage)/maxDamage
                         self.model.shape.loc[[patch.getShapefileIndex() - 1],
-                                         'geometry'].plot(
-                        ax=ax, color=cmap(colorFloat), edgecolor='black')
+                                             'geometry'].plot(
+                                              ax=ax,
+                                              color=cmap(colorFloat),
+                                              edgecolor='black')
 
                     basePolys = []
                     # Annotate with bases
-                    for base in range(len(self.model.getRegion().getStations()[0])):
+                    for base in range(len(
+                            self.model.getRegion().getStations()[0])):
                         polygon = mpp.Polygon(
                                 [(self.model.getRegion().getStations()[0][base]
-                                    .getLocation()[0] - 1.05*xSpan/40,
+                                    .getLocation()[0] - 1.05 * xSpan / 40,
                                  self.model.getRegion().getStations()[0][base]
-                                        .getLocation()[1] - 0.95*xSpan/40),
+                                 .getLocation()[1] - 0.95 * xSpan / 40),
                                  (self.model.getRegion().getStations()[0][base]
-                                        .getLocation()[0] - 0.95*xSpan/40,
+                                 .getLocation()[0] - 0.95 * xSpan / 40,
                                  self.model.getRegion().getStations()[0][base]
-                                        .getLocation()[1] - 1.05*xSpan/40),
+                                 .getLocation()[1] - 1.05 * xSpan / 40),
                                  (self.model.getRegion().getStations()[0][base]
-                                        .getLocation()[0] + 1.95*xSpan/40,
+                                 .getLocation()[0] + 1.95 * xSpan / 40,
                                  self.model.getRegion().getStations()[0][base]
-                                        .getLocation()[1] + 0.95*xSpan/40),
+                                 .getLocation()[1] + 0.95 * xSpan / 40),
                                  (self.model.getRegion().getStations()[0][base]
-                                        .getLocation()[0] + 0.95*xSpan/40,
+                                 .getLocation()[0] + 0.95 * xSpan / 40,
                                  self.model.getRegion().getStations()[0][base]
-                                        .getLocation()[1] + 1.05*xSpan/40)],
+                                 .getLocation()[1] + 1.05 * xSpan / 40)],
                                 closed=True)
                         basePolys.append(polygon)
 
                     p = mpc.PatchCollection(basePolys)
-                    p.set_array(numpy.ones(len(self.model.getRegion().getStations()[0])))
+                    p.set_array(numpy.ones(len(
+                            self.model.getRegion().getStations()[0])))
                     ax.add_collection(p)
 
                     for base in basePolys:
@@ -2215,7 +2364,8 @@ class Simulation():
                                      lw=1,
                                      fill='b'))
 
-                    # Annotate with active fires (only fires that survive to end of period)
+                    # Annotate with active fires
+                    # (only fires that survive to end of period)
                     for fire in self.realisedFires[sample][run][tt]:
                         circle = mpp.Circle(
                                 (fire.getLocation()[0], fire.getLocation()[1]),
@@ -2228,19 +2378,24 @@ class Simulation():
                     fig.canvas.draw()
 
                     # Base assignment annotations
-                    for b, base in enumerate(self.model.getRegion().getStations()[0]):
+                    for b, base in enumerate(
+                            self.model.getRegion().getStations()[0]):
                         tankers = sum([
                                 1
-                                for ii in range(len(self.model.getRegion().getResources()))
-                                if (self.model.getRegion().getResources()[ii] in
-                                    self.model.getRegion().getAirTankers()
-                                    and self.realisedAssignments[sample][run][tt][ii, 0] == b + 1)])
+                                for ii in range(len(
+                                        self.model.getRegion().getResources()))
+                                if (self.model.getRegion().getResources()[ii]
+                                    in self.model.getRegion().getAirTankers()
+                                    and self.realisedAssignments[sample][run][
+                                            tt][ii, 0] == b + 1)])
                         helis = sum([
                                 1
-                                for ii in range(len(self.model.getRegion().getResources()))
-                                if (self.model.getRegion().getResources()[ii] in
-                                    self.model.getRegion().getHelicopters()
-                                    and self.realisedAssignments[sample][run][tt][ii, 0] == b + 1)])
+                                for ii in range(len(
+                                        self.model.getRegion().getResources()))
+                                if (self.model.getRegion().getResources()[ii]
+                                    in self.model.getRegion().getHelicopters()
+                                    and self.realisedAssignments[sample][run][
+                                            tt][ii, 0] == b + 1)])
 
                         plt.text(base.getLocation()[0] + 1.2*xSpan/40,
                                  base.getLocation()[1],
@@ -2248,19 +2403,24 @@ class Simulation():
                                  color="blue")
 
                     # Fire assignment annotations
-                    for f, fire in enumerate(self.realisedFires[sample][run][tt]):
+                    for f, fire in enumerate(
+                            self.realisedFires[sample][run][tt]):
                         tankers = sum([
                                 1
-                                for ii in range(len(self.model.getRegion().getResources()))
-                                if (self.model.getRegion().getResources()[ii] in
-                                    self.model.getRegion().getAirTankers()
-                                    and self.realisedAssignments[sample][run][tt][ii, 1] == f + 1)])
+                                for ii in range(len(
+                                        self.model.getRegion().getResources()))
+                                if (self.model.getRegion().getResources()[ii]
+                                    in self.model.getRegion().getAirTankers()
+                                    and self.realisedAssignments[sample][run][
+                                            tt][ii, 1] == f + 1)])
                         helis = sum([
                                 1
-                                for ii in range(len(self.model.getRegion().getResources()))
-                                if (self.model.getRegion().getResources()[ii] in
-                                    self.model.getRegion().getHelicopters()
-                                    and self.realisedAssignments[sample][run][tt][ii, 1] == f + 1)])
+                                for ii in range(len(
+                                        self.model.getRegion().getResources()))
+                                if (self.model.getRegion().getResources()[ii]
+                                    in self.model.getRegion().getHelicopters()
+                                    and self.realisedAssignments[sample][run][
+                                            tt][ii, 1] == f + 1)])
 
                         config = ""
                         if tankers > 0:
@@ -2296,7 +2456,7 @@ class Simulation():
         if not os.path.exists(os.path.dirname(outfolder)):
             try:
                 os.makedirs(os.path.dirname(outfolder))
-            except OSError as exc: # Guard against race condition
+            except OSError as exc:  # Guard against race condition
                 if exc.errno != errno.EEXIST:
                     raise
 
