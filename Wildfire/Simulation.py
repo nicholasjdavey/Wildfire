@@ -19,8 +19,6 @@ import matplotlib.cm as clrmp
 import matplotlib.backends.backend_pdf as pdf
 #import multiprocessing as mp
 
-from Fire import Fire
-
 
 class Simulation():
     # Class for defining a simulation run
@@ -165,24 +163,32 @@ class Simulation():
 
     def buildLPModel(self):
         switch = {
-#            1: self.buildMaxCover,
-#            2: self.buildPMedian,
-            3: self.buildAssignment1
-#            4: self.buildAssignment2
+            1: self.buildMaxCover,
+            2: self.buildPMedian,
+            3: self.buildAssignment1,
+            4: self.buildAssignment2
         }
+
+        self.buildModelBase()
 
         lpModel = self.model.getNestedOptMethod()
         prog = switch.get(lpModel)
         prog()
 
-    def buildAssignment1(self):
+    def buildModelBase(self):
         """ Builds an assignment model to reuse for computing relocations. It
         does not contain any fires. Rather, it is copied each time it is needed
         and fires are added. The copied model is solved to give the required
         assignments"""
 
         cplxMod = cplex.Cplex()
-        cplxMod.objective.set_sense(cplxMod.objective.sense.minimize)
+
+        configsP = (self.model.getUsefulConfigurationsPotential()
+                    if self.model.getNestedOptMethod() > 2
+                    else [0])
+        configsE = (self.model.getUsefulConfigurationsExisting()
+                    if self.model.getNestedOptMethod() > 2
+                    else [0])
 
         """ INDEXED SETS AND LIST LENGTHS """
         cplxMod.R = [ii for ii in
@@ -195,34 +201,28 @@ class Simulation():
         cplxMod.T = [ii for ii in
                      range(self.model.getTotalSteps())]
         cplxMod.K = [ii for ii in range(len(self.model.getConfigurations()))]
-        cplxMod.KP = [cplxMod.K[ii-1] for ii in
-                      self.model.getUsefulConfigurationsPotential()]
-        lenKP = len(cplxMod.KP)
-        cplxMod.KE = [cplxMod.K[ii-1] for ii in
-                      self.model.getUsefulConfigurationsExisting()]
+        cplxMod.KP = [cplxMod.K[ii-1] for ii in configsP]
+        cplxMod.KE = [cplxMod.K[ii-1] for ii in configsE]
         cplxMod.C = [1, 2, 3, 4]
         cplxMod.M = []
         cplxMod.M_All = [ii for ii in cplxMod.M]
 
         """ PARAMETERS """
+
         """ Control Parameters """
-        cplxMod.lambdas = {
+        self.relocationModel.lambdas = {
                 ii+1:
                 (self.model.getControls()[ii].getLambda1(),
                  self.model.getControls()[ii].getLambda2())
                 for ii in range(len(self.model.getControls()))}
 
-        """ Initial expected damage increase of each fire under each config """
-        cplxMod.D1_MK = {
-                (m, k+1): 0
-                for m in cplxMod.M
-                for k in cplxMod.KE}
-
-        """ Initial expected damage increase of each patch under each config """
-        cplxMod.D2_NK = {
-                (n, k+1): 0
-                for n in cplxMod.N
-                for k in cplxMod.KP}
+        self.relocationModel.nus = {
+                1: [0, 0, 0],
+                2: [1, 0, 0],
+                3: [0, 1, 0],
+                4: [1, 1, 0],
+                5: [0, 0, 1],
+                6: [1, 0, 1]}
 
         """ Cumulative flying hours """
         cplxMod.G_R = {
@@ -240,7 +240,7 @@ class Simulation():
                 for r in cplxMod.R
                 for b in cplxMod.B}
 
-        """ Distance between resource R and fire M """
+        """ Travel time between resource R and fire M """
         cplxMod.d2_RM = {
                 (r, m): 0
                 for r in cplxMod.R
@@ -259,12 +259,6 @@ class Simulation():
                 for b in cplxMod.B
                 for c in cplxMod.C
                 for n in cplxMod.N}
-
-        """ Number of aircraft required for component C of configuration K """
-        cplxMod.Q_KC = {
-                (k, c): self.model.getConfigurations()[k+1][c-1]
-                for k in cplxMod.K
-                for c in cplxMod.C}
 
         """ Expected number of fires visible by base B for component C """
         cplxMod.no_CB = {
@@ -301,96 +295,10 @@ class Simulation():
                 types=([cplxMod.variables.type.binary]
                        *len(cplxMod.decisionVars["A_RB"])))
 
-        """ Patch configuration covers """
-        cplxMod.decisionVars["Delta_NK"] = [
-                "Delta_NK_Adj_N" + str(n) + "_K" + str(k+1)
-                for n in cplxMod.N
-                for k in cplxMod.KP]
-        cplxMod.decisionVarsIdxStarts["Delta_NK"] = totalVars
-        totalVars = totalVars + len(cplxMod.decisionVars["Delta_NK"])
-
-        cplxMod.variables.add(
-                ub=[1]*len(cplxMod.decisionVars["Delta_NK"]),
-                lb=[0]*len(cplxMod.decisionVars["Delta_NK"]))
-
-        """ Aircraft-fire assignments and fire configuration covers """
-        """
-        More complex:
-        For each fire (created to date)
-        1. Y_MR
-        2. Delta_MK
-        For fires that are extinguished during simulation, the variable's upper
-        bound is set to 0. This effectively eliminates the column
-        """
-        component1 = [
-                ["Y_MR_M" + str(m) + "_R" + str(r)
-                 for r in cplxMod.R]
-                for m in cplxMod.M]
-        component2 = [
-                ["Delta_MK_M" + str(m) + "_K" + str(k+1)
-                 for k in cplxMod.KE]
-                for m in cplxMod.M]
-
-        cplxMod.decisionVars["Y_MR_Delta_MK"] = []
-
-        for m in cplxMod.M:
-            cplxMod.decisionVars["Y_MR_Delta_MK"].extend(component1[m-1])
-            cplxMod.decisionVars["Y_MR_Delta_MK"].extend(component2[m-1])
-
-        cplxMod.decisionVarsIdxStarts["Y_MR_Delta_MK"] = totalVars
-        totalVars = totalVars + len(cplxMod.decisionVars["Y_MR_Delta_MK"])
-
-        cplxMod.variables.add(
-                types=([cplxMod.variables.type.binary]
-                       *len(cplxMod.decisionVars["Y_MR_Delta_MK"])))
-
         """ CONSTRAINTS """
         cplxMod.constraintNames = {}
         cplxMod.constraintIdxStarts = {}
         totalConstraints = 0
-
-        """Probability-adjusted patch covers to account for possibility that
-        multiple fires may need to be covered by the aircraft and therefore
-        there is a non-zero probability for each configuration possible for a
-        patch"""
-        cplxMod.constraintNames["C_2"] = [
-                "C_2_K" + str(k+1) + "_C" + str(c) + "_N" + str(n)
-                for k in cplxMod.KP
-                for c in cplxMod.C
-                for n in cplxMod.N]
-        cplxMod.constraintIdxStarts["C_2"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_2"])
-
-        startARB = cplxMod.decisionVarsIdxStarts["A_RB"]
-        startDeltaNK = cplxMod.decisionVarsIdxStarts["Delta_NK"]
-        varIdxs = {
-                (k, c, n):
-                [startARB + r*lenB + b for r in cplxMod.R for b in cplxMod.B]
-                + [startDeltaNK + n*lenKP + k]
-                for k in range(lenKP)
-                for c in cplxMod.C
-                for n in cplxMod.N}
-
-        varCoeffs = {
-                (k, c, n):
-                [-cplxMod.d3_BCN[b, c, n]/cplxMod.no_CB[c, b]
-                        for r in cplxMod.R
-                        for b in cplxMod.B]
-                + [cplxMod.Q_KC[cplxMod.KP[k], c]]
-                for k in range(lenKP)
-                for c in cplxMod.C
-                for n in cplxMod.N}
-
-        cplxMod.linear_constraints.add(
-                lin_expr=[
-                        cplex.SparsePair(
-                                ind=varIdxs[k, c, n],
-                                val=varCoeffs[k, c, n])
-                        for k in range(len(cplxMod.KP))
-                        for c in cplxMod.C
-                        for n in cplxMod.N],
-                senses=["L"]*(len(varIdxs)),
-                rhs=[0]*len(varIdxs))
 
         """Ensures that an aircraft can only be available at a base if it is
         stationed there"""
@@ -402,6 +310,7 @@ class Simulation():
         totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_3"])
 
         startXRB = cplxMod.decisionVarsIdxStarts["X_RB"]
+        startARB = cplxMod.decisionVarsIdxStarts["A_RB"]
         varIdxs = {(r, b): [startARB + r*lenB + b, startXRB + r*lenB + b]
                    for r in cplxMod.R
                    for b in cplxMod.B}
@@ -477,29 +386,6 @@ class Simulation():
                 senses=["L"]*len(cplxMod.R)*len(cplxMod.B),
                 rhs=[1]*len(cplxMod.R)*len(cplxMod.B))
 
-        """Ensures that the sum of probabilities of applying each configuration
-        to a patch is 1"""
-        cplxMod.constraintNames["C_8"] = [
-                "C_8_N" + str(n)
-                for n in cplxMod.N]
-        cplxMod.constraintIdxStarts["C_8"] = totalConstraints
-        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_8"])
-
-        varIdxs = {(n):
-                   [startDeltaNK + n*lenKP + k for k in range(len(cplxMod.KP))]
-                   for n in cplxMod.N}
-
-        varCoeffs = {(n): [1]*len(varIdxs[n]) for n in cplxMod.N}
-
-        cplxMod.linear_constraints.add(
-                lin_expr=[
-                        cplex.SparsePair(
-                                ind=varIdxs[n],
-                                val=varCoeffs[n])
-                        for n in cplxMod.N],
-                senses=["E"]*len(varIdxs),
-                rhs=[1]*len(varIdxs))
-
         """Ensures that the maximum number of flying hours are not exceeded"""
         cplxMod.constraintNames["C_9"] = [
                 "C_9_K" + str(r)
@@ -523,8 +409,402 @@ class Simulation():
                 rhs=[cplxMod.Gmax_R[r] - cplxMod.G_R[r]
                         for r in cplxMod.R])
 
+        """Enforces base relocation options based on the control"""
+        cplxMod.constraintNames["C_11"] = [
+                "C_11_R" + str(r) + "_B" + str(b)
+                for r in cplxMod.R
+                for b in cplxMod.B]
+        cplxMod.constraintIdxStarts["C_11"] = totalConstraints
+        totalConstraints = totalConstraints + len(cplxMod.constraintNames["C_11"])
+
+        varIdxs = {(r, b): [startXRB + r*lenB + b]
+                for r in cplxMod.R
+                for b in cplxMod.B}
+
+        varCoeffs = {(r, b): [1] for r in cplxMod.R for b in cplxMod.B}
+
+        cplxMod.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[r, b],
+                                val=varCoeffs[r, b])
+                        for r in cplxMod.R
+                        for b in cplxMod.B],
+                senses=["L"]*(len(varIdxs)),
+                rhs=[0]*len(varIdxs))
+
         """ Save the relocation model to the instance """
         self.relocationModel = cplxMod
+
+    def buildMaxCover(self):
+        self.relocationModel.objective.set_sense(
+                self.relocationModel.objective.sense.maximize)
+
+        """ DECISION VARIABLES """
+        totalVars = self.relocationModel.variables.get_num()
+
+        self.relocationModel.decisionVars["Z_CN"] = [
+                "Z_CN" + str(n)
+                for n in self.relocationModel.N]
+        self.relocationModel.decisionVarsIdxStarts["Z_CN"] = totalVars
+        totalVars = totalVars + len(self.relocationModel.decisionVars["Z_CN"])
+
+        """ CONSTRAINTS """
+        totalConstraints = self.relocationModel.linear_constraints.get_num()
+
+        self.relocationModel.constraintNames["C_A_1"] = [
+                "C_A_1_C" + str(c) + "_N" + str(n)
+                for c in [0, 1]
+                for n in self.relocationModel.N]
+        self.relocationModel.constraintIdxStarts["C_A_1"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                self.relocationModel.constraintNames["C_A_1"])
+
+        lenN = len(self.relocationModel.N)
+        startZCN = self.relocationModel.decisionVarsIdxStarts["Z_CN"]
+        varIdxs = {
+                (c, n):
+                [startZCN + c*lenN + n]
+                for c in [0, 1]
+                for n in self.relocationModel.N}
+
+        varCoeffs = {(c, n): [1, -1]
+                     for c in [0, 1]
+                     for n in self.relocationModel.N}
+
+        self.relocationModel.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[c, n],
+                                val=varCoeffs[c, n])
+                        for c in [0, 1]
+                        for n in self.relocationModel.N],
+                senses=["L"]*(len(varIdxs)),
+                rhs=[0]*len(varIdxs))
+
+    def buildPMedian(self):
+        self.relocationModel.objective.set_sense(
+                self.relocationModel.objective.sense.minimize)
+
+    def buildAssignment1(self):
+        self.relocationModel.objective.set_sense(
+                self.relocationModel.objective.sense.minimize)
+
+        lenKP = len(self.relocationModel.KP)
+
+        """ Initial expected damage increase of each fire under each config """
+        self.relocationModel.D1_MK = {
+                (m, k+1): 0
+                for m in self.relocationModel.M
+                for k in self.relocationModel.KE}
+
+        """ Initial expected damage increase of each patch under each config """
+        self.relocationModel.D2_NK = {
+                (n, k+1): 0
+                for n in self.relocationModel.N
+                for k in self.relocationModel.KP}
+
+        """ Number of aircraft required for component C of configuration K """
+        self.relocationModel.Q_KC = {
+                (k, c): self.model.getConfigurations()[k+1][c-1]
+                for k in self.relocationModel.K
+                for c in self.relocationModel.C}
+
+        """ DECISION VARIABLES """
+        totalVars = self.relocationModel.variables.get_num()
+
+        """ Patch configuration covers """
+        self.relocationModel.decisionVars["Delta_NK"] = [
+                "Delta_NK_Adj_N" + str(n) + "_K" + str(k+1)
+                for n in self.relocationModel.N
+                for k in self.relocationModel.KP]
+        self.relocationModel.decisionVarsIdxStarts["Delta_NK"] = totalVars
+        totalVars = totalVars + len(self.relocationModel.decisionVars["Delta_NK"])
+
+        self.relocationModel.variables.add(
+                ub=[1]*len(self.relocationModel.decisionVars["Delta_NK"]),
+                lb=[0]*len(self.relocationModel.decisionVars["Delta_NK"]))
+
+        """ Aircraft-fire assignments and fire configuration covers """
+        """
+        More complex:
+        For each fire (created to date)
+        1. Y_MR
+        2. Delta_MK
+        For fires that are extinguished during simulation, the variable's upper
+        bound is set to 0. This effectively eliminates the column
+        """
+        component1 = [
+                ["Y_MR_M" + str(m) + "_R" + str(r)
+                 for r in self.relocationModel.R]
+                for m in self.relocationModel.M]
+        component2 = [
+                ["Delta_MK_M" + str(m) + "_K" + str(k+1)
+                 for k in self.relocationModel.KE]
+                for m in self.relocationModel.M]
+
+        self.relocationModel.decisionVars["Y_MR_Delta_MK"] = []
+
+        for m in self.relocationModel.M:
+            self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(component1[m-1])
+            self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(component2[m-1])
+
+        self.relocationModel.decisionVarsIdxStarts["Y_MR_Delta_MK"] = totalVars
+        totalVars = totalVars + len(
+                self.relocationModel.decisionVars["Y_MR_Delta_MK"])
+
+        self.relocationModel.variables.add(
+                types=([self.relocationModel.variables.type.binary]
+                       *len(self.relocationModel.decisionVars["Y_MR_Delta_MK"])))
+
+        """ CONSTRAINTS """
+        totalConstraints = self.relocationModel.linear_constraints.get_num()
+
+        """Probability-adjusted patch covers to account for possibility that
+        multiple fires may need to be covered by the aircraft and therefore
+        there is a non-zero probability for each configuration possible for a
+        patch"""
+        self.relocationModel.constraintNames["C_2"] = [
+                "C_2_K" + str(k+1) + "_C" + str(c) + "_N" + str(n)
+                for k in self.relocationModel.KP
+                for c in self.relocationModel.C
+                for n in self.relocationModel.N]
+        self.relocationModel.constraintIdxStarts["C_2"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                self.relocationModel.constraintNames["C_2"])
+
+        lenB = len(self.relocationModel.B)
+        startARB = self.relocationModel.decisionVarsIdxStarts["A_RB"]
+        startDeltaNK = self.relocationModel.decisionVarsIdxStarts["Delta_NK"]
+        varIdxs = {
+                (k, c, n):
+                [startARB + r*lenB + b
+                for r in self.relocationModel.R
+                for b in self.relocationModel.B]
+                + [startDeltaNK + n*lenKP + k]
+                for k in range(lenKP)
+                for c in self.relocationModel.C
+                for n in self.relocationModel.N}
+
+        varCoeffs = {
+                (k, c, n):
+                [-self.relocationModel.d3_BCN[b, c, n]/self.relocationModel.no_CB[c, b]
+                        for r in self.relocationModel.R
+                        for b in self.relocationModel.B]
+                + [self.relocationModel.Q_KC[self.relocationModel.KP[k], c]]
+                for k in range(lenKP)
+                for c in self.relocationModel.C
+                for n in self.relocationModel.N}
+
+        self.relocationModel.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[k, c, n],
+                                val=varCoeffs[k, c, n])
+                        for k in range(len(self.relocationModel.KP))
+                        for c in self.relocationModel.C
+                        for n in self.relocationModel.N],
+                senses=["L"]*(len(varIdxs)),
+                rhs=[0]*len(varIdxs))
+
+        """Ensures that the sum of probabilities of applying each configuration
+        to a patch is 1"""
+        self.relocationModel.constraintNames["C_8"] = [
+                "C_8_N" + str(n)
+                for n in self.relocationModel.N]
+        self.relocationModel.constraintIdxStarts["C_8"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                self.relocationModel.constraintNames["C_8"])
+
+        varIdxs = {(n):
+                   [startDeltaNK + n*lenKP + k
+                    for k in range(len(self.relocationModel.KP))]
+                    for n in self.relocationModel.N}
+
+        varCoeffs = {(n): [1]*len(varIdxs[n]) for n in self.relocationModel.N}
+
+        self.relocationModel.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[n],
+                                val=varCoeffs[n])
+                        for n in self.relocationModel.N],
+                senses=["E"]*len(varIdxs),
+                rhs=[1]*len(varIdxs))
+
+    def buildAssignment2(self):
+        self.relocationModel.objective.set_sense(
+                self.relocationModel.objective.sense.minimize)
+
+        lenKP = len(self.relocationModel.KP)
+
+        """ Initial expected damage increase of each fire under each config """
+        self.relocationModel.D1_MK = {
+                (m, k+1): 0
+                for m in self.relocationModel.M
+                for k in self.relocationModel.KE}
+
+        """ Initial expected damage increase of each patch under each config """
+        self.relocationModel.D2_NK = {
+                (n, k+1): 0
+                for n in self.relocationModel.N
+                for k in self.relocationModel.KP}
+
+        """ Number of aircraft required for component C of configuration K """
+        self.relocationModel.Q_KC = {
+                (k, c): self.model.getConfigurations()[k+1][c-1]
+                for k in self.relocationModel.K
+                for c in self.relocationModel.C}
+
+        """ DECISION VARIABLES """
+        totalVars = self.relocationModel.variables.get_num()
+
+        """ Patch configuration covers """
+        self.relocationModel.decisionVars["Delta_NK"] = [
+                "Delta_NK_Adj_N" + str(n) + "_K" + str(k+1)
+                for n in self.relocationModel.N
+                for k in self.relocationModel.KP]
+        self.relocationModel.decisionVarsIdxStarts["Delta_NK"] = totalVars
+        totalVars = totalVars + len(self.relocationModel.decisionVars["Delta_NK"])
+
+        self.relocationModel.variables.add(
+                ub=[1]*len(self.relocationModel.decisionVars["Delta_NK"]),
+                lb=[0]*len(self.relocationModel.decisionVars["Delta_NK"]))
+
+        """ Aircraft-fire assignments and fire configuration covers """
+        """
+        More complex:
+        For each fire (created to date)
+        1. Y_MR
+        2. Delta_MK
+        For fires that are extinguished during simulation, the variable's upper
+        bound is set to 0. This effectively eliminates the column
+        """
+        component1 = [
+                ["Y_MR_M" + str(m) + "_R" + str(r)
+                 for r in self.relocationModel.R]
+                for m in self.relocationModel.M]
+        component2 = [
+                ["Delta_MK_M" + str(m) + "_K" + str(k+1)
+                 for k in self.relocationModel.KE]
+                for m in self.relocationModel.M]
+
+        self.relocationModel.decisionVars["Y_MR_Delta_MK"] = []
+
+        for m in self.relocationModel.M:
+            self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(component1[m-1])
+            self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(component2[m-1])
+
+        self.relocationModel.decisionVarsIdxStarts["Y_MR_Delta_MK"] = totalVars
+        totalVars = totalVars + len(
+                self.relocationModel.decisionVars["Y_MR_Delta_MK"])
+
+        self.relocationModel.variables.add(
+                types=([self.relocationModel.variables.type.binary]
+                       *len(self.relocationModel.decisionVars["Y_MR_Delta_MK"])))
+
+        """ CONSTRAINTS """
+        totalConstraints = self.relocationModel.linear_constraints.get_num()
+
+        """Probability-adjusted patch covers to account for possibility that
+        multiple fires may need to be covered by the aircraft and therefore
+        there is a non-zero probability for each configuration possible for a
+        patch"""
+        self.relocationModel.constraintNames["C_2"] = [
+                "C_2_K" + str(k+1) + "_C" + str(c) + "_N" + str(n)
+                for k in self.relocationModel.KP
+                for c in self.relocationModel.C
+                for n in self.relocationModel.N]
+        self.relocationModel.constraintIdxStarts["C_2"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                self.relocationModel.constraintNames["C_2"])
+
+        lenB = len(self.relocationModel.B)
+        startARB = self.relocationModel.decisionVarsIdxStarts["A_RB"]
+        startDeltaNK = self.relocationModel.decisionVarsIdxStarts["Delta_NK"]
+        varIdxs = {
+                (k, c, n):
+                [startARB + r*lenB + b
+                 for r in self.relocationModel.R
+                 for b in self.relocationModel.B]
+                + [startDeltaNK + n*lenKP + k]
+                for k in range(lenKP)
+                for c in self.relocationModel.C
+                for n in self.relocationModel.N}
+
+        varCoeffs = {
+                (k, c, n):
+                [-self.relocationModel.d3_BCN[b, c, n]/self.relocationModel.no_CB[c, b]
+                        for r in self.relocationModel.R
+                        for b in self.relocationModel.B]
+                + [self.relocationModel.Q_KC[self.relocationModel.KP[k], c]]
+                for k in range(lenKP)
+                for c in self.relocationModel.C
+                for n in self.relocationModel.N}
+
+        self.relocationModel.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[k, c, n],
+                                val=varCoeffs[k, c, n])
+                        for k in range(len(self.relocationModel.KP))
+                        for c in self.relocationModel.C
+                        for n in self.relocationModel.N],
+                senses=["L"]*(len(varIdxs)),
+                rhs=[0]*len(varIdxs))
+
+        """Ensures that the sum of probabilities of applying each configuration
+        to a patch is 1"""
+        self.relocationModel.constraintNames["C_8"] = [
+                "C_8_N" + str(n)
+                for n in self.relocationModel.N]
+        self.relocationModel.constraintIdxStarts["C_8"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                self.relocationModel.constraintNames["C_8"])
+
+        varIdxs = {(n):
+                   [startDeltaNK + n*lenKP + k
+                    for k in range(len(self.relocationModel.KP))]
+                    for n in self.relocationModel.N}
+
+        varCoeffs = {(n): [1]*len(varIdxs[n]) for n in self.relocationModel.N}
+
+        self.relocationModel.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[n],
+                                val=varCoeffs[n])
+                        for n in self.relocationModel.N],
+                senses=["E"]*len(varIdxs),
+                rhs=[1]*len(varIdxs))
+
+        """Restricts the relocation of aircraft by proximity to bases"""
+        self.relocationModel.constraintNames["C_11"] = [
+                "C_11_R" + str(r) + "_B" + str(b)
+                for r in self.relocationModel.R
+                for b in self.relocationModel.B]
+        self.relocationModel.constraintIdxStarts["C_11"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                self.relocationModel.constraintNames["C_11"])
+
+        startXRB = self.relocationModel.decisionVarsIdxStarts["X_RB"]
+        varIdxs = {(r, b): [startXRB + r*lenB + b]
+                   for r in self.relocationModel.R
+                   for b in self.relocationModel.B}
+
+        varCoeffs = {(r, b): [1]
+                     for r in self.relocationModel.R
+                     for b in self.relocationModel.B}
+
+        self.relocationModel.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[r, b],
+                                val=varCoeffs[r, b])
+                        for r in self.relocationModel.R
+                        for b in self.relocationModel.B],
+                senses=["L"]*(len(varIdxs)),
+                rhs=[0]*len(varIdxs))
 
     def samplePaths(self):
         region = self.model.getRegion()

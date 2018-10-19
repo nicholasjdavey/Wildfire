@@ -69,7 +69,7 @@ Vegetation 5              : Experiments/Input_Data/Regions/Region_Comunes/Probab
 # Therefore, our control options are coordinate pairs of (lambda_1,lambda_2)
 # that lie in the unit square ([0,1]^2):
 Number of Control Options : 5
-#                       lambda_1                lambda_2
+#                 lambda_1 (potential vs. existing)   lambda_2 (or B_2 threshold)
 Control 1       :              0.1                     0.9
 Control 2       :              0.9                     0.9
 Control 3       :              0.1                     0.1
