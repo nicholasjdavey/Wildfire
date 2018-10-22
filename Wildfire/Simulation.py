@@ -259,9 +259,27 @@ class Simulation():
                 for c in cplxMod.C
                 for m in cplxMod.M}
 
+        """ Distances between baes B and patch N"""
+        tempModel.d3_BN = {
+                (b, n):
+                (math.sqrt(
+                        ((patches[n].getCentroid()[0]
+                         - bases[b].getLocation()[0])*40000*math.cos(
+                                 (patches[n].getCentroid()[1]
+                                  + bases[b].getLocation()[1])
+                                 * math.pi/360)/360) ** 2
+                        + ((bases[b].getLocation()[1]
+                           - patches[n].getCentroid()[1])*40000/360)**2))
+                for b in tempModel.B
+                for n in tempModel.N}
+
         """ Whether base B satisfies component C for patch N """
         cplxMod.d3_BCN = {
-                (b, c, n): 0
+                (b, c, n):
+                (1
+                    if (((c == 1 or c == 3) and cplxMod.d3_BN[b, n] <= 1/3)
+                        or (c == 2 or c == 4 and cplxMod.d3_BN[b, n] > 1/3))
+                    else 0)
                 for b in cplxMod.B
                 for c in cplxMod.C
                 for n in cplxMod.N}
@@ -498,6 +516,37 @@ class Simulation():
         self.relocationModel.objective.set_sense(
                 self.relocationModel.objective.sense.minimize)
 
+        """ CONSTRAINTS """
+        totalConstraints = self.relocationModel.linear_constraints.get_num()
+        lenB = len(self.relocationModel.B)
+        """Restricts the relocation of aircraft by proximity to bases"""
+        self.relocationModel.constraintNames["C_11"] = [
+                "C_11_R" + str(r) + "_B" + str(b)
+                for r in self.relocationModel.R
+                for b in self.relocationModel.B]
+        self.relocationModel.constraintIdxStarts["C_11"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                self.relocationModel.constraintNames["C_11"])
+
+        startXRB = self.relocationModel.decisionVarsIdxStarts["X_RB"]
+        varIdxs = {(r, b): [startXRB + r*lenB + b]
+                   for r in self.relocationModel.R
+                   for b in self.relocationModel.B}
+
+        varCoeffs = {(r, b): [1]
+                     for r in self.relocationModel.R
+                     for b in self.relocationModel.B}
+
+        self.relocationModel.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[r, b],
+                                val=varCoeffs[r, b])
+                        for r in self.relocationModel.R
+                        for b in self.relocationModel.B],
+                senses=["L"]*(len(varIdxs)),
+                rhs=[0]*len(varIdxs))
+
     def buildAssignment1(self):
         self.relocationModel.objective.set_sense(
                 self.relocationModel.objective.sense.minimize)
@@ -660,12 +709,6 @@ class Simulation():
                 (n, k+1): 0
                 for n in self.relocationModel.N
                 for k in self.relocationModel.KP}
-
-        """ Number of aircraft required for component C of configuration K """
-        self.relocationModel.Q_KC = {
-                (k, c): self.model.getConfigurations()[k+1][c-1]
-                for k in self.relocationModel.K
-                for c in self.relocationModel.C}
 
         """ DECISION VARIABLES """
         totalVars = self.relocationModel.variables.get_num()
@@ -1192,20 +1235,6 @@ class Simulation():
                 for r in tempModel.R
                 for m in tempModel.M}
 
-        """ Distances between baes B and patch N"""
-        tempModel.d3_BN = {
-                (b, n):
-                (math.sqrt(
-                        ((patches[n].getCentroid()[0]
-                         - bases[b].getLocation()[0])*40000*math.cos(
-                                 (patches[n].getCentroid()[1]
-                                  + bases[b].getLocation()[1])
-                                 * math.pi/360)/360) ** 2
-                        + ((bases[b].getLocation()[1]
-                           - patches[n].getCentroid()[1])*40000/360)**2))
-                for b in tempModel.B
-                for n in tempModel.N}
-
         """ Expected number of fires for patch N over horizon """
         look = (self.model.getLookahead() + self.model.getTotalSteps()
                 if static
@@ -1294,27 +1323,66 @@ class Simulation():
         """Expected damage of potential fires if uncontrolled burn"""
         tempModel.D2_N = expDamagePoten[0]
 
+        """ Expected number of fires for patch N over horizon """
+        look = (self.model.getLookahead() + self.model.getTotalSteps()
+                if static
+                else self.model.getLookahead())
 
+        tempModel.no_N = {
+                n:
+                sum([numpy.interp(ffdiPath[n, t],
+                                  self.model.getRegion().getPatches()[n].
+                                  getVegetation().getFFDIRange(),
+                                  self.model.getRegion().getPatches()[n].
+                                  getVegetation().getOccurrence()[
+                                          timeStep + t]) *
+                     self.model.getRegion().getPatches()[n].getArea()
+                     for t in range(look)])
+                for n in tempModel.N}
+
+        """ Whether base B satisfies the maximum relocation distance for
+        resource R for the designated control """
+        tempModel.d1_RB_B2 = {
+                (r, b):
+                (1 if (tempModel.d1_RB[r, b]) <= tempModel.lambdas[0][0]
+                    else 0)
+                for r in tempModel.R
+                for b in tempModel.B}
+
+        """ Whether fire M satisfies the maximum relocation distance for
+        resources R for the designated control """
+        tempModel.d2_MR_B1 = {
+                (m, r):
+                (1 if (tempModel.d2_MR[m, r]) <= tempModel.lambdas[0][1]
+                    else 0)
+                for m in tempModel.M
+                for r in tempModel.R}
 
     def assignPMedian(self, assignmentsPath, expDamageExist, expDamagePoten,
                       activeFires, resourcesPath, ffdiPath, timeStep, control,
-                      static):
+                      static, tempModel):
 
         """ First copy the relocation model """
-        tempModel = cplex.Cplex(self.relocationModel)
-        self.copyNonCplexComponents(tempModel, self.relocationModel)
         bases = self.model.getRegion().getStations()[0]
         patches = self.model.getRegion().getPatches()
 
-    def assignAssignment2(self, assignmentsPath, expDamageExist,
-                          expDamagePoten, activeFires, resourcesPath, ffdiPath,
-                          timeStep, control, static):
+        """ Whether base B satisfies the maximum relocation distance for
+        resource R for the designated control """
+        tempModel.d1_RB_B2 = {
+                (r, b):
+                (1 if (tempModel.d1_RB[r, b]) <= tempModel.lambdas[0][0]
+                    else 0)
+                for r in tempModel.R
+                for b in tempModel.B}
 
-        """ First copy the relocation model """
-        tempModel = cplex.Cplex(self.relocationModel)
-        self.copyNonCplexComponents(tempModel, self.relocationModel)
-        bases = self.model.getRegion().getStations()[0]
-        patches = self.model.getRegion().getPatches()
+        """ Whether fire M satisfies the maximum relocation distance for
+        resources R for the designated control """
+        tempModel.d2_MR_B1 = {
+                (m, r):
+                (1 if (tempModel.d2_MR[m, r]) <= tempModel.lambdas[0][1]
+                    else 0)
+                for m in tempModel.M
+                for r in tempModel.R}
 
     def assignAssignment1(self, assignmentsPath, expDamageExist,
                           expDamagePoten, activeFires, resourcesPath, ffdiPath,
@@ -1617,6 +1685,399 @@ class Simulation():
                 (startC9 + r,
                  tempModel.Gmax_R[r] - tempModel.G_R[r])
                 for r in tempModel.R])
+
+        """ SOLVE THE MODEL """
+        tempModel.solve()
+
+        """ UPDATE THE RESOURCE ASSIGNMENTS IN THE SYSTEM """
+        assignments = numpy.zeros([len(tempModel.R), 2])
+
+        x_RB = [[round(tempModel.solution.get_values(
+                       tempModel.decisionVarsIdxStarts["X_RB"]
+                       + r*lenB + b))
+                 for b in tempModel.B]
+                for r in tempModel.R]
+
+        for r in tempModel.R:
+            assignments[r, 0] = x_RB[r].index(1) + 1
+
+        y_RM = [[round(tempModel.solution.get_values(
+                         tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
+                         + m*(lenR + lenKE) + r))
+                 for m in tempModel.M]
+                for r in tempModel.R]
+
+        for r in tempModel.R:
+            for m in tempModel.M:
+                if y_RM[r][m] == 1:
+                    assignments[r, 1] = m + 1
+                    break
+
+        """ Update the attack configurations for each patch and active fire """
+        configsN = [[(tempModel.solution.get_values(
+                      tempModel.decisionVarsIdxStarts["Delta_NK"]
+                      + n*lenKP + k))
+                     for k in range(len(tempModel.KP))]
+                    for n in tempModel.N]
+
+        configsM = [[round(tempModel.solution.get_values(
+                           tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
+                           + m*(lenR + lenKE) + lenR + k))
+                     for k in range(len(tempModel.KE))]
+                    for m in tempModel.M]
+
+        fireConfigs = [configsM[m].index(1) for m in tempModel.M]
+
+        assignmentsPath[timeStep] = assignments.astype(int)
+
+        return [configsN, fireConfigs]
+
+    def assignAssignment2(self, assignmentsPath, expDamageExist,
+                          expDamagePoten, activeFires, resourcesPath, ffdiPath,
+                          timeStep, control, static, tempModel):
+
+        """ First copy the relocation model """
+        bases = self.model.getRegion().getStations()[0]
+        patches = self.model.getRegion().getPatches()
+
+        """////////////////////////////////////////////////////////////////////
+        /////////////////////////// DECISION VARIABLES ////////////////////////
+        ////////////////////////////////////////////////////////////////////"""
+
+        """ Set lengths """
+        lenR = len(tempModel.R)
+        lenB = len(tempModel.B)
+        lenN = len(tempModel.N)
+        lenKP = len(tempModel.KP)
+        lenKE = len(tempModel.KE)
+        lenC = len(tempModel.C)
+
+        """ Set the fire details for the sets and decision variables """
+        tempModel.M = [ii for ii in range(len(activeFires))]
+
+        """ Aircraft-fire assignments and fire configuration covers """
+        """
+        For each fire (created to date)
+        1. Y_MR
+        2. Delta_MK
+        For fires that are extinguished during simulation, the variable's upper
+        bound is set to 0. This effectively eliminates the column
+        """
+        component1 = [
+                ["Y_MR_M" + str(m) + "_R" + str(r)
+                 for r in tempModel.R]
+                for m in tempModel.M]
+        component2 = [
+                ["Delta_MK_M" + str(m) + "_K" + str(k+1)
+                 for k in tempModel.KE]
+                for m in tempModel.M]
+
+        tempModel.decisionVars["Y_MR_Delta_MK"] = []
+
+        for m in tempModel.M:
+            tempModel.decisionVars["Y_MR_Delta_MK"].extend(component1[m-1])
+            tempModel.decisionVars["Y_MR_Delta_MK"].extend(component2[m-1])
+
+        totalVars = tempModel.variables.get_num()
+        tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"] = totalVars
+        totalVars = totalVars + len(tempModel.decisionVars["Y_MR_Delta_MK"])
+
+        tempModel.variables.add(
+                types=([tempModel.variables.type.binary]
+                       * len(tempModel.decisionVars["Y_MR_Delta_MK"])))
+
+        """////////////////////////////////////////////////////////////////////
+        ///////////////////////////// PARAMETERS //////////////////////////////
+        ////////////////////////////////////////////////////////////////////"""
+
+        """ Now set the parameters and respective coefficients """
+        """ Expected damage increase of each fire under each config """
+        tempModel.D1_MK = expDamageExist
+
+        """ Expected damage increase of each patch under each config """
+        tempModel.D2_NK = expDamagePoten
+
+        """ Travel times between base B and patch N for component C"""
+        tempModel.d4_BNC = {
+                (b, n, c):
+                (math.sqrt(
+                        ((patches[n].getCentroid()[0]
+                         - bases[b].getLocation()[0])*40000*math.cos(
+                                 (patches[n].getCentroid()[1]
+                                  + bases[b].getLocation()[1])
+                                 * math.pi/360)/360) ** 2
+                        + ((bases[b].getLocation()[1]
+                            - patches[n].getCentroid()[1])*40000/360)**2) /
+                 (self.model.getResourceTypes()[0].getSpeed() if c in [1, 3]
+                  else self.model.getResourceTypes()[1].getSpeed()))
+                for b in tempModel.B
+                for n in tempModel.N
+                for c in [1, 2, 3, 4]}
+
+        """ Expected number of fires for patch N over horizon """
+        look = (self.model.getLookahead() + self.model.getTotalSteps()
+                if static
+                else self.model.getLookahead())
+
+        tempModel.no_N = {
+                n:
+                sum([numpy.interp(ffdiPath[n, t],
+                                  self.model.getRegion().getPatches()[n].
+                                  getVegetation().getFFDIRange(),
+                                  self.model.getRegion().getPatches()[n].
+                                  getVegetation().getOccurrence()[
+                                          timeStep + t]) *
+                     self.model.getRegion().getPatches()[n].getArea()
+                     for t in range(look)])
+                for n in tempModel.N}
+
+        """ Whether resource R satisfies component C for fire M """
+        tempModel.d2_RCM = {
+                (r, c, m):
+                (1
+                    if (((c == 1 or c == 3) and tempModel.d2_RM[r, m] <= 1/3)
+                        or (c == 2 or c == 4 and tempModel.d2_RM[r, m] > 1/3))
+                    else 0)
+                for r in tempModel.R
+                for c in tempModel.C
+                for m in tempModel.M}
+
+        """ Whether base B satisfies the maximum relocation distance for
+        resource R for the designated control """
+        tempModel.d1_RB_B2 = {
+                (r, b):
+                (1 if (tempModel.d1_RB[r, b]) <= tempModel.lambdas[0][0]
+                    else 0)
+                for r in tempModel.R
+                for b in tempModel.B}
+
+        """ Whether fire M satisfies the maximum relocation distance for
+        resources R for the designated control """
+        tempModel.d2_MR_B1 = {
+                (m, r):
+                (1 if (tempModel.d2_MR[m, r]) <= tempModel.lambdas[0][1]
+                    else 0)
+                for m in tempModel.M
+                for r in tempModel.R}
+
+        """ Expected number of fires visible by base B for component C """
+        tempModel.no_CB = {
+                (c, b):
+                sum([tempModel.d4_BNC[b, n, c]*tempModel.no_N[n]
+                     if (((c == 1 or c == 3)
+                          and tempModel.d4_BNC[b, n, c] <= 1/3)
+                         or (c == 2 or c == 4
+                             and tempModel.d4_BNC[b, n, c] > 1/3))
+                     else 0
+                     for n in tempModel.N])
+                for c in tempModel.C
+                for b in tempModel.B}
+
+        """////////////////////////////////////////////////////////////////////
+        ///////////////////// OBJECTIVE VALUE COEFFICIENTS ////////////////////
+        ////////////////////////////////////////////////////////////////////"""
+
+        startYMR = tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
+        startXRB = tempModel.decisionVarsIdxStarts["X_RB"]
+        startDeltaNK = tempModel.decisionVarsIdxStarts["Delta_NK"]
+
+        lambdaVals = tempModel.lambdas[control]
+
+        if len(tempModel.M) > 0:
+            tempModel.objective.set_linear(list(zip(
+                    [startYMR + m*(lenR + lenKE) + lenR + k
+                     for m in tempModel.M
+                     for k in tempModel.KE],
+                    [tempModel.D1_MK[m, k]*lambdaVals[0]*lambdaVals[1]
+                     for m in tempModel.M
+                     for k in tempModel.KE])))
+
+        tempModel.objective.set_linear(list(zip(
+                [startDeltaNK + n*lenKE + k
+                 for n in tempModel.N
+                 for k in tempModel.KP],
+                [tempModel.D2_NK[n, k]*lambdaVals[1]*(1 - lambdaVals[0])
+                 for n in tempModel.N
+                 for k in tempModel.KP])))
+
+        tempModel.objective.set_linear(list(zip(
+                [startXRB + r*lenB + b
+                 for r in tempModel.R
+                 for b in tempModel.B],
+                [(1 - lambdaVals[1])*tempModel.d1_RB[r, b]
+                 for r in tempModel.R
+                 for b in tempModel.B])))
+
+        """////////////////////////////////////////////////////////////////////
+        //////////////////////////// CONSTRAINTS //////////////////////////////
+        ////////////////////////////////////////////////////////////////////"""
+
+        """Makes sure that a particular aircraft configuration at fire m can
+        only be met if the correct number of aircraft to satisfy each of the
+        components in c in configuration k are available."""
+        totalConstraints = tempModel.linear_constraints.get_num()
+        tempModel.constraintNames["C_1"] = [
+                "C_1_K" + str(k+1) + "_C" + str(c) + "_M" + str(m)
+                for k in tempModel.KE
+                for c in tempModel.C
+                for m in tempModel.M]
+        tempModel.constraintIdxStarts["C_1"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                tempModel.constraintNames["C_1"])
+
+        varIdxs = {
+                (k, c, m):
+                [startYMR + m*(lenR + lenKE) + lenR + k]
+                + [startYMR + m*(lenR + lenKE) + r for r in tempModel.R]
+                for k in range(len(tempModel.KE))
+                for c in tempModel.C
+                for m in tempModel.M}
+
+        varCoeffs = {
+                (k, c, m):
+                [tempModel.Q_KC[tempModel.K[k], c]]
+                + [-tempModel.d2_RCM[r, c, m] for r in tempModel.R]
+                for k in range(len(tempModel.KE))
+                for c in tempModel.C
+                for m in tempModel.M}
+
+        tempModel.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[k, c, m],
+                                val=varCoeffs[k, c, m])
+                        for k in range(len(tempModel.KE))
+                        for c in tempModel.C
+                        for m in tempModel.M],
+                senses=["L"]*len(varIdxs),
+                rhs=[0]*len(varIdxs))
+
+        """Ensures that a fire can be assigned only one configuration"""
+        tempModel.constraintNames["C_7"] = [
+                "C_7_M" + str(m)
+                for m in tempModel.M]
+        tempModel.constraintIdxStarts["C_7"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                tempModel.constraintNames["C_7"])
+
+        varIdxs = {(m): [startYMR + m*(lenR + lenKE) + lenR + k
+                         for k in range(len(tempModel.KE))]
+                   for m in tempModel.M}
+
+        varCoeffs = {(m): [1]*len(varIdxs[m])
+                     for m in tempModel.M}
+
+        tempModel.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[m],
+                                val=varCoeffs[m])
+                        for m in tempModel.M],
+                senses=["E"]*len(varIdxs),
+                rhs=[1]*len(varIdxs))
+
+        """ Limits the fires that each aircraft is allowed to attend """
+        tempModel.constraintNames["C_10"] = [
+                "C_10_M" + str(m) + "_R" + str(r)
+                for m in tempModel.M
+                for r in tempModel.R]
+        tempModel.constraintIdxStarts["C_10"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                tempModel.constraintNames["C_10"])
+
+        varIdxs = {(m, r): [startYMR + m*(lenR + lenKE) + r]
+                   for m in tempModel.M
+                   for r in tempModel.R}
+
+        varCoeffs = {(m, r): [1]*len(varIdxs[m, r])
+                     for m in tempModel.M
+                     for r in tempModel.R}
+
+        tempModel.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[m, r],
+                                val=varCoeffs[m, r])
+                        for m in tempModel.M
+                        for r in tempModel.R],
+                senses = ["L"]*len(varIdxs),
+                rhs=[tempModel.nus[control][0] + tempModel.d2_MR_B1[m, r]
+                        for m in tempModel.M
+                        for r in tempModel.R])
+
+        """ MODIFY THE COEFFICIENTS AND COMPONENTS OF OTHER CONSTRAINTS """
+        """ CONSTRAINT 2 """
+        startARB = tempModel.decisionVarsIdxStarts["A_RB"]
+        startC2 = tempModel.constraintIdxStarts["C_2"]
+        coefficients = [
+                (startC2 + k*lenC*lenN + c*lenN + n,
+                 startARB + r*lenB + b,
+                 -tempModel.d3_BCN[b, c, n]/tempModel.no_CB[c, b])
+                for r in tempModel.R
+                for b in tempModel.B
+                for k in range(len(tempModel.KP))
+                for c in tempModel.C
+                for n in tempModel.N]
+
+        tempModel.linear_constraints.set_coefficients(coefficients)
+
+        """ CONSTRAINT 4 """
+        startC4 = tempModel.constraintIdxStarts["C_4"]
+
+        if len(tempModel.M) > 0:
+            coefficients = [
+                    (startC4 + r, startYMR + m*(lenR + lenKE) + r, 1)
+                    for r in tempModel.R
+                    for m in tempModel.M]
+
+            tempModel.linear_constraints.set_coefficients(coefficients)
+
+        """ CONSTRAINT 6 """
+        startC6 = tempModel.constraintIdxStarts["C_6"]
+
+        if len(tempModel.M) > 0:
+            coefficients = [
+                    (startC6 + r,
+                     startYMR + m*(lenR + lenKP) + r,
+                     1)
+                    for r in tempModel.R
+                    for m in tempModel.M]
+
+            tempModel.linear_constraints.set_coefficients(coefficients)
+
+        """ CONSTRAINT 9 """
+        startC9 = tempModel.constraintIdxStarts["C_9"]
+        coefficients = []
+        if len(tempModel.M) > 0:
+            coefficients.extend([
+                    (startC9 + r,
+                     startYMR + m*(lenR + lenKE) + r,
+                     tempModel.d2_RM[r, m])
+                    for r in tempModel.R
+                    for m in tempModel.M])
+
+        coefficients.extend([
+                (startC9 + r,
+                 startXRB + r*lenB + b,
+                 tempModel.d1_RB[r, b])
+                for r in tempModel.R
+                for b in tempModel.B])
+
+        tempModel.linear_constraints.set_coefficients(coefficients)
+
+        tempModel.linear_constraints.set_rhs([
+                (startC9 + r,
+                 tempModel.Gmax_R[r] - tempModel.G_R[r])
+                for r in tempModel.R])
+
+        """ CONSTRAINT 11 """
+        startC11 = tempModel.constraintIdxStarts["C_11"]
+        tempModel.linear_constraints.set_rhs([
+                (startC11 + r*lenB + b,
+                 tempModel.nus[control][1]*tempModel.d1_RB_B2[r, b] +
+                 tempModel.nus[control][2])
+                for r in tempModel.R
+                for b in tempModel.B])
 
         """ SOLVE THE MODEL """
         tempModel.solve()
