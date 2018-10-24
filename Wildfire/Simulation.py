@@ -1843,7 +1843,9 @@ class Simulation():
         return paths
 
     def simulateROV(self, exogenousPaths, randCont, endogenousPaths):
-        pass
+        # Computes the policy map for the problem that is used by the simulator
+        # to make decisions. The decisions are made by determining the state of
+        # they system before plugging into the policy map.
 
     def randomControls(self):
         randControls = (numpy.random.choice(
