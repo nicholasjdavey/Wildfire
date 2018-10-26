@@ -2759,6 +2759,9 @@ class Simulation():
         return paths
 
     def simulateROV(self, exogenousPaths, randCont, endogenousPaths):
+<<<<<<< HEAD
+>>>>>>> parent of 4ea4000... Some small changes
+=======
 >>>>>>> parent of 4ea4000... Some small changes
         pass
 
