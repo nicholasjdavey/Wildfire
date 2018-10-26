@@ -2737,6 +2737,7 @@ class Simulation():
     ////////////////////////// ROV Routines for later /////////////////////////
     ////////////////////////////////////////////////////////////////////////"""
 
+<<<<<<< HEAD
     def simulateROV(self, exogenousPaths, randCont, endogenousPaths,
                     analysis=False):
         # Computes the policy map for the problem that is used by the simulator
@@ -2745,6 +2746,20 @@ class Simulation():
         #
         # This computes a large sample of paths for performing data analysis
         # for determining good controls/state variables
+=======
+    def forwardPaths(self):
+        os.system("taskset -p 0xff %d" % os.getpid())
+        # We don't need to store the precipitation, wind, and temperature
+        # matrices over time. We only need the resulting danger index
+
+        paths = [None]*self.model.getROVPaths()
+        for pathNo in range(self.model.getROVPaths()):
+            paths[pathNo] = self.initialForwardPath()
+
+        return paths
+
+    def simulateROV(self, exogenousPaths, randCont, endogenousPaths):
+>>>>>>> parent of 4ea4000... Some small changes
         pass
 
     def randomControls(self):
