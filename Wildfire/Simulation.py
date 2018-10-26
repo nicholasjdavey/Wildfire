@@ -6,6 +6,8 @@ Created on Sun Dec 10 23:32:32 2017
 """
 
 import numpy
+import numba
+from numba import jit
 import cplex
 import math
 import copy
@@ -17,8 +19,7 @@ import matplotlib.patches as mpp
 import matplotlib.collections as mpc
 import matplotlib.cm as clrmp
 import matplotlib.backends.backend_pdf as pdf
-
-import FastSim as FastSim
+# import multiprocessing as mp
 
 
 class Simulation():
@@ -143,14 +144,12 @@ class Simulation():
             0: self.samplePaths,
             1: self.simulateMPC,
             2: self.simulateROV,
-            3: self.simulateMPC,
-            4: self.simulateMPCNumba,
-            5: self.simulateROVNumba
+            3: self.simulateMPC
             }
 
         algo = self.model.getAlgo()
 
-        if algo > 0 and algo < 4:
+        if algo > 0:
             self.buildLPModel()
 
         prog = switch.get(algo)
@@ -952,7 +951,7 @@ class Simulation():
                                for tt in range(self.model.getTotalSteps() + 1
                                                + self.model.getLookahead())])
 
-    def simulateMPC(self, static=False, random=False, fastSim=False):
+    def simulateMPC(self, static=False):
         # Computes a Model Predictive Control approach for reallocating
         # aerial resources for fighting fires. The input conditional
         # probabilities are provided as inputs to the program. We just run the
@@ -997,196 +996,188 @@ class Simulation():
             self.realisedFFDIs[ii] = [None]*runs
             self.aircraftHours[ii] = [None]*runs
 
-            if fastSim:
-                FastSim.forwardPaths()
+            for run in range(self.model.getRuns()):
+                damage = 0
+                assignmentsPath = [None]*(timeSteps + 1)
+                assignmentsPath[0] = copy.copy(assignments)
+                firesPath = copy.copy(fires)
+                resourcesPath = copy.copy(resources)
+                activeFires = [fire for fire in firesPath]
+                self.realisedFires[ii][run] = [None]*(timeSteps + 1)
+                self.realisedFires[ii][run][0] = copy.copy(activeFires)
+                self.finalDamageMaps[ii][run] = numpy.empty([timeSteps + 1,
+                                                             patches])
+                self.finalDamageMaps[ii][run][0] = numpy.zeros([patches])
+                self.aircraftHours[ii][run] = numpy.zeros([timeSteps + 1,
+                                                           len(resources)])
 
-            else:
-                for run in range(self.model.getRuns()):
-                    damage = 0
-                    assignmentsPath = [None]*(timeSteps + 1)
-                    assignmentsPath[0] = copy.copy(assignments)
-                    firesPath = copy.copy(fires)
-                    resourcesPath = copy.copy(resources)
-                    activeFires = [fire for fire in firesPath]
-                    self.realisedFires[ii][run] = [None]*(timeSteps + 1)
-                    self.realisedFires[ii][run][0] = copy.copy(activeFires)
-                    self.finalDamageMaps[ii][run] = numpy.empty([timeSteps + 1,
-                                                                 patches])
-                    self.finalDamageMaps[ii][run][0] = numpy.zeros([patches])
-                    self.aircraftHours[ii][run] = numpy.zeros([timeSteps + 1,
-                                                               len(resources)])
+                rain = numpy.zeros([timeSteps+1+lookahead, regionSize])
+                rain[0] = region.getRain()
+                precipitation = numpy.zeros([timeSteps+1+lookahead,
+                                             regionSize])
+                precipitation[0] = region.getHumidity()
+                temperatureMin = numpy.zeros([timeSteps+1+lookahead,
+                                              regionSize])
+                temperatureMin[0] = region.getTemperatureMin()
+                temperatureMax = numpy.zeros([timeSteps+1+lookahead,
+                                              regionSize])
+                temperatureMax[0] = region.getTemperatureMax()
+                windNS = numpy.zeros([timeSteps+1+lookahead, regionSize])
+                windNS[0] = region.getWindN()
+                windEW = numpy.zeros([timeSteps+1+lookahead, regionSize])
+                windEW[0] = region.getWindE()
+                FFDI = numpy.zeros([timeSteps+1+lookahead, regionSize])
+                FFDI[0] = region.getDangerIndex()
+                windRegimes = numpy.zeros([timeSteps+1+lookahead])
+                windRegimes[0] = region.getWindRegime()
+                accumulatedDamage = numpy.zeros([timeSteps+1, patches])
+                accumulatedHours = numpy.zeros([timeSteps+1, len(resources)])
 
-                    rain = numpy.zeros([timeSteps+1+lookahead, regionSize])
-                    rain[0] = region.getRain()
-                    precipitation = numpy.zeros([timeSteps+1+lookahead,
-                                                 regionSize])
-                    precipitation[0] = region.getHumidity()
-                    temperatureMin = numpy.zeros([timeSteps+1+lookahead,
-                                                  regionSize])
-                    temperatureMin[0] = region.getTemperatureMin()
-                    temperatureMax = numpy.zeros([timeSteps+1+lookahead,
-                                                  regionSize])
-                    temperatureMax[0] = region.getTemperatureMax()
-                    windNS = numpy.zeros([timeSteps+1+lookahead, regionSize])
-                    windNS[0] = region.getWindN()
-                    windEW = numpy.zeros([timeSteps+1+lookahead, regionSize])
-                    windEW[0] = region.getWindE()
-                    FFDI = numpy.zeros([timeSteps+1+lookahead, regionSize])
-                    FFDI[0] = region.getDangerIndex()
-                    windRegimes = numpy.zeros([timeSteps+1+lookahead])
-                    windRegimes[0] = region.getWindRegime()
-                    accumulatedDamage = numpy.zeros([timeSteps+1, patches])
-                    accumulatedHours = numpy.zeros([timeSteps+1,
-                                                    len(resources)])
+                """ If not MPC, we need to know the initial assignments of
+                aircraft based on the ENTIRE horizon """
+                if static:
+                    expectedFFDI = sampleFFDIs[ii]
+                    expDamageExist = {
+                            (jj, kk):
+                            self.expectedDamageExisting(
+                                    activeFires[jj], expectedFFDI,
+                                    configsE[kk], 0,
+                                    self.model.getTotalSteps() + lookahead)
+                            for jj in range(len(activeFires))
+                            for kk in range(len(configsE))}
 
-                    """ If not MPC, we need to know the initial assignments of
-                    aircraft based on the ENTIRE horizon """
-                    if static:
-                        expectedFFDI = sampleFFDIs[ii]
-                        expDamageExist = {
-                                (jj, kk):
-                                self.expectedDamageExisting(
-                                        activeFires[jj], expectedFFDI,
-                                        configsE[kk], 0,
-                                        self.model.getTotalSteps())
-                                for jj in range(len(activeFires))
-                                for kk in range(len(configsE))}
+                    expDamagePoten = {
+                            (jj, kk):
+                            self.expectedDamagePotential(
+                                    jj, expectedFFDI, configsP[kk], 0,
+                                    self.model.getTotalSteps() + lookahead)
+                            for jj in range(patches)
+                            for kk in range(len(configsP))}
 
-                        expDamagePoten = {
-                                (jj, kk):
-                                self.expectedDamagePotential(
-                                        jj, expectedFFDI, configsP[kk], 0,
-                                        self.model.getTotalSteps())
-                                for jj in range(patches)
-                                for kk in range(len(configsP))}
+                    [patchConfigs, fireConfigs] = (
+                            self.assignAircraft(
+                                    assignmentsPath, expDamageExist,
+                                    expDamagePoten, activeFires, resourcesPath,
+                                    expectedFFDI, 0, 1, static))
 
-                        [patchConfigs, fireConfigs] = (
-                                self.assignAircraft(
-                                        assignmentsPath, expDamageExist,
-                                        expDamagePoten, activeFires,
-                                        resourcesPath, expectedFFDI, 0, 1,
-                                        static))
+                    self.fixBaseAssignments(assignmentsPath[0])
 
-                        self.fixBaseAssignments(assignmentsPath[0])
+                for tt in range(timeSteps):
+                    if len(sampleFFDIs) == 0:
+                        rainTemp = numpy.zeros([
+                                timeSteps + lookahead + 1, regionSize])
+                        rainTemp[tt] = rain[tt]
+                        precipitationTemp = numpy.zeros([
+                                timeSteps + lookahead + 1, regionSize])
+                        precipitationTemp[tt] = precipitation[tt]
+                        temperatureMinTemp = numpy.zeros([
+                                timeSteps + lookahead + 1, regionSize])
+                        temperatureMinTemp[tt] = temperatureMin[tt]
+                        temperatureMaxTemp = numpy.zeros([
+                                timeSteps + lookahead + 1, regionSize])
+                        temperatureMaxTemp[tt] = temperatureMax[tt]
+                        windNSTemp = numpy.zeros([
+                                timeSteps + lookahead + 1, regionSize])
+                        windNSTemp[tt] = windNS[tt]
+                        windEWTemp = numpy.zeros([
+                                timeSteps + lookahead + 1, regionSize])
+                        windEWTemp[tt] = windEW[tt]
+                        FFDITemp = numpy.zeros([
+                                timeSteps + lookahead + 1, regionSize])
+                        FFDITemp[tt] = FFDI[tt]
+                        windRegimesTemp = numpy.zeros([timeSteps
+                                                       + lookahead + 1])
+                        windRegimesTemp[tt] = windRegimes[tt]
 
-                    for tt in range(timeSteps):
-                        if len(sampleFFDIs) == 0:
-                            rainTemp = numpy.zeros([
-                                    timeSteps + lookahead + 1, regionSize])
-                            rainTemp[tt] = rain[tt]
-                            precipitationTemp = numpy.zeros([
-                                    timeSteps + lookahead + 1, regionSize])
-                            precipitationTemp[tt] = precipitation[tt]
-                            temperatureMinTemp = numpy.zeros([
-                                    timeSteps + lookahead + 1, regionSize])
-                            temperatureMinTemp[tt] = temperatureMin[tt]
-                            temperatureMaxTemp = numpy.zeros([
-                                    timeSteps + lookahead + 1, regionSize])
-                            temperatureMaxTemp[tt] = temperatureMax[tt]
-                            windNSTemp = numpy.zeros([
-                                    timeSteps + lookahead + 1, regionSize])
-                            windNSTemp[tt] = windNS[tt]
-                            windEWTemp = numpy.zeros([
-                                    timeSteps + lookahead + 1, regionSize])
-                            windEWTemp[tt] = windEW[tt]
-                            FFDITemp = numpy.zeros([
-                                    timeSteps + lookahead + 1, regionSize])
-                            FFDITemp[tt] = FFDI[tt]
-                            windRegimesTemp = numpy.zeros([timeSteps
-                                                           + lookahead + 1])
-                            windRegimesTemp[tt] = windRegimes[tt]
+                        FFDISamples = numpy.zeros([
+                                samplePaths2, lookahead, regionSize])
 
-                            FFDISamples = numpy.zeros([
-                                    samplePaths2, lookahead, regionSize])
+                        # This part is hard as it requires many simulations to
+                        # achieve convergence in the expected FFDIs across the
+                        # region
+                        for pp in range(samplePaths2):
+                            for ll in range(tt + 1, tt + lookahead + 1):
+                                wg.computeWeather(
+                                    rainTemp, precipitationTemp,
+                                    temperatureMinTemp, temperatureMaxTemp,
+                                    windRegimesTemp, windNSTemp, windEWTemp,
+                                    FFDITemp, ll)
 
-                            # This part is hard as it requires many simulations
-                            # to achieve convergence in the expected FFDIs
-                            # across the region
-                            for pp in range(samplePaths2):
-                                for ll in range(tt + 1, tt + lookahead + 1):
-                                    wg.computeWeather(
-                                        rainTemp, precipitationTemp,
-                                        temperatureMinTemp, temperatureMaxTemp,
-                                        windRegimesTemp, windNSTemp,
-                                        windEWTemp, FFDITemp, ll)
+                                FFDISamples[pp, ll, :] = FFDITemp[ll]
 
-                                    FFDISamples[pp, ll, :] = FFDITemp[ll]
+                        # Compute the expected FFDI at each time step for each
+                        # patch
+                        expectedFFDI = FFDISamples.sum(0)/len(samplePaths2)
 
-                            # Compute the expected FFDI at each time step for
-                            # each patch
-                            expectedFFDI = FFDISamples.sum(0)/len(samplePaths2)
+                    else:
+                        expectedFFDI = sampleFFDIs[ii][:, tt:(tt + lookahead
+                                                              + 1)]
 
-                        else:
-                            expectedFFDI = sampleFFDIs[ii][:,
-                                                           tt:(tt + lookahead
-                                                               + 1)]
+                    """ Compute the new assignments. If static, only fire
+                    assignments are computed here. Otherwise, we also compute
+                    relocations """
+                    expDamageExist = {
+                            (jj, kk):
+                            self.expectedDamageExisting(
+                                    activeFires[jj], expectedFFDI,
+                                    configsE[kk], tt,
+                                    self.model.getTotalSteps() + lookahead
+                                            - tt)
+                            for jj in range(len(activeFires))
+                            for kk in range(len(configsE))}
 
-                        """ Compute the new assignments. If static, only fire
-                        assignments are computed here. Otherwise, we also
-                        compute relocations """
-                        expDamageExist = {
-                                (jj, kk):
-                                self.expectedDamageExisting(
-                                        activeFires[jj], expectedFFDI,
-                                        configsE[kk], tt,
-                                        self.model.getLookahead())
-                                for jj in range(len(activeFires))
-                                for kk in range(len(configsE))}
+                    expDamagePoten = {
+                            (jj, kk):
+                            self.expectedDamagePotential(
+                                    jj, expectedFFDI, configsP[kk], tt,
+                                    self.model.getTotalSteps() + lookahead
+                                            - tt)
+                            for jj in range(patches)
+                            for kk in range(len(configsP))}
 
-                        expDamagePoten = {
-                                (jj, kk):
-                                self.expectedDamagePotential(
-                                        jj, expectedFFDI, configsP[kk], tt,
-                                        self.model.getLookahead())
-                                for jj in range(patches)
-                                for kk in range(len(configsP))}
+                    # Assign aircraft using LP
+                    # If this is for the static case, only fire assignments are
+                    # considered
+                    [patchConfigs, fireConfigs] = (
+                            self.assignAircraft(
+                                    assignmentsPath, expDamageExist,
+                                    expDamagePoten, activeFires, resourcesPath,
+                                    expectedFFDI, tt + 1, 1))
 
-                        # Assign aircraft using LP
-                        # If this is for the static case, only fire assignments
-                        # are considered
-                        [patchConfigs, fireConfigs] = (
-                                self.assignAircraft(
-                                        assignmentsPath, expDamageExist,
-                                        expDamagePoten, activeFires,
-                                        resourcesPath, expectedFFDI, tt + 1,
-                                        1))
+                    # Save the active fires to the path history
+                    self.realisedFires[ii][run][tt + 1] = copy.copy(
+                            activeFires)
 
-                        # Save the active fires to the path history
-                        self.realisedFires[ii][run][tt + 1] = copy.copy(
-                                activeFires)
+                    # Simulate the fire growth, firefighting success and the
+                    # new positions of each resources
+                    damage += self.simulateSinglePeriod(
+                            assignmentsPath, resourcesPath, firesPath,
+                            activeFires, accumulatedDamage, accumulatedHours,
+                            patchConfigs, fireConfigs, FFDI[tt], tt)
 
-                        # Simulate the fire growth, firefighting success and
-                        # the new positions of each resources
-                        damage += self.simulateSinglePeriod(
-                                assignmentsPath, resourcesPath, firesPath,
-                                activeFires, accumulatedDamage,
-                                accumulatedHours, patchConfigs, fireConfigs,
-                                FFDI[tt], tt)
+                    self.aircraftHours[ii][run][tt + 1] = numpy.array([
+                            resourcesPath[r].getFlyingHours()
+                            for r in range(len(
+                                    self.model.getRegion().getResources()))])
 
-                        self.aircraftHours[ii][run][tt + 1] = numpy.array([
-                                resourcesPath[r].getFlyingHours()
-                                for r in range(len(
-                                        self.model.getRegion()
-                                        .getResources()))])
+                    # Simulate the realised weather for the next time step
+                    if len(sampleFFDIs) == 0:
+                        wg.computeWeather(
+                                rain, precipitation, temperatureMin,
+                                temperatureMax, windRegimes, windNS, windEW,
+                                FFDI, tt)
+                    else:
+                        FFDI[tt + 1] = sampleFFDIs[ii][:, tt + 1]
 
-                        # Simulate the realised weather for the next time step
-                        if len(sampleFFDIs) == 0:
-                            wg.computeWeather(
-                                    rain, precipitation, temperatureMin,
-                                    temperatureMax, windRegimes, windNS,
-                                    windEW, FFDI, tt)
-                        else:
-                            FFDI[tt + 1] = sampleFFDIs[ii][:, tt + 1]
+                # Store the output results
+                self.finalDamageMaps[ii][run] = accumulatedDamage
+                self.expectedDamages[ii][run] = damage
+                self.realisedAssignments[ii][run] = assignmentsPath
+                self.realisedFFDIs[ii][run] = FFDI
+                self.aircraftHours[ii][run] = accumulatedHours
 
-                    # Store the output results
-                    self.finalDamageMaps[ii][run] = accumulatedDamage
-                    self.expectedDamages[ii][run] = damage
-                    self.realisedAssignments[ii][run] = assignmentsPath
-                    self.realisedFFDIs[ii][run] = FFDI
-                    self.aircraftHours[ii][run] = accumulatedHours
-
-                    """Save the results for this sample"""
-                    self.writeOutResults(ii, run)
+                """Save the results for this sample"""
+                self.writeOutResults(ii, run)
 
         self.writeOutSummary()
 
@@ -1454,10 +1445,10 @@ class Simulation():
                                 val=varCoeffs[m, r])
                         for m in tempModel.M
                         for r in tempModel.R],
-                senses=["L"]*len(varIdxs),
+                senses = ["L"]*len(varIdxs),
                 rhs=[tempModel.nus[control][0] + tempModel.d2_MR_B1[m, r]
-                     for m in tempModel.M
-                     for r in tempModel.R])
+                        for m in tempModel.M
+                        for r in tempModel.R])
 
         """ CONSTRAINT 4 """
         startC4 = tempModel.constraintIdxStarts["C_4"]
@@ -1563,15 +1554,14 @@ class Simulation():
                 configsN[k, n] = min(configsN[k, n], remain)
                 remain = max(0, remain - configsN[k, n])
 
-        configsM = [[
-                math.floor(max([sum([
-                        tempModel.d2_RCM[r, c, m] * tempModel.get_values(
-                                tempModel.decisionVarsIdxStarts[
-                                        "Y_MR_Z_CM"] + m*(lenM + 1) + r)
-                        for r in tempModel.R]) / tempModel.Q_KC[k, c]
-                    for c in tempModel.C]) + 1e-6)
-                for k in range(len(tempModel.KP))]
-                for m in tempModel.M]
+        configsM = [[math.floor(max([sum([tempModel.d2_RCM[r, c, m] *
+                               tempModel.get_values(
+                                       tempModel.decisionVarsIdxStarts[
+                                               "Y_MR_Z_CM"] + m*(lenM + 1) + r)
+                               for r in tempModel.R]) / tempModel.Q_KC[k, c]
+                          for c in tempModel.C]) + 1e-6)
+                     for k in range(len(tempModel.KP))]
+                    for m in tempModel.M]
 
         fireConfigs = [configsM[m].index(1) for m in tempModel.M]
 
@@ -1704,10 +1694,10 @@ class Simulation():
                                 val=varCoeffs[m, r])
                         for m in tempModel.M
                         for r in tempModel.R],
-                senses=["L"]*len(varIdxs),
+                senses = ["L"]*len(varIdxs),
                 rhs=[tempModel.nus[control][0] + tempModel.d2_MR_B1[m, r]
-                     for m in tempModel.M
-                     for r in tempModel.R])
+                        for m in tempModel.M
+                        for r in tempModel.R])
 
         """ CONSTRAINT 4 """
         startC4 = tempModel.constraintIdxStarts["C_4"]
@@ -1813,15 +1803,14 @@ class Simulation():
                 configsN[k, n] = min(configsN[k, n], remain)
                 remain = max(0, remain - configsN[k, n])
 
-        configsM = [[
-                math.floor(max([sum([
-                        tempModel.d2_RCM[r, c, m] * tempModel.get_values(
-                                tempModel.decisionVarsIdxStarts[
-                                        "Y_MR_Z_CM"] + m*(lenM + 1) + r)
-                        for r in tempModel.R]) / tempModel.Q_KC[k, c]
-                    for c in tempModel.C]) + 1e-6)
-                for k in range(len(tempModel.KP))]
-            for m in tempModel.M]
+        configsM = [[math.floor(max([sum([tempModel.d2_RCM[r, c, m] *
+                               tempModel.get_values(
+                                       tempModel.decisionVarsIdxStarts[
+                                               "Y_MR_Z_CM"] + m*(lenM + 1) + r)
+                               for r in tempModel.R]) / tempModel.Q_KC[k, c]
+                          for c in tempModel.C]) + 1e-6)
+                     for k in range(len(tempModel.KP))]
+                    for m in tempModel.M]
 
         fireConfigs = [configsM[m].index(1) for m in tempModel.M]
 
@@ -2445,10 +2434,10 @@ class Simulation():
                                 val=varCoeffs[m, r])
                         for m in tempModel.M
                         for r in tempModel.R],
-                senses=["L"]*len(varIdxs),
+                senses = ["L"]*len(varIdxs),
                 rhs=[tempModel.nus[control][0] + tempModel.d2_MR_B1[m, r]
-                     for m in tempModel.M
-                     for r in tempModel.R])
+                        for m in tempModel.M
+                        for r in tempModel.R])
 
         """ MODIFY THE COEFFICIENTS AND COMPONENTS OF OTHER CONSTRAINTS """
         """ CONSTRAINT 2 """
@@ -2737,16 +2726,6 @@ class Simulation():
     ////////////////////////// ROV Routines for later /////////////////////////
     ////////////////////////////////////////////////////////////////////////"""
 
-<<<<<<< HEAD
-    def simulateROV(self, exogenousPaths, randCont, endogenousPaths,
-                    analysis=False):
-        # Computes the policy map for the problem that is used by the simulator
-        # to make decisions. The decisions are made by determining the state of
-        # they system before plugging into the policy map.
-        #
-        # This computes a large sample of paths for performing data analysis
-        # for determining good controls/state variables
-=======
     def forwardPaths(self):
         os.system("taskset -p 0xff %d" % os.getpid())
         # We don't need to store the precipitation, wind, and temperature
@@ -2759,11 +2738,136 @@ class Simulation():
         return paths
 
     def simulateROV(self, exogenousPaths, randCont, endogenousPaths):
-<<<<<<< HEAD
->>>>>>> parent of 4ea4000... Some small changes
-=======
->>>>>>> parent of 4ea4000... Some small changes
-        pass
+        # Computes the policy map for the problem that is used by the simulator
+        # to make decisions. The decisions are made by determining the state of
+        # they system before plugging into the policy map.
+        region = self.model.getRegion()
+        timeSteps = self.model.getTotalSteps()
+        patches = len(region.getPatches())
+        resources = region.getResources()
+        fires = region.getFires()
+        configsE = self.model.getUsefulConfigurationsExisting()
+        configsP = self.model.getUsefulConfigurationsPotential()
+        sampleFFDIs = self.model.getSamplePaths()
+
+        """ Initial assignment of aircraft to bases (Col 1) and fires (Col 2)
+        A value of zero indicates no assignment (only applicable for fires) """
+        assignments = self.model.getRegion().getAssignments()
+
+        regionSize = region.getX().size
+        samplePaths = (
+                len(sampleFFDIs)
+                if len(sampleFFDIs) > 0
+                else self.model.getRuns())
+        samplePaths2 = self.model.getMCPaths()
+        lookahead = self.model.getLookahead()
+        runs = self.model.getRuns()
+
+        self.finalDamageMaps = [None]*samplePaths
+        self.expectedDamages = [None]*samplePaths
+        self.realisedAssignments = [None]*samplePaths
+        self.realisedFires = [None]*samplePaths
+        self.realisedFFDIs = [None]*samplePaths
+        self.aircraftHours = [None]*samplePaths
+
+        wg = region.getWeatherGenerator()
+
+        for ii in range(samplePaths):
+            self.finalDamageMaps[ii] = [None]*runs
+            self.expectedDamages[ii] = [None]*runs
+            self.realisedAssignments[ii] = [None]*runs
+            self.realisedFires[ii] = [None]*runs
+            self.realisedFFDIs[ii] = [None]*runs
+            self.aircraftHours[ii] = [None]*runs
+
+            for run in range(self.model.getRuns()):
+                damage = 0
+                assignmentsPath = [None]*(timeSteps + 1)
+                assignmentsPath[0] = copy.copy(assignments)
+                firesPath = copy.copy(fires)
+                resourcesPath = copy.copy(resources)
+                activeFires = [fire for fire in firesPath]
+                self.realisedFires[ii][run] = [None]*(timeSteps + 1)
+                self.realisedFires[ii][run][0] = copy.copy(activeFires)
+                self.finalDamageMaps[ii][run] = numpy.empty([timeSteps + 1,
+                                                             patches])
+                self.finalDamageMaps[ii][run][0] = numpy.zeros([patches])
+                self.aircraftHours[ii][run] = numpy.zeros([timeSteps + 1,
+                                                           len(resources)])
+
+                rain = numpy.zeros([timeSteps+1+lookahead, regionSize])
+                rain[0] = region.getRain()
+                precipitation = numpy.zeros([timeSteps+1+lookahead,
+                                             regionSize])
+                precipitation[0] = region.getHumidity()
+                temperatureMin = numpy.zeros([timeSteps+1+lookahead,
+                                              regionSize])
+                temperatureMin[0] = region.getTemperatureMin()
+                temperatureMax = numpy.zeros([timeSteps+1+lookahead,
+                                              regionSize])
+                temperatureMax[0] = region.getTemperatureMax()
+                windNS = numpy.zeros([timeSteps+1+lookahead, regionSize])
+                windNS[0] = region.getWindN()
+                windEW = numpy.zeros([timeSteps+1+lookahead, regionSize])
+                windEW[0] = region.getWindE()
+                FFDI = numpy.zeros([timeSteps+1+lookahead, regionSize])
+                FFDI[0] = region.getDangerIndex()
+                windRegimes = numpy.zeros([timeSteps+1+lookahead])
+                windRegimes[0] = region.getWindRegime()
+                accumulatedDamage = numpy.zeros([timeSteps+1, patches])
+                accumulatedHours = numpy.zeros([timeSteps+1, len(resources)])
+
+                for tt in range(timeSteps):
+                    if len(sampleFFDIs) == 0:
+                        pass
+                    else:
+                        expectedFFDI = sampleFFDIs[ii][:, tt:(tt + lookahea
+                                                              + 1)]
+
+                    """ Use the policy maps/regressions to make assignment
+                    decisions """
+                    """ States """
+
+
+                    """ Determine Control Based on ROV Analysis """
+
+
+                    """ New Assignments """
+
+
+                    """ Simulate to Update """
+                    # Simulate the fire growth, firefighting success and the
+                    # new positions of each resources
+                    damage += self.simulateSinglePeriod(
+                            assignmentsPath, resourcesPath, firesPath,
+                            activeFires, accumulatedDamage, accumulatedHours,
+                            patchConfigs, fireConfigs, FFDI[tt], tt)
+
+                    self.aircraftHours[ii][run][tt + 1] = numpy.array([
+                            resourcesPath[r].getFlyingHours()
+                            for r in range(len(
+                                    self.model.getRegion().getResources()))])
+
+                    # Simulate the realised weather for the next time step
+                    if len(sampleFFDIs) == 0:
+                        wg.computeWeather(
+                                rain, precipitation, temperatureMin,
+                                temperatureMax, windRegimes, windNS, windEW,
+                                FFDI, tt)
+                    else:
+                        FFDI[tt + 1] = sampleFFDIs[ii][:, tt + 1]
+
+                # Store the output results
+                self.finalDamageMaps[ii][run] = accumulatedDamage
+                self.expectedDamages[ii][run] = damage
+                self.realisedAssignments[ii][run] = assignmentsPath
+                self.realisedFFDIs[ii][run] = FFDI
+                self.aircraftHours[ii][run] = accumulatedHours
+
+                """Save the results for this sample"""
+                self.writeOutResults(ii, run)
+
+        self.writeOutSummary()
 
     def randomControls(self):
         randControls = (numpy.random.choice(
