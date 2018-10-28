@@ -243,8 +243,8 @@ class Simulation():
         """ Number of aircraft required for component C of configuration K """
         cplxMod.Q_KC = {
                 (k, c): self.model.getConfigurations()[k+1][c-1]
-                for k in self.relocationModel.K
-                for c in self.relocationModel.C}
+                for k in cplxMod.K
+                for c in cplxMod.C}
 
         """ Travel times between aircraft and bases """
         cplxMod.d1_RB = {
@@ -265,7 +265,7 @@ class Simulation():
                 for c in cplxMod.C
                 for m in cplxMod.M}
 
-        """ Distances between baes B and patch N"""
+        """ Distances between base B and patch N"""
         cplxMod.d3_BN = {
                 (b, n):
                 (math.sqrt(
@@ -1110,8 +1110,8 @@ class Simulation():
                         expectedFFDI = FFDISamples.sum(0)/len(samplePaths2)
 
                     else:
-                        expectedFFDI = sampleFFDIs[ii][:, tt:(tt + lookahead
-                                                              + 1)]
+                        expectedFFDI = sampleFFDIs[ii][:, tt:(
+                                self.model.getTotalSteps() + lookahead + 1)]
 
                     """ Compute the new assignments. If static, only fire
                     assignments are computed here. Otherwise, we also compute
@@ -1208,6 +1208,9 @@ class Simulation():
         self.copyNonCplexComponents(tempModel, self.relocationModel)
         bases = self.model.getRegion().getStations()[0]
 
+        """ Set the fire details for the sets and decision variables """
+        tempModel.M = [ii for ii in range(len(activeFires))]
+
         """ Cumulative flying hours """
         tempModel.G_R = {
                 r: resourcesPath[r].getFlyingHours()
@@ -1287,9 +1290,6 @@ class Simulation():
         lenR = len(tempModel.R)
         lenB = len(tempModel.B)
         lenM = len(tempModel.M)
-
-        """ Set the fire details for the sets and decision variables """
-        tempModel.M = [ii for ii in range(len(activeFires))]
 
         """ Aircraft-fire assignments and fire configuration covers """
         """
@@ -2650,24 +2650,27 @@ class Simulation():
 
     def copyNonCplexComponents(self, tempModel, copyModel):
         """ This routine only copies components that are immutable """
-        tempModel.R = copy.copy(copyModel.R)
-        tempModel.B = copy.copy(copyModel.B)
-        tempModel.N = copy.copy(copyModel.N)
-        tempModel.T = copy.copy(copyModel.T)
-        tempModel.K = copy.copy(copyModel.K)
-        tempModel.KE = copy.copy(copyModel.KE)
-        tempModel.KP = copy.copy(copyModel.KP)
-        tempModel.C = copy.copy(copyModel.C)
-        tempModel.M_All = copy.copy(copyModel.M_All)
-        tempModel.lambdas = copy.copy(copyModel.lambdas)
-        tempModel.Gmax_R = copy.copy(copyModel.Gmax_R)
-        tempModel.Q_KC = copy.copy(copyModel.Q_KC)
+        tempModel.R = copyModel.R
+        tempModel.B = copyModel.B
+        tempModel.N = copyModel.N
+        tempModel.T = copyModel.T
+        tempModel.K = copyModel.K
+        tempModel.KE = copyModel.KE
+        tempModel.KP = copyModel.KP
+        tempModel.C = copyModel.C
+        tempModel.M_All = copyModel.M_All
+        tempModel.lambdas = copyModel.lambdas
+        tempModel.Gmax_R = copyModel.Gmax_R
+        tempModel.Q_KC = copyModel.Q_KC
         tempModel.decisionVars = copy.copy(copyModel.decisionVars)
         tempModel.decisionVarsIdxStarts = copy.copy(
                 copyModel.decisionVarsIdxStarts)
         tempModel.constraintIdxStarts = copy.copy(
                 copyModel.constraintIdxStarts)
         tempModel.constraintNames = copy.copy(copyModel.constraintNames)
+        tempModel.nus = copyModel.nus
+        tempModel.d3_BN = copyModel.d3_BN
+        tempModel.d3_BCN = copyModel.d3_BCN
 
     def expectedDamageExisting(self, fire, ffdiPath, configID, time, look):
         damage = 0

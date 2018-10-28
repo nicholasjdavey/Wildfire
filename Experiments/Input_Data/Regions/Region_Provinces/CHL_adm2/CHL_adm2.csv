@@ -1,0 +1,55 @@
+"OBJECTID","ID_0","ISO","NAME_0","ID_1","NAME_1","ID_2","NAME_2","TYPE_2","ENGTYPE_2","NL_NAME_2","VARNAME_2"
+1,48,"CHL","Chile",1,"Aisén del General Carlos Ibáñez del Campo",1,"Aisén","Provincia","Province",NA,NA
+2,48,"CHL","Chile",1,"Aisén del General Carlos Ibáñez del Campo",2,"Capitán Prat","Provincia","Province",NA,NA
+3,48,"CHL","Chile",1,"Aisén del General Carlos Ibáñez del Campo",3,"Coihaique","Provincia","Province",NA,NA
+4,48,"CHL","Chile",1,"Aisén del General Carlos Ibáñez del Campo",4,"General Carrera","Provincia","Province",NA,NA
+5,48,"CHL","Chile",2,"Antofagasta",5,"Antofagasta","Provincia","Province",NA,NA
+6,48,"CHL","Chile",2,"Antofagasta",6,"El Loa","Provincia","Province",NA,NA
+7,48,"CHL","Chile",2,"Antofagasta",7,"Tocopilla","Provincia","Province",NA,NA
+8,48,"CHL","Chile",3,"Araucanía",8,"Cautín","Provincia","Province",NA,NA
+9,48,"CHL","Chile",3,"Araucanía",9,"Malleco","Provincia","Province",NA,NA
+10,48,"CHL","Chile",4,"Arica y Parinacota",10,"Arica","Provincia","Province",NA,NA
+11,48,"CHL","Chile",4,"Arica y Parinacota",11,"Parinacota","Provincia","Province",NA,NA
+12,48,"CHL","Chile",5,"Atacama",12,"Chañaral","Provincia","Province",NA,NA
+13,48,"CHL","Chile",5,"Atacama",13,"Copiapó","Provincia","Province",NA,NA
+14,48,"CHL","Chile",5,"Atacama",14,"Huasco","Provincia","Province",NA,NA
+15,48,"CHL","Chile",6,"Bío-Bío",15,"Ñuble","Provincia","Province",NA,NA
+16,48,"CHL","Chile",6,"Bío-Bío",16,"Arauco","Provincia","Province",NA,NA
+17,48,"CHL","Chile",6,"Bío-Bío",17,"Biobío","Provincia","Province",NA,NA
+18,48,"CHL","Chile",6,"Bío-Bío",18,"Concepción","Provincia","Province",NA,NA
+19,48,"CHL","Chile",7,"Coquimbo",19,"Choapa","Provincia","Province",NA,NA
+20,48,"CHL","Chile",7,"Coquimbo",20,"Elqui","Provincia","Province",NA,NA
+21,48,"CHL","Chile",7,"Coquimbo",21,"Limarí","Provincia","Province",NA,NA
+22,48,"CHL","Chile",8,"Libertador General Bernardo O'Higgins",22,"Cachapoal","Provincia","Province",NA,NA
+23,48,"CHL","Chile",8,"Libertador General Bernardo O'Higgins",23,"Cardenal Caro","Provincia","Province",NA,NA
+24,48,"CHL","Chile",8,"Libertador General Bernardo O'Higgins",24,"Colchagua","Provincia","Province",NA,NA
+25,48,"CHL","Chile",9,"Los Lagos",25,"Chiloé","Provincia","Province",NA,NA
+26,48,"CHL","Chile",9,"Los Lagos",26,"Llanquihue","Provincia","Province",NA,NA
+27,48,"CHL","Chile",9,"Los Lagos",27,"Osorno","Provincia","Province",NA,NA
+28,48,"CHL","Chile",9,"Los Lagos",28,"Palena","Provincia","Province",NA,NA
+29,48,"CHL","Chile",10,"Los Ríos",29,"Ranco","Provincia","Province",NA,NA
+30,48,"CHL","Chile",10,"Los Ríos",30,"Valdivia","Provincia","Province",NA,NA
+31,48,"CHL","Chile",11,"Magallanes y Antártica Chilena",31,"Antártica Chilena","Provincia","Province",NA,NA
+32,48,"CHL","Chile",11,"Magallanes y Antártica Chilena",32,"Última Esperanza","Provincia","Province",NA,NA
+33,48,"CHL","Chile",11,"Magallanes y Antártica Chilena",33,"Capitán Prat","Provincia","Province",NA,NA
+34,48,"CHL","Chile",11,"Magallanes y Antártica Chilena",34,"Chacabuco","Provincia","Province",NA,NA
+35,48,"CHL","Chile",11,"Magallanes y Antártica Chilena",35,"Magallanes","Provincia","Province",NA,NA
+36,48,"CHL","Chile",11,"Magallanes y Antártica Chilena",36,"Tierra del Fuego","Provincia","Province",NA,NA
+37,48,"CHL","Chile",12,"Maule",37,"Cauquenes","Provincia","Province",NA,NA
+38,48,"CHL","Chile",12,"Maule",38,"Curicó","Provincia","Province",NA,NA
+39,48,"CHL","Chile",12,"Maule",39,"Linares","Provincia","Province",NA,NA
+40,48,"CHL","Chile",12,"Maule",40,"Talca","Provincia","Province",NA,NA
+41,48,"CHL","Chile",13,"Región Metropolitana de Santiago",41,"Chacabuco","Provincia","Province",NA,NA
+42,48,"CHL","Chile",13,"Región Metropolitana de Santiago",42,"Cordillera","Provincia","Province",NA,NA
+43,48,"CHL","Chile",13,"Región Metropolitana de Santiago",43,"Maipo","Provincia","Province",NA,NA
+44,48,"CHL","Chile",13,"Región Metropolitana de Santiago",44,"Melipilla","Provincia","Province",NA,NA
+45,48,"CHL","Chile",13,"Región Metropolitana de Santiago",45,"Santiago","Provincia","Province",NA,NA
+46,48,"CHL","Chile",13,"Región Metropolitana de Santiago",46,"Talagante","Provincia","Province",NA,NA
+47,48,"CHL","Chile",14,"Tarapacá",47,"Iquique","Provincia","Province",NA,NA
+48,48,"CHL","Chile",15,"Valparaíso",48,"ísla de Pascua","Provincia","Province",NA,"Ocean Islands"
+49,48,"CHL","Chile",15,"Valparaíso",49,"Los Andes","Provincia","Province",NA,NA
+50,48,"CHL","Chile",15,"Valparaíso",50,"Petorca","Provincia","Province",NA,NA
+51,48,"CHL","Chile",15,"Valparaíso",51,"Quillota","Provincia","Province",NA,NA
+52,48,"CHL","Chile",15,"Valparaíso",52,"San Antonio","Provincia","Province",NA,NA
+53,48,"CHL","Chile",15,"Valparaíso",53,"San Felipe de Aconcagua","Provincia","Province",NA,NA
+54,48,"CHL","Chile",15,"Valparaíso",54,"Valparaíso","Provincia","Province",NA,NA
