@@ -444,6 +444,25 @@ class Simulation():
                 rhs=[cplxMod.Gmax_R[r] - cplxMod.G_R[r]
                      for r in cplxMod.R])
 
+        """ Save the relocation model to the instance """
+        self.relocationModel = cplxMod
+
+    def buildMaxCover(self):
+        self.relocationModel.objective.set_sense(
+                self.relocationModel.objective.sense.maximize)
+
+        """ DECISION VARIABLES """
+        totalVars = self.relocationModel.variables.get_num()
+
+        self.relocationModel.decisionVars["Z_CN"] = [
+                "Z_CN" + str(n)
+                for n in self.relocationModel.N]
+        self.relocationModel.decisionVarsIdxStarts["Z_CN"] = totalVars
+        totalVars = totalVars + len(self.relocationModel.decisionVars["Z_CN"])
+
+        """ CONSTRAINTS """
+        totalConstraints = self.relocationModel.linear_constraints.get_num()
+
         """Enforces base relocation options based on the control"""
         cplxMod.constraintNames["C_11"] = [
                 "C_11_R" + str(r) + "_B" + str(b)
@@ -469,25 +488,7 @@ class Simulation():
                 senses=["L"]*(len(varIdxs)),
                 rhs=[0]*len(varIdxs))
 
-        """ Save the relocation model to the instance """
-        self.relocationModel = cplxMod
-
-    def buildMaxCover(self):
-        self.relocationModel.objective.set_sense(
-                self.relocationModel.objective.sense.maximize)
-
-        """ DECISION VARIABLES """
-        totalVars = self.relocationModel.variables.get_num()
-
-        self.relocationModel.decisionVars["Z_CN"] = [
-                "Z_CN" + str(n)
-                for n in self.relocationModel.N]
-        self.relocationModel.decisionVarsIdxStarts["Z_CN"] = totalVars
-        totalVars = totalVars + len(self.relocationModel.decisionVars["Z_CN"])
-
-        """ CONSTRAINTS """
-        totalConstraints = self.relocationModel.linear_constraints.get_num()
-
+        """ Cover constraints """
         self.relocationModel.constraintNames["C_A_1"] = [
                 "C_A_1_C" + str(c) + "_N" + str(n)
                 for c in [0, 1]
@@ -525,6 +526,7 @@ class Simulation():
         """ CONSTRAINTS """
         totalConstraints = self.relocationModel.linear_constraints.get_num()
         lenB = len(self.relocationModel.B)
+
         """Restricts the relocation of aircraft by proximity to bases"""
         self.relocationModel.constraintNames["C_11"] = [
                 "C_11_R" + str(r) + "_B" + str(b)
@@ -1271,8 +1273,9 @@ class Simulation():
 
         lpModel = self.model.getNestedOptMethod()
         prog = switch.get(lpModel)
-        prog(assignmentsPath, expDamageExist, expDamagePoten, activeFires,
-             resourcesPath, ffdiPath, timeStep, control, static, tempModel)
+        return prog(assignmentsPath, expDamageExist, expDamagePoten,
+                    activeFires, resourcesPath, ffdiPath, timeStep, control,
+                    static, tempModel)
 
     def assignMaxCover(self, assignmentsPath, expDamageExist, expDamagePoten,
                        activeFires, resourcesPath, ffdiPath, timeStep, control,

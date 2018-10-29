@@ -8,6 +8,7 @@ Created on Sun Dec 10 23:33:16 2017
 import numpy
 import random
 from pyproj import Proj
+from numba import jitclass
 from shapely.affinity import affine_transform
 from shapely.geometry import Point, Polygon
 from shapely.ops import triangulate

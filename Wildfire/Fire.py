@@ -7,8 +7,8 @@ Created on Sun Dec 10 23:34:56 2017
 
 import numpy
 import math
+from numba import jitclass
 from datetime import datetime
-
 
 class Fire():
     # Class for managing fires
