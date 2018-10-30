@@ -21,6 +21,7 @@ import matplotlib.cm as clrmp
 import matplotlib.backends.backend_pdf as pdf
 # import multiprocessing as mp
 
+import SimulationNumba
 
 class Simulation():
     # Class for defining a simulation run
@@ -2732,6 +2733,95 @@ class Simulation():
     ////////////////////////// ROV Routines for later /////////////////////////
     ////////////////////////////////////////////////////////////////////////"""
 
+    def simulateROV(self):
+        region = self.model.getRegion()
+        totalSteps = self.model.getTotalSteps()
+        lookahead = self.model.getLookahead()
+        patches = region.getPatches()
+        vegetations = self.model.getRegion().getVegetations()
+        resources = region.getResources()
+        fires = region.getFires()
+        configsE = self.model.getUsefulConfigurationsExisting()
+        configsP = self.model.getUsefulConfigurationsPotential()
+        sampleFFDIs = self.model.getSamplePaths()
+
+        samplePaths = (
+                len(sampleFFDIs)
+                if len(sampleFFDIs) > 0
+                else self.model.getRuns())
+        mcPaths = self.model.getMCPaths()
+
+        """ Input data for ROV """
+        noPatches = len(patches)
+        noResources = len(resources)
+        patchVegetations = region.getVegetation()
+        patchCentroids = numpy.array([patch.getCentroid()
+                                      for patch in patches])
+        resourceTypes = numpy.array([resource.getType()
+                                     for resource in resources])
+        resourceSpeeds = numpy.array([resource.getSpeed()
+                                      for resource in resources])
+        configurations = numpy.array([self.model.configurations[config]
+                                      for config in self.model.configurations])
+        ffdiRanges = numpy.array([vegetation.getFFDIRange()
+                                  for vegetation in vegetations])
+        rocA2PHMeans = numpy.array([vegetation.getROCA2PerHourMean()
+                                    for vegetation in vegetations])
+        rocA2PHSDs = numpy.array([vegetation.getROCA2PerHourSD()
+                                  for vegetation in vegetations])
+        occurrence = numpy.array([vegetation.getOccurrence()
+                                  for vegetation in vegetations])
+
+        """ Initial Monte Carlo Paths """
+
+        for ii in range(samplePaths):
+            accumulatedDamages = numpy.zeros([mcPaths, totalSteps + 1,
+                                              noPatches])
+            accumulatedHours = numpy.zeros([mcPaths, totalSteps + 1,
+                                            noResources])
+            aircraftLocations = numpy.zeros([mcPaths, totalSteps + 1,
+                                             noResources, 2])
+            aircraftAssignments = numpy.zeros([mcPaths, totalSteps + 1,
+                                               noResources, 2])
+            noFires = numpy.zeros([mcPaths, totalSteps + 1])
+            noFires[:, 0] = numpy.array([len(fires)]*mcPaths)
+            fireSizes = numpy.zeros([mcPaths, totalSteps + 1, 1000])
+            fireSizes[:, 0, 1:(len(fires) + 1)] = [[
+                    fire.getSize() for fire in fires]]*mcPaths
+
+            fireLocations = numpy.zeros([mcPaths, totalSteps, 1000, 2])
+            fireLocations[:, 0, 1:(len(fires) + 1), :] = [[
+                    fire.getLocation() for fire in fires]]
+
+            firePatches = numpy.zeros([mcPaths, totalSteps, 1000])
+            firePatches[:, 0, 1:(len(fires) + 1)] = [[
+                    fire.getPatchID() for fire in fires]]
+
+            print("MC Paths")
+            SimulationNumba.simulateMC(
+                    mcPaths, sampleFFDIs[ii], patchVegetations, patchCentroids,
+                    resourceTypes, resourceSpeeds, configurations, configsE,
+                    configsP, ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
+                    totalSteps, lookahead, accumulatedDamages,
+                    accumulatedHours, noFires, fireSizes, fireLocations,
+                    firePatches, aircraftLocations, aircraftAssignments)
+
+        """ Regressions """
+
+
+        """ Now test the performance of the evaluation """
+        """ These are for the actual simulation runs """
+        self.finalDamageMaps = [None]*samplePaths
+        self.expectedDamages = [None]*samplePaths
+        self.realisedAssignments = [None]*samplePaths
+        self.realisedFires = [None]*samplePaths
+        self.realisedFFDIs = [None]*samplePaths
+        self.aircraftHours = [None]*samplePaths
+
+        for ii in range(samplePaths):
+            for run in range(self.model.getRuns()):
+                pass
+
     def forwardPaths(self):
         os.system("taskset -p 0xff %d" % os.getpid())
         # We don't need to store the precipitation, wind, and temperature
@@ -2743,7 +2833,7 @@ class Simulation():
 
         return paths
 
-    def simulateROV(self, exogenousPaths, randCont, endogenousPaths):
+    def simulateROVNew(self, exogenousPaths, randCont, endogenousPaths):
         # Computes the policy map for the problem that is used by the simulator
         # to make decisions. The decisions are made by determining the state of
         # they system before plugging into the policy map.

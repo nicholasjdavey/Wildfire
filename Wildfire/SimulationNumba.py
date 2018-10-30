@@ -6,80 +6,62 @@ Created on Mon Oct 29 14:35:12 2018
 """
 
 import numpy
-import numba
+import math
 from numba import jit
 
-@jit(nopython=True)
-def simulateSinglePath(static=False):
-    # REQUIRED:
-    # sampleFFDI
-    # initAssignments
-    # initFires
-    # timeSteps
-    # lookahead
-    # configurations
-    # patchLocations
-    # patchVegetations
-    # vegetations:
+@jit
+def simulateSinglePath(sampleFFDIs, patchVegetations, patchLocations,
+                       ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
+                       resourceTypes, resourceSpeeds, configurations, configsE,
+                       configsP, totalSteps, lookahead, accumulatedDamages,
+                       accumulatedHours, fires, fireSizes, fireLocations,
+                       firePatches, aircraftLocations, aircraftAssignments,
+                       static=False):
 
-    # OUTPUTS:
-    # finalDamageMaps
-    # expectedDamages
-    # realisedAssignments
-    # realisedFires
-    # realisedFFDIs
-    # aircraftHours
-
-    # noFires
-    # accumulatedDamage
-    # accumulatedHours
-    # patchConfigs
-    # fireConfigs
-
-    # STEPS:
-    for tt in range(timeSteps):
+    for tt in range(totalSteps):
         expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
 
-        expDamageExist = expectedDamageExisting(expectedFFDI, firePatches,
-                                                fireSizes, patchVegetations,
-                                                ffdiRanges, rocA2PHMeans,
-                                                rocA2PHSDs)
+        expDamageExist = expectedDamageExisting(
+                expectedFFDI[tt], firePatches[tt], fireSizes[tt],
+                patchVegetations, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
+                occurrence, configsE, lookahead)
 
-        expDamagePotential = expectedDamagePotential()
+#        expDamagePotential = expectedDamagePotential()
     #     assignAircraft
     #     simulateNextStep:
 
-@jit(nopython=True)
+@jit
 def expectedDamageExisting(ffdi_path, fire_patches, fire_sizes,
                            patch_vegetations, ffdi_ranges, roc_a2_ph_means,
-                           roc_a2_ph_sds):
+                           roc_a2_ph_sds, occurrence, configs, lookahead):
 
     expected = numpy.array([len(fire_sizes), len(configs)])
 
     for fire, _ in enumerate(fire_sizes):
         patch = fire_patches[fire]
-        vegetation = patch_vegetations[patch]
-        ffdi_range = ffdi_ranges[vegetation]
-        roc_a2_ph_mean = roc_a2_ph_means[vegetation]
-        roc_a2_ph_sd = roc_a2_ph_sds[vegetation]
-        fire_sizes[fire]
+        vegetation = patch_vegetations[int(patch)]
+        ffdi_range = ffdi_ranges[int(vegetation)]
+#        roc_a2_ph_mean = roc_a2_ph_means[vegetation]
+#        roc_a2_ph_sd = roc_a2_ph_sds[vegetation]
 
-        for config, _ in enumerate(configs):
-            for tt in range(look):
-                ffdi = ffdi_path[patch, tt]
-                size_new = growFire(ffdi, config, ffdi_range, roc_a2_ph_mean,
-                                    roc_a2_ph_sd, size)
-
-            expected[fire, config] = max(0, size_new - size)
+#        for config, _ in enumerate(configs):
+#            size = fire_sizes[fire]
+#
+#            for tt in range(lookahead):
+#                ffdi = ffdi_path[patch, tt]
+#                size = growFire(ffdi, config, ffdi_range, roc_a2_ph_mean,
+#                                roc_a2_ph_sd, size)
+#
+#            expected[fire, config] = max(0, size - fire_sizes[fire])
 
     return expected
 
 
 @jit(nopython=True)
 def expectedDamagePotential():
+    pass
 
-
-@jit(nopython=True)
+@jit
 def growFire(ffdi, config, ffdi_range, roc_a2_ph_mean, roc_a2_ph_sd, size,
              random=False):
 
@@ -97,10 +79,26 @@ def growFire(ffdi, config, ffdi_range, roc_a2_ph_mean, roc_a2_ph_sd, size,
 
 @jit(nopython=True)
 def assignAircraft():
+    pass
 
 @jit(nopython=True)
 def simulateNextStep():
+    pass
 
+@jit
+def simulateMC(paths, sampleFFDIs, patchVegetations, patchLocations,
+               resourceTypes, resourceSpeeds, configurations, configsE,
+               configsP, ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
+               totalSteps, lookahead, accumulatedDamages, accumulatedHours,
+               fires, fireSizes, fireLocations, firePatches, aircraftLocations,
+               aircraftAssignments, static=False):
 
-@jit(nopython=True)
-def simulateMC(static=False):
+    for path in range(paths):
+        simulateSinglePath(sampleFFDIs, patchVegetations, patchLocations,
+                           ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
+                           resourceTypes, resourceSpeeds, configurations,
+                           configsE, configsP, totalSteps, lookahead,
+                           accumulatedDamages[path], accumulatedHours[path],
+                           fires[path], fireSizes[path], fireLocations[path],
+                           firePatches[path], aircraftLocations[path],
+                           aircraftAssignments[path])
