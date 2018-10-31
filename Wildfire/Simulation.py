@@ -2765,11 +2765,17 @@ class Simulation():
                                       for config in self.model.configurations])
         ffdiRanges = numpy.array([vegetation.getFFDIRange()
                                   for vegetation in vegetations])
-        rocA2PHMeans = numpy.array([vegetation.getROCA2PerHourMean()
+        rocA2PHMeans = numpy.array([[vegetation.getROCA2PerHourMean()[config]
+                                     for config, _ in
+                                         self.model.configurations.items()]
                                     for vegetation in vegetations])
-        rocA2PHSDs = numpy.array([vegetation.getROCA2PerHourSD()
+        rocA2PHSDs = numpy.array([[vegetation.getROCA2PerHourSD()[config]
+                                   for config, _ in
+                                       self.model.configurations.items()]
                                   for vegetation in vegetations])
-        occurrence = numpy.array([vegetation.getOccurrence()
+        occurrence = numpy.array([[vegetation.getOccurrence()[time]
+                                   for time in range(totalSteps + lookahead
+                                                     + 1)]
                                   for vegetation in vegetations])
 
         """ Initial Monte Carlo Paths """
