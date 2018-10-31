@@ -7,36 +7,79 @@ Created on Mon Oct 29 14:35:12 2018
 
 import numpy
 import math
-from numba import jit, njit, prange
+from numba import jit, cuda, float32
+from numba.cuda.random import create_xoroshiro128p_states
+from numba.cuda.random import xoroshiro128p_normal_float32
 
-@jit(nopython=True)
-def simulateSinglePath(sampleFFDIs, patchVegetations, patchLocations,
-                       ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
-                       resourceTypes, resourceSpeeds, configurations, configsE,
-                       configsP, totalSteps, lookahead, accumulatedDamages,
-                       accumulatedHours, fires, fireSizes, fireLocations,
-                       firePatches, aircraftLocations, aircraftAssignments,
-                       expectedE, expectedP, static=False):
 
-    for tt in range(totalSteps):
-        expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
+@cuda.jit
+def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs,
+                       patchVegetations, patchLocations, ffdiRanges,
+                       rocA2PHMeans, rocA2PHSDs, occurrence, resourceTypes,
+                       resourceSpeeds, configurations, configsE, configsP,
+                       accumulatedDamages, accumulatedHours, fires, fireSizes,
+                       fireLocations, firePatches, aircraftLocations,
+                       aircraftAssignments, rng_states):
+    # ThreadID
+    tx = cuda.threadIdx.x
+    # BlockID
+    ty = cuda.blockIdx.x
+    # BlockWidth
+    bw = cuda.blockDim.x
+    # GlobalID (pathNo)
+    path = tx + ty * bw
 
-        expectedDamageExisting(
-                expectedFFDI, firePatches[tt], fireSizes[tt],
-                patchVegetations, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
-                occurrence, configsE, lookahead, expectedE)
+    if path < paths:
+        expectedE = cuda.local.array(shape=16000, dtype=float32)
 
-#        expDamagePotential = expectedDamagePotential()
-    #     assignAircraft
-    #     simulateNextStep:
+        for tt in range(totalSteps):
+            expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
 
-@jit(nopython=True)
+            expectedDamageExisting(
+                    expectedFFDI, firePatches[path][tt], fireSizes[path][tt],
+                    patchVegetations, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
+                    occurrence, configsE, lookahead, expectedE, rng_states,
+                    path)
+
+##@jit(nopython=True)
+#@cuda.jit
+#def simulateSinglePath(sampleFFDIs, patchVegetations, patchLocations,
+#                       ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
+#                       resourceTypes, resourceSpeeds, configurations, configsE,
+#                       configsP, totalSteps, lookahead, accumulatedDamages,
+#                       accumulatedHours, fires, fireSizes, fireLocations,
+#                       firePatches, aircraftLocations, aircraftAssignments,
+#                       expectedE, expectedP):
+#
+#    # ThreadID
+#    tx = cuda.threadIdx.x
+#    # BlockID
+#    ty = cuda.blockIdx.x
+#    # BlockWidth
+#    bw = cuda.blockDim.x
+#    # GlobalID (pathNo)
+#    pos = tx + ty * bw
+#
+#    for tt in range(totalSteps):
+#        expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
+#
+##        expectedDamageExisting(
+##                expectedFFDI, firePatches[tt], fireSizes[tt],
+##                patchVegetations, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
+##                occurrence, configsE, lookahead, expectedE)
+#
+##        expDamagePotential = expectedDamagePotential()
+#    #     assignAircraft
+#    #     simulateNextStep:
+
+#@jit(nopython=True, fastmath=True)
+@cuda.jit(device=True)
 def expectedDamageExisting(ffdi_path, fire_patches, fire_sizes,
                            patch_vegetations, ffdi_ranges, roc_a2_ph_means,
                            roc_a2_ph_sds, occurrence, configs, lookahead,
-                           expected):
+                           expected, rng_states, thread_id):
 
-    for fire, _ in enumerate(fire_sizes):
+    for fire in range(len(fire_sizes)):
         patch = int(fire_patches[fire])
         vegetation = int(patch_vegetations[patch])
         ffdi_range = ffdi_ranges[vegetation]
@@ -50,30 +93,36 @@ def expectedDamageExisting(ffdi_path, fire_patches, fire_sizes,
                 ffdi = ffdi_path[patch, tt]
                 size = 1
                 size = growFire(ffdi, config - 1, ffdi_range, roc_a2_ph_mean,
-                                roc_a2_ph_sd, size)
+                                roc_a2_ph_sd, size, rng_states, thread_id,
+                                True)
 
-#            expected[fire, config] = max(0, size - fire_sizes[fire])
+            expected[fire*len(configs) + config] = max(
+                    0, size - fire_sizes[fire])
 
 @jit(nopython=True)
 def expectedDamagePotential():
     pass
 
-@jit(nopython=True)
+#@jit(nopython=True, fastmath=True)
+@cuda.jit(device=True)
 def growFire(ffdi, config, ffdi_range, roc_a2_ph_mean, roc_a2_ph_sd, size,
-             random=False):
+             rng_states, thread_id, random):
 
     gr_mean = interpolate1D(ffdi, ffdi_range, roc_a2_ph_mean[config])
     rad_curr = math.sqrt(size*10000/math.pi)
 
     if random:
         gr_sd = max(0, interpolate1D(ffdi, ffdi_range, roc_a2_ph_sd[config]))
-        rad_new = rad_curr + max(0, numpy.random.normal(gr_mean, gr_sd))
+        rand_no = xoroshiro128p_normal_float32(rng_states, thread_id)
+        rad_new = rad_curr + max(0, gr_mean + rand_no * gr_sd)
+        rad_new = 0.5
     else:
         rad_new = rad_curr + max(0, gr_mean)
 
     return (math.pi * rad_new**2)/10000
 
-@jit(nopython=True)
+#@jit(nopython=True)
+@cuda.jit(device=True)
 def interpolate1D(xval, xrange, yrange):
     """ This assumes that the xrange is already sorted and that FFDI values
     are evenly spaced in the FFDI range. Linear extrapolation used at
@@ -101,7 +150,7 @@ def assignAircraft():
 def simulateNextStep():
     pass
 
-@jit
+#@jit(parallel=True, fastmath=True)
 def simulateMC(paths, sampleFFDIs, patchVegetations, patchLocations,
                resourceTypes, resourceSpeeds, configurations, configsE,
                configsP, ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
@@ -109,16 +158,40 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchLocations,
                fires, fireSizes, fireLocations, firePatches, aircraftLocations,
                aircraftAssignments, static=False):
 
+    # CUDA requirements
+    threadsperblock = 32
+    blockspergrid = (paths + (threadsperblock - 1)) // threadsperblock
 
-    expectedE = numpy.zeros([100, len(configsE)])
-    expectedP = numpy.zeros([100, len(configsP)])
+    # Run this in chunks (i.e. multiple paths at a time)
+    # Initialise all random numbers state to use for each thread
+    rng_states = create_xoroshiro128p_states(threadsperblock * blockspergrid,
+                                             seed=1)
 
-    for path in range(paths):
-        simulateSinglePath(sampleFFDIs, patchVegetations, patchLocations,
-                           ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
-                           resourceTypes, resourceSpeeds, configurations,
-                           configsE, configsP, totalSteps, lookahead,
-                           accumulatedDamages[path], accumulatedHours[path],
-                           fires[path], fireSizes[path], fireLocations[path],
-                           firePatches[path], aircraftLocations[path],
-                           aircraftAssignments[path], expectedE, expectedP)
+    # Compute the paths in batches to preserve memory (see if we can exploit
+    # both GPUs to share the computational load)
+    simulateSinglePath[blockspergrid, threadsperblock](
+            paths, totalSteps, lookahead, sampleFFDIs, patchVegetations,
+            patchLocations, ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
+            resourceTypes, resourceSpeeds, configurations, configsE, configsP,
+            accumulatedDamages, accumulatedHours, fires, fireSizes,
+            fireLocations, firePatches, aircraftLocations, aircraftAssignments,
+            rng_states)
+
+#    for path in prange(paths):
+
+#    simulateSinglePath[blockspergrid, threadsperblock](
+#            sampleFFDIs, patchVegetations, patchLocations, ffdiRanges,
+#            rocA2PHMeans, rocA2PHSDs, occurrence, resourceTypes,
+#            resourceSpeeds, configurations, configsE, configsP, totalSteps,
+#            lookahead, accumulatedDamages, accumulatedHours, fires, fireSizes,
+#            fireLocations, firePatches, aircraftLocations, aircraftAssignments,
+#            expectedE, expectedP)
+
+#        simulateSinglePath(sampleFFDIs, patchVegetations, patchLocations,
+#                           ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
+#                           resourceTypes, resourceSpeeds, configurations,
+#                           configsE, configsP, totalSteps, lookahead,
+#                           accumulatedDamages[path], accumulatedHours[path],
+#                           fires[path], fireSizes[path], fireLocations[path],
+#                           firePatches[path], aircraftLocations[path],
+#                           aircraftAssignments[path], expectedE, expectedP)

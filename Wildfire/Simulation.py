@@ -5,10 +5,11 @@ Created on Sun Dec 10 23:32:32 2017
 @author: davey
 """
 
+import time
 import numpy
 import numba
 from numba import jit
-import cplex
+#import cplex
 import math
 import copy
 import os
@@ -150,7 +151,7 @@ class Simulation():
 
         algo = self.model.getAlgo()
 
-        if algo > 0:
+        if algo == 1 or algo == 3:
             self.buildLPModel()
 
         prog = switch.get(algo)
@@ -2804,6 +2805,7 @@ class Simulation():
                     fire.getPatchID() for fire in fires]]
 
             print("MC Paths")
+            t0 = time.clock()
             SimulationNumba.simulateMC(
                     mcPaths, sampleFFDIs[ii], patchVegetations, patchCentroids,
                     resourceTypes, resourceSpeeds, configurations, configsE,
@@ -2811,6 +2813,18 @@ class Simulation():
                     totalSteps, lookahead, accumulatedDamages,
                     accumulatedHours, noFires, fireSizes, fireLocations,
                     firePatches, aircraftLocations, aircraftAssignments)
+            t1 = time.clock()
+            print('Time:   ' + str(t1-t0))
+            t0 = time.clock()
+            SimulationNumba.simulateMC(
+                    mcPaths, sampleFFDIs[ii], patchVegetations, patchCentroids,
+                    resourceTypes, resourceSpeeds, configurations, configsE,
+                    configsP, ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
+                    totalSteps, lookahead, accumulatedDamages,
+                    accumulatedHours, noFires, fireSizes, fireLocations,
+                    firePatches, aircraftLocations, aircraftAssignments)
+            t1 = time.clock()
+            print('Time:   ' + str(t1-t0))
 
         """ Regressions """
 

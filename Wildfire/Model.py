@@ -430,15 +430,17 @@ class Model():
                                   + noVegetations + noControls]
                          .split(":")[1].strip())
         usefulConfigsSplit = usefulConfigs.split(",")
-        self.usefulConfigurationsE = [int(usefulConfigsSplit[ii])
-                                     for ii in range(len(usefulConfigsSplit))]
+        self.usefulConfigurationsE = numpy.array([
+                int(usefulConfigsSplit[ii])
+                for ii in range(len(usefulConfigsSplit))])
 
         usefulConfigs = (contents[82 + noAircraft + noLandcraft
                                   + noVegetations + noControls]
                          .split(":")[1].strip())
         usefulConfigsSplit = usefulConfigs.split(",")
-        self.usefulConfigurationsP = [int(usefulConfigsSplit[ii])
-                                     for ii in range(len(usefulConfigsSplit))]
+        self.usefulConfigurationsP = numpy.array([
+                int(usefulConfigsSplit[ii])
+                for ii in range(len(usefulConfigsSplit))])
 
         self.useSamplePaths = [
                 True if int(
