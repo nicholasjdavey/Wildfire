@@ -10,16 +10,18 @@ import math
 from numba import jit, cuda, float32
 from numba.cuda.random import create_xoroshiro128p_states
 from numba.cuda.random import xoroshiro128p_normal_float32
+from numba.cuda.random import xoroshiro128p_uniform_float32
 
 
 @cuda.jit
 def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs,
-                       patchVegetations, patchLocations, ffdiRanges,
-                       rocA2PHMeans, rocA2PHSDs, occurrence, resourceTypes,
-                       resourceSpeeds, configurations, configsE, configsP,
-                       accumulatedDamages, accumulatedHours, fires, fireSizes,
-                       fireLocations, firePatches, aircraftLocations,
-                       aircraftAssignments, rng_states):
+                       patchVegetations, patchAreas, patchLocations, ffdiRanges,
+                       rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM,
+                       initSizeSD, initSuccess, resourceTypes, resourceSpeeds,
+                       configurations, configsE, configsP, accumulatedDamages,
+                       accumulatedHours, fires, fireSizes, fireLocations,
+                       firePatches, aircraftLocations, aircraftAssignments,
+                       rng_states, controls, costs2Go, start, optimal):
     # ThreadID
     tx = cuda.threadIdx.x
     # BlockID
@@ -33,7 +35,8 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs,
         expectedE = cuda.local.array(shape=16000, dtype=float32)
         expectedP = cuda.local.array(shape=16000, dtype=float32)
 
-        for tt in range(totalSteps):
+
+        for tt in range(start, totalSteps):
             expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
 
             expectedDamageExisting(
@@ -42,16 +45,28 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs,
                     occurrence, configsE, lookahead, expectedE, rng_states,
                     path)
 
-            expDamagePotential = expectedDamagePotential()
-#    #     assignAircraft
-#    #     simulateNextStep:
+            expectedDamagePotential(
+                    expectedFFDI, patchVegetations, patchAreas, ffdiRanges,
+                    rocA2PHMeans, occurrence, initSizeM, initSuccess, configsP,
+                    tt, lookahead, expectedP)
+
+            if optimal:
+                # Ccompute the optimal control
+                pass
+            else:
+                control = xoroshiro128p_uniform_float32(rng_states, path)
+
+            # AssignAircraft
+
+            # SimulateNextStep
+            simulateNextStep()
 
 #@jit(nopython=True, fastmath=True)
 @cuda.jit(device=True)
 def expectedDamageExisting(ffdi_path, fire_patches, fire_sizes,
                            patch_vegetations, ffdi_ranges, roc_a2_ph_means,
                            roc_a2_ph_sds, occurrence, configs, lookahead,
-                           expected, rng_states, thread_id):
+                           expected, rng_states, thread_id, random):
 
     for fire in range(len(fire_sizes)):
         patch = int(fire_patches[fire])
@@ -68,44 +83,54 @@ def expectedDamageExisting(ffdi_path, fire_patches, fire_sizes,
                 size = 1
                 size = growFire(ffdi, config - 1, ffdi_range, roc_a2_ph_mean,
                                 roc_a2_ph_sd, size, rng_states, thread_id,
-                                True)
+                                random)
 
             expected[fire*len(configs) + config] = max(
                     0, size - fire_sizes[fire])
 
 @cuda.jit(device=True)
-def expectedDamagePotential():
+def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
+                            ffdi_ranges, roc_a2_ph_means, occurrence,
+                            init_size, init_success, configs, time, lookahead,
+                            expected):
 
-    for patch in range(len(patches)):
-        damage = 0
-        vegetation = int(patch_vegetatios[patch])
+    for patch in range(len(patch_vegetations)):
+        vegetation = int(patch_vegetations[patch])
         ffdi_range = ffdi_ranges[vegetation]
         roc_a2_ph_mean = roc_a2_ph_means[vegetation]
-        roc_a2_ph_sd = roc_a2_ph_sds[vegetation]
         occur_veg = occurrence[vegetation]
+        initial_size = init_size[vegetation]
+        initial_success = init_success[vegetation]
 
-        for tt in range(lookahead):
-            # Only look at the expected damage of fires started at this time
-            # period to the end of the horizon
-            occ = max(0, interpolate1D(ffdi, ffdi_range, occur_veg[time + tt]))
-            size = interpolate1D(ffdi, ffdi_range, initial_size[config])
-            success = interpolate1D(ffdi, ffdi_range, initial_success[config])
+        for config in configs:
+            damage = 0
 
-            sizeInitial = size
+            for tt in range(lookahead):
+                # Only look at the expected damage of fires started at this
+                # time period to the end of the horizon
+                ffdi = ffdi_path[patch, tt]
+                occ = max(0, interpolate1D(ffdi, ffdi_range,
+                                           occur_veg[time + tt]))
+                size = interpolate1D(ffdi, ffdi_range,
+                                     initial_size[config])
+                success = interpolate1D(ffdi, ffdi_range,
+                                        initial_success[config])
 
-            for t2 in range(tt, lookahead):
-                ffdi = ffdi_path[patch, t2]
+                sizeInitial = size
 
-                gr_mean = interpolate1D(ffdi, ffdi_range,
-                                        roc_a2_ph_mean[config])
+                for t2 in range(tt, lookahead):
+                    ffdi = ffdi_path[patch, t2]
 
-                radCurr = (math.sqrt(size*10000.0/math.pi))
-                radNew = radCurr + max(0, gr_mean)
-                size = (math.pi * radNew**2)/10000.0
+                    gr_mean = interpolate1D(ffdi, ffdi_range,
+                                            roc_a2_ph_mean[config])
 
-            damage += occ * size * (1 - success) + occ*sizeInitial*success
+                    radCurr = (math.sqrt(size*10000.0/math.pi))
+                    radNew = radCurr + max(0, gr_mean)
+                    size = (math.pi * radNew**2)/10000.0
 
-            expected[patch * len(configs) + config] = damage*patch_areas[patch]
+                damage += occ * size * (1 - success) + occ*sizeInitial*success
+
+                expected[patch * len(configs) + config] = damage*patch_areas[patch]
 
 #@jit(nopython=True, fastmath=True)
 @cuda.jit(device=True)
@@ -119,7 +144,6 @@ def growFire(ffdi, config, ffdi_range, roc_a2_ph_mean, roc_a2_ph_sd, size,
         gr_sd = max(0, interpolate1D(ffdi, ffdi_range, roc_a2_ph_sd[config]))
         rand_no = xoroshiro128p_normal_float32(rng_states, thread_id)
         rad_new = rad_curr + max(0, gr_mean + rand_no * gr_sd)
-        rad_new = 0.5
     else:
         rad_new = rad_curr + max(0, gr_mean)
 
@@ -155,12 +179,13 @@ def simulateNextStep():
     pass
 
 #@jit(parallel=True, fastmath=True)
-def simulateMC(paths, sampleFFDIs, patchVegetations, patchLocations,
-               resourceTypes, resourceSpeeds, configurations, configsE,
-               configsP, ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
-               totalSteps, lookahead, accumulatedDamages, accumulatedHours,
-               fires, fireSizes, fireLocations, firePatches, aircraftLocations,
-               aircraftAssignments, static=False):
+def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
+               patchLocations, resourceTypes, resourceSpeeds, configurations,
+               configsE, configsP, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
+               occurrence, initSize, initSuccess, totalSteps, lookahead,
+               accumulatedDamages, accumulatedHours, fires, fireSizes,
+               fireLocations, firePatches, aircraftLocations,
+               aircraftAssignments, controls, regressions, static=False):
 
     # CUDA requirements
     threadsperblock = 32
@@ -175,21 +200,14 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchLocations,
     # both GPUs to share the computational load)
     simulateSinglePath[blockspergrid, threadsperblock](
             paths, totalSteps, lookahead, sampleFFDIs, patchVegetations,
-            patchLocations, ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
-            resourceTypes, resourceSpeeds, configurations, configsE, configsP,
-            accumulatedDamages, accumulatedHours, fires, fireSizes,
-            fireLocations, firePatches, aircraftLocations, aircraftAssignments,
-            rng_states)
+            patchAreas, patchLocations, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
+            occurrence, initSize, initSuccess, resourceTypes, resourceSpeeds,
+            configurations, configsE, configsP, accumulatedDamages,
+            accumulatedHours, fires, fireSizes, fireLocations, firePatches,
+            aircraftLocations, aircraftAssignments, rng_states, controls,
+            regressions, costs2Go, 0, False)
 
 #    for path in prange(paths):
-
-#    simulateSinglePath[blockspergrid, threadsperblock](
-#            sampleFFDIs, patchVegetations, patchLocations, ffdiRanges,
-#            rocA2PHMeans, rocA2PHSDs, occurrence, resourceTypes,
-#            resourceSpeeds, configurations, configsE, configsP, totalSteps,
-#            lookahead, accumulatedDamages, accumulatedHours, fires, fireSizes,
-#            fireLocations, firePatches, aircraftLocations, aircraftAssignments,
-#            expectedE, expectedP)
 
 #        simulateSinglePath(sampleFFDIs, patchVegetations, patchLocations,
 #                           ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
@@ -199,3 +217,10 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchLocations,
 #                           fires[path], fireSizes[path], fireLocations[path],
 #                           firePatches[path], aircraftLocations[path],
 #                           aircraftAssignments[path], expectedE, expectedP)
+
+def analyseMCPaths():
+    pass
+
+@cuda.jit(device=True)
+def computeStatesAndControl():
+    pass

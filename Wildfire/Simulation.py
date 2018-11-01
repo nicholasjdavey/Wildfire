@@ -7,8 +7,6 @@ Created on Sun Dec 10 23:32:32 2017
 
 import time
 import numpy
-import numba
-from numba import jit
 #import cplex
 import math
 import copy
@@ -2756,6 +2754,7 @@ class Simulation():
         noPatches = len(patches)
         noResources = len(resources)
         patchVegetations = region.getVegetation()
+        patchAreas = numpy.array([patch.getArea() for patch in patches])
         patchCentroids = numpy.array([patch.getCentroid()
                                       for patch in patches])
         resourceTypes = numpy.array([resource.getType()
@@ -2778,6 +2777,18 @@ class Simulation():
                                    for time in range(totalSteps + lookahead
                                                      + 1)]
                                   for vegetation in vegetations])
+        initSizeM = numpy.array([[vegetation.getInitialSizeMean()[config]
+                                  for config, _ in
+                                  self.model.configurations.items()]
+                                 for vegetation in vegetations])
+        initSizeSD = numpy.array([[vegetation.getInitialSizeSD()[config]
+                                   for config, _ in
+                                   self.model.configurations.items()]
+                                  for vegetation in vegetations])
+        initSuccess = numpy.array([[vegetation.getInitialSuccess()[config]
+                                    for config, _ in
+                                    self.model.configurations.items()]
+                                   for vegetation in vegetations])
 
         """ Initial Monte Carlo Paths """
 
@@ -2807,10 +2818,11 @@ class Simulation():
             print("MC Paths")
             t0 = time.clock()
             SimulationNumba.simulateMC(
-                    mcPaths, sampleFFDIs[ii], patchVegetations, patchCentroids,
-                    resourceTypes, resourceSpeeds, configurations, configsE,
-                    configsP, ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
-                    totalSteps, lookahead, accumulatedDamages,
+                    mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
+                    patchCentroids, resourceTypes, resourceSpeeds,
+                    configurations, configsE, configsP, ffdiRanges,
+                    rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM, initSizeSD,
+                    initSuccess, totalSteps, lookahead, accumulatedDamages,
                     accumulatedHours, noFires, fireSizes, fireLocations,
                     firePatches, aircraftLocations, aircraftAssignments)
             t1 = time.clock()
