@@ -2846,21 +2846,26 @@ class Simulation():
                     costs2go)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
-            t0 = time.clock()
-            SimulationNumba.simulateMC(
-                    mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
-                    patchCentroids, baseLocations, resourceTypes,
-                    resourceSpeeds, configurations, configsE, configsP,
-                    ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
-                    initSizeM, initSizeSD, initSuccess, totalSteps, lookahead,
-                    stepSize, accumulatedDamages, accumulatedHours, noFires,
-                    fireSizes, fireLocations, firePatches, aircraftLocations,
-                    aircraftAssignments, randCont, regressionX, regressionY,
-                    costs2go)
-            t1 = time.clock()
-            print('Time:   ' + str(t1-t0))
+#            t0 = time.clock()
+#            SimulationNumba.simulateMC(
+#                    mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
+#                    patchCentroids, baseLocations, resourceTypes,
+#                    resourceSpeeds, configurations, configsE, configsP,
+#                    ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
+#                    initSizeM, initSizeSD, initSuccess, totalSteps, lookahead,
+#                    stepSize, accumulatedDamages, accumulatedHours, noFires,
+#                    fireSizes, fireLocations, firePatches, aircraftLocations,
+#                    aircraftAssignments, randCont, regressionX, regressionY,
+#                    costs2go)
+#            t1 = time.clock()
+#            print('Time:   ' + str(t1-t0))
 
-        """ Regressions """
+            """ For analysis purposes, we need to print our paths to output
+            csv files or data dumps (use Pandas?)"""
+
+            """ Regressions """
+
+        """//////////////////////// MODEL VALIDATION ///////////////////////"""
 
         """ Now test the performance of the evaluation """
         """ These are for the actual simulation runs """

@@ -56,13 +56,20 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs,
                     tt, lookahead, expectedP)
 
             if optimal:
-                # Ccompute the optimal control
+                # Compute the optimal control using regressions
                 pass
             else:
                 control = xoroshiro128p_uniform_float32(rng_states, path)
 
             # AssignAircraft
-            # This could potentially be very slow. Just copy for now
+            # This could potentially be very slow. Just use a naive assignment
+            # for now
+#            assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
+#                           aircraftLocations, accumulatedHours, baseLocations,
+#                           fires, fireSizes, fireLocations, ffdiRanges,
+#                           configurations, configsE, configsP, sampleFFDIs,
+#                           expectedE, expectedP, weightsP, tt, stepSize,
+#                           lookahead, path, control)
 
             # SimulateNextStep
             simulateNextStep(aircraftAssignments, resourceSpeeds,
@@ -187,7 +194,7 @@ def interpolate1D(xval, xrange, yrange):
 def assignAircraft():
     pass
 
-@jit(nopython=True)
+@cuda.jit(device=True)
 def simulateNextStep(aircraftAssignments, aircraftSpeeds, aircraftLocations,
                      accumulatedHours, baseLocations, noFires,
                      patchVegetations, patchLocations, ffdiRanges,
@@ -336,6 +343,38 @@ def simulateNextStep(aircraftAssignments, aircraftSpeeds, aircraftLocations,
                             thread_id][time][fire]
                     noFires[thread_id][time + 1] += 1
 
+@cuda.jit(device=True)
+def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
+                   aircraftLocations, accumulatedHours, baseLocations, fires,
+                   fireSizes, fireLocations, ffdiRanges, configurations,
+                   configsE, configsP, sampleFFDIs, expectedE, expectedP,
+                   weightsP, tt, stepSize, lookahead, path, control):
+
+    """ This is a simple fast heuristic for approximately relocating the
+    aircraft. An optimal algorithm would be too slow and may not be
+    necessary given the global optimisation """
+
+    """ Pre calcs """
+    # Initialise all aircraft to available
+
+    # Possible aircraft to base assignments based on control
+
+    # Possible aircraft to fire assignments based on control
+
+    # While remaining aircraft:
+        # compute incremental benefit for each base and fire of one more:
+            # 1. Tanker (If possible)
+            # 2. Helicopter (If possible)
+        # Select next type and base/fire assignment
+        # For given assignment, pick best A/C
+        # Decrement availabilities based on assignment made
+        # Repeat until assignments complete
+
+    # Compute resulting fire configurations and patch configuration weights
+
+    # Return
+
+""" WRAPPER """
 #@jit(parallel=True, fastmath=True)
 def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
                patchLocations, baseLocations, resourceTypes, resourceSpeeds,
@@ -346,37 +385,35 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
                aircraftLocations, aircraftAssignments, controls, regressionX,
                regressionY, costs2Go, static=False):
 
-    # CUDA requirements
-    threadsperblock = 32
-    blockspergrid = (paths + (threadsperblock - 1)) // threadsperblock
+    batches = math.ceil(paths / 1000)
+    batchAmounts = [1000 for batch in range(batches - 1)]
+    batchAmounts.append(paths - sum(batchAmounts))
+    # Initialise all random numbers state to use for each thread
+    rng_states = create_xoroshiro128p_states(paths, seed=1)
 
     # Run this in chunks (i.e. multiple paths at a time)
-    # Initialise all random numbers state to use for each thread
-    rng_states = create_xoroshiro128p_states(threadsperblock * blockspergrid,
-                                             seed=1)
+    for b, batchSize in enumerate(batchAmounts):
+        # CUDA requirements
+        batchStart = sum(batchAmounts[:b])
+        batchEnd = batchStart + batchAmounts[b]
+        threadsperblock = 32
+        blockspergrid = (batchSize + (threadsperblock - 1)) // threadsperblock
 
-    # Compute the paths in batches to preserve memory (see if we can exploit
-    # both GPUs to share the computational load)
-    simulateSinglePath[blockspergrid, threadsperblock](
-            paths, totalSteps, lookahead, sampleFFDIs, patchVegetations,
-            patchAreas, patchLocations, baseLocations, ffdiRanges,
-            rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM, initSizeSD,
-            initSuccess, resourceTypes, resourceSpeeds, configurations,
-            configsE, configsP, accumulatedDamages, accumulatedHours, fires,
-            fireSizes, fireLocations, firePatches, aircraftLocations,
-            aircraftAssignments, rng_states, controls, regressionX,
-            regressionY, 0, stepSize, False)
-
-#    for path in prange(paths):
-
-#        simulateSinglePath(sampleFFDIs, patchVegetations, patchLocations,
-#                           ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
-#                           resourceTypes, resourceSpeeds, configurations,
-#                           configsE, configsP, totalSteps, lookahead,
-#                           accumulatedDamages[path], accumulatedHours[path],
-#                           fires[path], fireSizes[path], fireLocations[path],
-#                           firePatches[path], aircraftLocations[path],
-#                           aircraftAssignments[path], expectedE, expectedP)
+        # Compute the paths in batches to preserve memory (see if we can
+        # exploit both GPUs to share the computational load)
+        simulateSinglePath[blockspergrid, threadsperblock](
+                batchSize, totalSteps, lookahead, sampleFFDIs,
+                patchVegetations, patchAreas, patchLocations, baseLocations,
+                ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM,
+                initSizeSD, initSuccess, resourceTypes, resourceSpeeds,
+                configurations, configsE, configsP, accumulatedDamages[
+                batchStart:batchEnd], accumulatedHours[batchStart:batchEnd],
+                fires[batchStart:batchEnd], fireSizes[batchStart:batchEnd],
+                fireLocations[batchStart:batchEnd], firePatches[
+                batchStart:batchEnd], aircraftLocations[batchStart:batchEnd],
+                aircraftAssignments[batchStart:batchEnd],
+                rng_states[batchStart:batchEnd], controls[batchStart:batchEnd],
+                regressionX, regressionY, 0, stepSize, False)
 
 def analyseMCPaths():
     pass
