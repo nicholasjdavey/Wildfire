@@ -7,7 +7,7 @@ Created on Sun Dec 10 23:32:32 2017
 
 import time
 import numpy
-#import cplex
+import cplex
 import math
 import copy
 import os
@@ -464,27 +464,31 @@ class Simulation():
         totalConstraints = self.relocationModel.linear_constraints.get_num()
 
         """Enforces base relocation options based on the control"""
-        cplxMod.constraintNames["C_11"] = [
+        self.relocationModel.constraintNames["C_11"] = [
                 "C_11_R" + str(r) + "_B" + str(b)
-                for r in cplxMod.R
-                for b in cplxMod.B]
-        cplxMod.constraintIdxStarts["C_11"] = totalConstraints
+                for r in self.relocationModel.R
+                for b in self.relocationModel.B]
+        self.relocationModel.constraintIdxStarts["C_11"] = totalConstraints
         totalConstraints = totalConstraints + len(
-                cplxMod.constraintNames["C_11"])
+                self.relocationModel.constraintNames["C_11"])
 
+        startXRB = self.relocationModel.decisionVarsIdxStarts["X_RB"]
+        lenB = len(self.relocationModel.B)
         varIdxs = {(r, b): [startXRB + r*lenB + b]
-                   for r in cplxMod.R
-                   for b in cplxMod.B}
+                   for r in self.relocationModel.R
+                   for b in self.relocationModel.B}
 
-        varCoeffs = {(r, b): [1] for r in cplxMod.R for b in cplxMod.B}
+        varCoeffs = {(r, b): [1]
+                     for r in self.relocationModel.R
+                     for b in self.relocationModel.B}
 
-        cplxMod.linear_constraints.add(
+        self.relocationModel.linear_constraints.add(
                 lin_expr=[
                         cplex.SparsePair(
                                 ind=varIdxs[r, b],
                                 val=varCoeffs[r, b])
-                        for r in cplxMod.R
-                        for b in cplxMod.B],
+                        for r in self.relocationModel.R
+                        for b in self.relocationModel.B],
                 senses=["L"]*(len(varIdxs)),
                 rhs=[0]*len(varIdxs))
 
@@ -2736,7 +2740,9 @@ class Simulation():
         region = self.model.getRegion()
         totalSteps = self.model.getTotalSteps()
         lookahead = self.model.getLookahead()
+        stepSize = self.model.getStepSize()
         patches = region.getPatches()
+        bases = region.getStations()[0]
         vegetations = self.model.getRegion().getVegetations()
         resources = region.getResources()
         fires = region.getFires()
@@ -2757,6 +2763,8 @@ class Simulation():
         patchAreas = numpy.array([patch.getArea() for patch in patches])
         patchCentroids = numpy.array([patch.getCentroid()
                                       for patch in patches])
+        baseLocations = numpy.array([base.getLocation()
+                                     for base in bases])
         resourceTypes = numpy.array([resource.getType()
                                      for resource in resources])
         resourceSpeeds = numpy.array([resource.getSpeed()
@@ -2792,6 +2800,15 @@ class Simulation():
 
         """ Initial Monte Carlo Paths """
 
+        """ MC Path Outputs """
+        randCont = numpy.random.randint(6, size=[mcPaths, totalSteps])
+        regressionX = numpy.zeros([totalSteps, 100, 3])
+        regressionY = numpy.array([[[[0 for ii in range(100)]
+                                     for ii in range(100)]
+                                    for ii in range(100)]
+                                   for ii in range(totalSteps)])
+        costs2go = numpy.array([0])
+
         for ii in range(samplePaths):
             accumulatedDamages = numpy.zeros([mcPaths, totalSteps + 1,
                                               noPatches])
@@ -2819,27 +2836,31 @@ class Simulation():
             t0 = time.clock()
             SimulationNumba.simulateMC(
                     mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
-                    patchCentroids, resourceTypes, resourceSpeeds,
-                    configurations, configsE, configsP, ffdiRanges,
-                    rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM, initSizeSD,
-                    initSuccess, totalSteps, lookahead, accumulatedDamages,
-                    accumulatedHours, noFires, fireSizes, fireLocations,
-                    firePatches, aircraftLocations, aircraftAssignments)
+                    patchCentroids, baseLocations, resourceTypes,
+                    resourceSpeeds, configurations, configsE, configsP,
+                    ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
+                    initSizeM, initSizeSD, initSuccess, totalSteps, lookahead,
+                    stepSize, accumulatedDamages, accumulatedHours, noFires,
+                    fireSizes, fireLocations, firePatches, aircraftLocations,
+                    aircraftAssignments, randCont, regressionX, regressionY,
+                    costs2go)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
             t0 = time.clock()
             SimulationNumba.simulateMC(
-                    mcPaths, sampleFFDIs[ii], patchVegetations, patchCentroids,
-                    resourceTypes, resourceSpeeds, configurations, configsE,
-                    configsP, ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
-                    totalSteps, lookahead, accumulatedDamages,
-                    accumulatedHours, noFires, fireSizes, fireLocations,
-                    firePatches, aircraftLocations, aircraftAssignments)
+                    mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
+                    patchCentroids, baseLocations, resourceTypes,
+                    resourceSpeeds, configurations, configsE, configsP,
+                    ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
+                    initSizeM, initSizeSD, initSuccess, totalSteps, lookahead,
+                    stepSize, accumulatedDamages, accumulatedHours, noFires,
+                    fireSizes, fireLocations, firePatches, aircraftLocations,
+                    aircraftAssignments, randCont, regressionX, regressionY,
+                    costs2go)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
 
         """ Regressions """
-
 
         """ Now test the performance of the evaluation """
         """ These are for the actual simulation runs """
@@ -2865,6 +2886,7 @@ class Simulation():
 
         return paths
 
+    """ NOT USED """
     def simulateROVNew(self, exogenousPaths, randCont, endogenousPaths):
         # Computes the policy map for the problem that is used by the simulator
         # to make decisions. The decisions are made by determining the state of
