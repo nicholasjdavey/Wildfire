@@ -7,23 +7,45 @@ Created on Mon Oct 29 14:35:12 2018
 
 #import numpy
 import math
-from numba import jit, cuda, float32
+from numba import cuda, float32, int32
+from numba.types import b1
 #from pyculib import rand
 from numba.cuda.random import create_xoroshiro128p_states
 from numba.cuda.random import xoroshiro128p_normal_float32
 from numba.cuda.random import xoroshiro128p_uniform_float32
 
+""" GLOBAL VARIABLES USED FOR ARRAY DIMENSIONS IN CUDA """
+""" Remember to modify the values in the wrapper functions before using them in
+the kernels """
+global noBases
+global noPatches
+global noAircraft
+global noFiresMax
+global noConfigs
+global noConfE
+global noConfP
+
 
 @cuda.jit
 def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs,
                        patchVegetations, patchAreas, patchLocations,
-                       baseLocations, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
-                       occurrence, initSizeM, initSizeSD, initSuccess,
-                       resourceTypes, resourceSpeeds, configurations, configsE,
-                       configsP, accumulatedDamages, accumulatedHours, fires,
-                       fireSizes, fireLocations, firePatches, aircraftLocations,
+                       baseLocations, tankerCovers, heliCovers, ffdiRanges,
+                       rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM,
+                       initSizeSD, initSuccess, resourceTypes, resourceSpeeds,
+                       configurations, configsE, configsP, thresholds,
+                       accumulatedDamages, accumulatedHours, fires, fireSizes,
+                       fireLocations, firePatches, aircraftLocations,
                        aircraftAssignments, rng_states, controls, regressionX,
                        regressionY, start, stepSize, optimal):
+
+    global noBases
+    global noPatches
+    global noAircraft
+    global noFiresMax
+    global noConfigs
+    global noConfE
+    global noConfP
+
     # ThreadID
     tx = cuda.threadIdx.x
     # BlockID
@@ -34,9 +56,11 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs,
     path = tx + ty * bw
 
     if path < paths:
-        expectedE = cuda.local.array(shape=16000, dtype=float32)
-        expectedP = cuda.local.array(shape=16000, dtype=float32)
-        weightsP = cuda.local.array(shape=15000, dtype=float32)
+        # Modify to take variables as assignments. Use tuples to define shape
+        # e.g. cuda.local.array((16, 1000), dtype=float32)
+        expectedE = cuda.local.array((noFiresMax, noConfE), dtype=float32)
+        expectedP = cuda.local.array((noPatches, noConfP), dtype=float32)
+        weightsP = cuda.local.array((noPatches, noConfP), dtype=float32)
 
         for ii in range(15000):
             weightsP[ii] = 0.1
@@ -66,13 +90,14 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs,
             # for now
 #            assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 #                           aircraftLocations, accumulatedHours, baseLocations,
-#                           fires, fireSizes, fireLocations, ffdiRanges,
-#                           configurations, configsE, configsP, sampleFFDIs,
-#                           expectedE, expectedP, weightsP, tt, stepSize,
-#                           lookahead, path, control)
+#                           tankerCovers, heliCovers, fires, fireSizes,
+#                           fireLocations, ffdiRanges, configurations, configsE,
+#                           configsP, thresholds, sampleFFDIs, expectedE,
+#                           expectedP, weightsP, tt, stepSize, lookahead, path,
+#                           control)
 
             # SimulateNextStep
-            simulateNextStep(aircraftAssignments, resourceSpeeds,
+            simulateNextStep(aircraftAssignments, resourceTypes, resourceSpeeds,
                              aircraftLocations, accumulatedHours,
                              baseLocations, fires, patchVegetations,
                              patchLocations, ffdiRanges, fireLocations,
@@ -96,8 +121,9 @@ def expectedDamageExisting(ffdi_path, fire_patches, fire_sizes,
         roc_a2_ph_mean = roc_a2_ph_means[vegetation]
         roc_a2_ph_sd = roc_a2_ph_sds[vegetation]
 
-        for config in configs:
+        for c in range(len(configs)):
             size = fire_sizes[fire]
+            config = configs[c]
 
             for tt in range(lookahead):
                 ffdi = ffdi_path[patch, tt]
@@ -105,8 +131,7 @@ def expectedDamageExisting(ffdi_path, fire_patches, fire_sizes,
                                 roc_a2_ph_sd, size, rng_states, thread_id,
                                 random)
 
-            expected[fire*len(configs) + config] = max(
-                    0, size - fire_sizes[fire])
+            expected[fire, c] = max(0, size - fire_sizes[fire])
 
 @cuda.jit(device=True)
 def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
@@ -122,8 +147,9 @@ def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
         initial_size = init_size[vegetation]
         initial_success = init_success[vegetation]
 
-        for config in configs:
+        for c in range(len(configs)):
             damage = 0
+            config = configs[c]
 
             for tt in range(lookahead):
                 # Only look at the expected damage of fires started at this
@@ -150,7 +176,7 @@ def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
 
                 damage += occ * size * (1 - success) + occ*sizeInitial*success
 
-                expected[patch * len(configs) + config] = damage*patch_areas[patch]
+                expected[patch, c] = damage*patch_areas[patch]
 
 #@jit(nopython=True, fastmath=True)
 @cuda.jit(device=True)
@@ -190,14 +216,10 @@ def interpolate1D(xval, xrange, yrange):
 
     return value
 
-@jit(nopython=True)
-def assignAircraft():
-    pass
-
 @cuda.jit(device=True)
-def simulateNextStep(aircraftAssignments, aircraftSpeeds, aircraftLocations,
-                     accumulatedHours, baseLocations, noFires,
-                     patchVegetations, patchLocations, ffdiRanges,
+def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
+                     aircraftLocations, accumulatedHours, baseLocations,
+                     noFires, patchVegetations, patchLocations, ffdiRanges,
                      fireLocations, firePatches, ffdis, roc_a2_ph_means,
                      roc_a2_ph_sds, fireSizes, fireConfigs, patchConfigs,
                      configWeights, initM, initSD, init_succ, occurrence,
@@ -315,14 +337,17 @@ def simulateNextStep(aircraftAssignments, aircraftSpeeds, aircraftLocations,
 
             for config in range(len(patchConfigs)):
                 weight = configWeights[patch*100 + config]
-                sizeMean += weight * interpolate1D(
-                        ffdi, ffdi_range, initial_size_M[patchConfigs[config]])
-                sizeSD += weight * interpolate1D(
-                        ffdi, ffdi_range, initial_size_SD[
-                                patchConfigs[config]])
-                initS += weight * interpolate1D(
-                        ffdi, ffdi_range, initial_success[
-                                patchConfigs[config]])
+
+                if weight > 0.0:
+                    sizeMean += weight * interpolate1D(
+                            ffdi, ffdi_range,
+                            initial_size_M[patchConfigs[config]])
+                    sizeSD += weight * interpolate1D(
+                            ffdi, ffdi_range, initial_size_SD[
+                                    patchConfigs[config]])
+                    initS += weight * interpolate1D(
+                            ffdi, ffdi_range, initial_success[
+                                    patchConfigs[config]])
 
             for fire in range(newFires):
                 success = True if initS > xoroshiro128p_uniform_float32(
@@ -336,35 +361,105 @@ def simulateNextStep(aircraftAssignments, aircraftSpeeds, aircraftLocations,
                 if not success:
                     fireSizes[thread_id][time+1][fire] = size
                     fireLocations[thread_id][time + 1][newFires][0] = (
-                            fireLocations[thread_id][time][fire][0])
+                            patchLocations[patch][0])
                     fireLocations[thread_id][time + 1][newFires][1] = (
-                            fireLocations[thread_id][time][fire][1])
+                            patchLocations[patch][1])
                     firePatches[thread_id][time + 1][newFires] = firePatches[
                             thread_id][time][fire]
                     noFires[thread_id][time + 1] += 1
 
 @cuda.jit(device=True)
-def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
-                   aircraftLocations, accumulatedHours, baseLocations, fires,
+def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes, maxHours,
+                   aircraftLocations, accumulatedHours, baseLocations, noFires,
                    fireSizes, fireLocations, ffdiRanges, configurations,
-                   configsE, configsP, sampleFFDIs, expectedE, expectedP,
-                   weightsP, tt, stepSize, lookahead, path, control):
+                   configsE, configsP, thresholds, sampleFFDIs, expectedE,
+                   expectedP, weightsP, time, stepSize, lookahead, thread_id,
+                   control, tankerCovers, heliCovers):
 
     """ This is a simple fast heuristic for approximately relocating the
     aircraft. An optimal algorithm would be too slow and may not be
     necessary given the global optimisation """
 
-    """ Pre calcs """
-    # Initialise all aircraft to available
+    global noBases
+    global noPatches
+    global noAircraft
+    global noFiresMax
+    global noConfigs
+    global noConfE
+    global noConfP
 
+    """ Whether aircraft assignments are possible """
+    canBase = cuda.local.array((noAircraft, noBases), dtype=b1)
+    canFire = cuda.local.array((noAircraft, noFiresMax), dtype=b1)
+    baseTankers = cuda.local.array(noBases, dtype=int32)
+    baseHelis = cuda.local.array(noBases, dtype=int32)
+    fireTankers = cuda.local.array(noFiresMax, dtype=int32)
+    fireHelis = cuda.local.array(noFiresMax, dtype=int32)
+
+    """ Whether patches are covered within threshold time for different
+    aircraft types """
+    noTypes = len(resourceSpeeds)
+
+    for base in range(noBases):
+        baseTankers[base] = 0
+        baseHelis[base] = 0
+
+    """ Threshold distances """
+    maxFire = thresholds[control][1]
+    maxBase = thresholds[control][0]
+
+    """ Pre calcs """
     # Possible aircraft to base assignments based on control
+    for resource in range(len(resourceTypes)):
+        for base in range(len(baseLocations)):
+            dist = math.sqrt((aircraftLocations[resource][time][0]
+                              - baseLocations[base][0]) ** 2
+                              + (aircraftLocations[resource][time][1]
+                              - baseLocations[base][1]) ** 2)
+            travTime = dist / resourceSpeeds[resource]
+            accTime = accumulatedHours[thread_id][resource][time]
+            maxTime = maxHours[resource]
+
+            canBase[resource, base] = (
+                True if (travTime <= maxBase
+                         and travTime +  accTime <= maxTime)
+                else False)
+
+            if canBase[resource, base]:
+                if resourceType[resource] == 0:
+                    baseTankers[base] += 1
+                else:
+                    baseHelis[base] += 1
 
     # Possible aircraft to fire assignments based on control
+    for resource in range(len(resourceTypes)):
+        for fire in range(noFires[thread_id][time]):
+            dist = math.sqrt((aircraftLocations[resource][time][0]
+                              - fireLocations[thread_id][time][fire][0]) ** 2
+                              + (aircraftLocations[resource][time][1]
+                              - fireLocations[thread_id][time][fire][1]) ** 2)
+            travTime = dist / resourceSpeeds[resource]
+            accTime = accumulatedHours[thread_id][resource][time]
+            maxTime = maxHours[resource]
+
+            canFire[resource, fire] = (
+                True if (travTime <= maxFire
+                         and travTime +  accTime <= maxTime)
+                else False)
+
+            if canFire[resource, base]:
+                if resourceType[resource] == 0:
+                    fireTankers[fire] += 1
+                else:
+                    fireHelis[fire] += 1
 
     # While remaining aircraft:
-        # compute incremental benefit for each base and fire of one more:
-            # 1. Tanker (If possible)
-            # 2. Helicopter (If possible)
+    remaining = True
+    while remaining:
+        # Compute incremental benefit for each base and fire of one more:
+        # 1. Tanker (If possible)
+        pass
+        # 2. Helicopter (If possible)
         # Select next type and base/fire assignment
         # For given assignment, pick best A/C
         # Decrement availabilities based on assignment made
@@ -378,12 +473,38 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 #@jit(parallel=True, fastmath=True)
 def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
                patchLocations, baseLocations, resourceTypes, resourceSpeeds,
-               configurations, configsE, configsP, ffdiRanges, rocA2PHMeans,
-               rocA2PHSDs, occurrence, initSizeM, initSizeSD, initSuccess,
-               totalSteps, lookahead, stepSize, accumulatedDamages,
+               configurations, configsE, configsP, thresholds, ffdiRanges,
+               rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM, initSizeSD,
+               initSuccess, totalSteps, lookahead, stepSize, accumulatedDamages,
                accumulatedHours, fires, fireSizes, fireLocations, firePatches,
                aircraftLocations, aircraftAssignments, controls, regressionX,
-               regressionY, costs2Go, static=False):
+               regressionY, costs2Go, thresholds, static=False):
+
+    """ Set global values """
+    global noBases
+    global noPatches
+    global noAircraft
+    global noFiresMax
+    global noConfigs
+    global noConfE
+    global noConfP
+
+    noBases = len(baseLocations)
+    noPatches = len(patchLocations)
+    noAircraft = len(resourceTypes)
+    noFiresMax = 200
+    noConfigs = len(configurations)
+    noConfE = len(configsE)
+    noConfP = len(configsP)
+
+    tankerCovers = numpy.zeros([noBases, noPatches])
+    heliCovers = numpy.zeros([noBases, noPatches])
+
+    tankCovers = numpy.array(
+        [[True if math.sqrt((baseLocations[base][0]
+                             - patchLocations[patch][0]) ** 2 + () ** 2) / resourceSpeeds[0]
+          for base in range(noBases)]
+         for patch in range(noPatches)])
 
     batches = math.ceil(paths / 1000)
     batchAmounts = [1000 for batch in range(batches - 1)]
@@ -404,14 +525,14 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
         simulateSinglePath[blockspergrid, threadsperblock](
                 batchSize, totalSteps, lookahead, sampleFFDIs,
                 patchVegetations, patchAreas, patchLocations, baseLocations,
-                ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM,
-                initSizeSD, initSuccess, resourceTypes, resourceSpeeds,
-                configurations, configsE, configsP, accumulatedDamages[
-                batchStart:batchEnd], accumulatedHours[batchStart:batchEnd],
-                fires[batchStart:batchEnd], fireSizes[batchStart:batchEnd],
-                fireLocations[batchStart:batchEnd], firePatches[
-                batchStart:batchEnd], aircraftLocations[batchStart:batchEnd],
-                aircraftAssignments[batchStart:batchEnd],
+                tankerCovers, heliCovers, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
+                occurrence, initSizeM, initSizeSD, initSuccess, resourceTypes,
+                resourceSpeeds, configurations, configsE, configsP, thresholds,
+                accumulatedDamages[batchStart:batchEnd], accumulatedHours[
+                batchStart:batchEnd], fires[batchStart:batchEnd], fireSizes[
+                batchStart:batchEnd], fireLocations[batchStart:batchEnd],
+                firePatches[batchStart:batchEnd], aircraftLocations[
+                batchStart:batchEnd], aircraftAssignments[batchStart:batchEnd],
                 rng_states[batchStart:batchEnd], controls[batchStart:batchEnd],
                 regressionX, regressionY, 0, stepSize, False)
 

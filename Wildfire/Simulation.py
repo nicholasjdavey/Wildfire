@@ -2745,6 +2745,7 @@ class Simulation():
         bases = region.getStations()[0]
         vegetations = self.model.getRegion().getVegetations()
         resources = region.getResources()
+        resourceTypes = region.getResourceTypes()
         fires = region.getFires()
         configsE = self.model.getUsefulConfigurationsExisting()
         configsP = self.model.getUsefulConfigurationsPotential()
@@ -2766,7 +2767,7 @@ class Simulation():
         baseLocations = numpy.array([base.getLocation()
                                      for base in bases])
         resourceTypes = numpy.array([resource.getType()
-                                     for resource in resources])
+                                     for resource in resourceTypes])
         resourceSpeeds = numpy.array([resource.getSpeed()
                                       for resource in resources])
         configurations = numpy.array([self.model.configurations[config]
@@ -2797,6 +2798,8 @@ class Simulation():
                                     for config, _ in
                                     self.model.configurations.items()]
                                    for vegetation in vegetations])
+        thresholds = [self.model.getControls()[0].getLambda1(),
+                      self.model.getControls()[0].getLambda2()]
 
         """ Initial Monte Carlo Paths """
 
@@ -2838,12 +2841,12 @@ class Simulation():
                     mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
                     patchCentroids, baseLocations, resourceTypes,
                     resourceSpeeds, configurations, configsE, configsP,
-                    ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
-                    initSizeM, initSizeSD, initSuccess, totalSteps, lookahead,
-                    stepSize, accumulatedDamages, accumulatedHours, noFires,
-                    fireSizes, fireLocations, firePatches, aircraftLocations,
-                    aircraftAssignments, randCont, regressionX, regressionY,
-                    costs2go)
+                    thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
+                    occurrence, initSizeM, initSizeSD, initSuccess, totalSteps,
+                    lookahead, stepSize, accumulatedDamages, accumulatedHours,
+                    noFires, fireSizes, fireLocations, firePatches,
+                    aircraftLocations, aircraftAssignments, randCont,
+                    regressionX, regressionY, costs2go)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
 #            t0 = time.clock()
