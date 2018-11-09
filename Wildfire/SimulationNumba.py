@@ -5,7 +5,7 @@ Created on Mon Oct 29 14:35:12 2018
 @author: nicholas
 """
 
-#import numpy
+import numpy
 import math
 from numba import cuda, float32, int32
 from numba.types import b1
@@ -370,11 +370,11 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
 
 @cuda.jit(device=True)
 def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes, maxHours,
-                   aircraftLocations, accumulatedHours, baseLocations, noFires,
-                   fireSizes, fireLocations, ffdiRanges, configurations,
-                   configsE, configsP, thresholds, sampleFFDIs, expectedE,
-                   expectedP, weightsP, time, stepSize, lookahead, thread_id,
-                   control, tankerCovers, heliCovers):
+                   aircraftLocations, accumulatedHours, baseLocations,
+                   tankerCovers, heliCovers, noFires, fireSizes, fireLocations,
+                   ffdiRanges, configurations, configsE, configsP, thresholds,
+                   sampleFFDIs, expectedE, expectedP, weightsP, time, stepSize,
+                   lookahead, thread_id, control):
 
     """ This is a simple fast heuristic for approximately relocating the
     aircraft. An optimal algorithm would be too slow and may not be
@@ -395,6 +395,10 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes, maxHours,
     baseHelis = cuda.local.array(noBases, dtype=int32)
     fireTankers = cuda.local.array(noFiresMax, dtype=int32)
     fireHelis = cuda.local.array(noFiresMax, dtype=int32)
+    fireImproveTanker = cuda.local.array(noFiresMax, dtype=float32)
+    fireImproveHeli = cuda.local.array(noFiresMax, dtype=float32)
+    baseImproveTanker = cuda.local.array(noBases, dtype=float32)
+    baseImproveHeli = cuda.local.array(noBases, dtype=float32)
 
     """ Whether patches are covered within threshold time for different
     aircraft types """
@@ -426,7 +430,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes, maxHours,
                 else False)
 
             if canBase[resource, base]:
-                if resourceType[resource] == 0:
+                if resourceTypes[resource] == 0:
                     baseTankers[base] += 1
                 else:
                     baseHelis[base] += 1
@@ -448,7 +452,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes, maxHours,
                 else False)
 
             if canFire[resource, base]:
-                if resourceType[resource] == 0:
+                if resourceTypes[resource] == 0:
                     fireTankers[fire] += 1
                 else:
                     fireHelis[fire] += 1
@@ -456,9 +460,23 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes, maxHours,
     # While remaining aircraft:
     remaining = True
     while remaining:
-        # Compute incremental benefit for each base and fire of one more:
-        # 1. Tanker (If possible)
         pass
+        # Compute incremental benefit for each base and fire of one more:
+        for fire in range(noFires[thread_id][time]):
+            # Tankers
+            noTankers = fireTankers[fire]
+            noHelis = fireTankers[fire]
+
+            # get index of new damage
+
+            # Helis
+
+        for base in range(noBases):
+            # Tankers
+
+            # Helis
+
+        # 1. Tanker (If possible)
         # 2. Helicopter (If possible)
         # Select next type and base/fire assignment
         # For given assignment, pick best A/C
@@ -478,7 +496,7 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
                initSuccess, totalSteps, lookahead, stepSize, accumulatedDamages,
                accumulatedHours, fires, fireSizes, fireLocations, firePatches,
                aircraftLocations, aircraftAssignments, controls, regressionX,
-               regressionY, costs2Go, thresholds, static=False):
+               regressionY, costs2Go, static=False):
 
     """ Set global values """
     global noBases
@@ -500,9 +518,23 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
     tankerCovers = numpy.zeros([noBases, noPatches])
     heliCovers = numpy.zeros([noBases, noPatches])
 
-    tankCovers = numpy.array(
-        [[True if math.sqrt((baseLocations[base][0]
-                             - patchLocations[patch][0]) ** 2 + () ** 2) / resourceSpeeds[0]
+    tankerCovers = numpy.array(
+        [[(True
+           if math.sqrt(
+               (baseLocations[base][0] - patchLocations[patch][0]) ** 2
+               + (baseLocations[base][1] - patchLocations[patch][1]) ** 2) /
+               resourceSpeeds[0] <= thresholds[0]
+           else False)
+          for base in range(noBases)]
+         for patch in range(noPatches)])
+
+    heliCovers = numpy.array(
+        [[(True
+           if math.sqrt(
+               (baseLocations[base][0] - patchLocations[patch][0]) ** 2
+               + (baseLocations[base][1] - patchLocations[patch][1]) ** 2) /
+               resourceSpeeds[1] <= thresholds[0]
+           else False)
           for base in range(noBases)]
          for patch in range(noPatches)])
 
