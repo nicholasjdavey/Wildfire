@@ -399,7 +399,14 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes, maxHours,
     fireImproveHeli = cuda.local.array(noFiresMax, dtype=float32)
     baseImproveTanker = cuda.local.array(noBases, dtype=float32)
     baseImproveHeli = cuda.local.array(noBases, dtype=float32)
+    fireMaxTanker = cuda.local.array(noFiresMax, dtype=int32)
+    baseMaxTanker = cuda.local.array(noFiresMax, dtype=int32)
+    fireMaxHeli = cuda.local.array(noBases, dtype=int32)
+    baseMaxHeli = cuda.local.array(noBases, dtype=int32)
 
+    lastUpdateDType = 0
+    lastUpdateACType = 0
+    lastUpdateIdx = 0
     """ Whether patches are covered within threshold time for different
     aircraft types """
     noTypes = len(resourceSpeeds)
