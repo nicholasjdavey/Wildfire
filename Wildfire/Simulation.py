@@ -1949,7 +1949,7 @@ class Simulation():
         """ Expected number of fires visible by base B for component C """
         tempModel.no_CB = {
                 (c, b):
-                sum([tempModel.d4_BNC[b, n, c]*tempModel.no_N[n]
+                sum([tempModel.no_N[n]
                      if (((c == 1 or c == 3)
                           and tempModel.d4_BNC[b, n, c] <= 1/3)
                          or (c == 2 or c == 4
