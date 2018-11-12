@@ -747,6 +747,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
         if thisUpdateDType == 0:
             if thisUpdateACType == 1:
                 for resource in range(noResources):
+                    nextBest = 0
+
                     if (resourceTypes[resource] == 0
                         and aircraftAssignments[time][resource][0] == 0):
 
@@ -766,8 +768,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             travTime = dist / resourceSpeeds[resource]
 
                             if travTime < 1/3:
-                            # This resource is a candidate
-                                nextBest = 0
+                                # This resource is a candidate
 
                                 # Check potential benefit to other fires
                                 for fire in range(noFires[thread_id][time]):
@@ -812,12 +813,20 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                             nextBest = (
                                                 baseImproveTankerE[base])
 
-                    if thisUpdateACType == 3:
-                        for fire in range(noFires[thread_id][time]):
-                            if canFire[resource, fire]:
+                if nextBest < minMax:
+                    minMax = nextBest
+                    nextAC = resource
 
-            elif resourceType == 1:
-                pass
+            if thisUpdateACType == 3:
+                for fire in range(noFires[thread_id][time]):
+                    if canFire[resource, fire]:
+
+        elif resourceType == 1:
+            if thisUpdateACType == 2:
+
+            if thisUpdateACType == 4:
+
+
 
         # Reduce max component capacities (and possibly incremental improvement)
         # based on assignment just made
