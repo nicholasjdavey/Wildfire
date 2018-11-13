@@ -2745,7 +2745,7 @@ class Simulation():
         bases = region.getStations()[0]
         vegetations = self.model.getRegion().getVegetations()
         resources = region.getResources()
-        resourceTypes = region.getResourceTypes()
+        resourceTypes = self.model.getResourceTypes()
         fires = region.getFires()
         configsE = self.model.getUsefulConfigurationsExisting()
         configsP = self.model.getUsefulConfigurationsPotential()
@@ -2766,10 +2766,12 @@ class Simulation():
                                       for patch in patches])
         baseLocations = numpy.array([base.getLocation()
                                      for base in bases])
-        resourceTypes = numpy.array([resource.getType()
+        resourceTypes = numpy.array([0 if type(resource).__name__ == 'Tanker' else 1
                                      for resource in resourceTypes])
         resourceSpeeds = numpy.array([resource.getSpeed()
                                       for resource in resources])
+        maxHours = numpy.array([resource.getMaxDailyHours()
+                                 for resource in resources])
         configurations = numpy.array([self.model.configurations[config]
                                       for config in self.model.configurations])
         ffdiRanges = numpy.array([vegetation.getFFDIRange()
@@ -2840,8 +2842,8 @@ class Simulation():
             SimulationNumba.simulateMC(
                     mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
                     patchCentroids, baseLocations, resourceTypes,
-                    resourceSpeeds, configurations, configsE, configsP,
-                    thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
+                    resourceSpeeds, maxHours, configurations, configsE,
+                    configsP, thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
                     occurrence, initSizeM, initSizeSD, initSuccess, totalSteps,
                     lookahead, stepSize, accumulatedDamages, accumulatedHours,
                     noFires, fireSizes, fireLocations, firePatches,

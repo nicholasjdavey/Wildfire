@@ -832,8 +832,6 @@ class Model():
                     patch.setVertices(vertices[ii])
                     patch.setAvDanger([float(rows[iterator][3])])
                     patch.setAvSeverity([float(rows[iterator][4])])
-#                    patch.computeArea()
-#                    patch.computeCentroid()
                     patch.setCentroid([
                             vertices[ii].centroid.xy[0][0],
                             vertices[ii].centroid.xy[1][0]])
