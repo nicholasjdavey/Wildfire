@@ -84,7 +84,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                 # Compute the optimal control using regressions
                 pass
             else:
-                control = int(xoroshiro128p_uniform_float32(rng_states, path))
+                control = int(6*xoroshiro128p_uniform_float32(rng_states, path))
 
             # AssignAircraft
             # This could potentially be very slow. Just use a naive assignment
@@ -459,6 +459,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
     configNos = cuda.local.array(4, dtype=int32)
     fireCumulativeSavings = cuda.local.array(noFiresMax, dtype=float32)
     baseCumulativeSavings = cuda.local.array(noBases, dtype=float32)
+    nearest = cuda.local.array(noAircraft, dtype=float32)
 
     """ Whether patches are covered within threshold time for different
     aircraft types """
@@ -486,10 +487,44 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
         fireCumulativeSavings[fire] = 0
 
     """ Threshold distances """
-    maxFire = thresholds[int(control)][1]
-    maxBase = thresholds[int(control)][0]
+    if control == 0:
+        maxFire = thresholds[1]
+        maxBase = 0
+    elif control == 1:
+        maxFire = math.inf
+        maxBase = 0
+    elif control == 2:
+        maxFire = thresholds[1]
+        maxBase = thresholds[0]
+    elif control == 3:
+        maxFire = math.inf
+        maxBase = thresholds[0]
+    elif control == 4:
+        maxFire = thresholds[1]
+        maxBase = math.inf
+    elif control == 5:
+        maxFire = math.inf
+        maxBase = math.inf
 
     """ Pre calcs """
+    # Nearest base to each aircraft
+    for resource in range(len(resourceTypes)):
+        nearest[resource] = 0
+        nearestDist = math.inf
+
+        for base in range(len(baseLocations)):
+            dist = math.sqrt(((aircraftLocations[resource][time][0]
+                             - baseLocations[base][0])*40000*math.cos(
+                                 (aircraftLocations[resource][time][1]
+                                  + baseLocations[base][1])
+                                 * math.pi/360)/360) ** 2
+                             + ((baseLocations[base][1]
+                                 - aircraftLocations[resource][time][1])*
+                                 40000/360)**2)
+            if dist < nearestDist:
+                nearestDist = dist
+                nearest[resource] = base
+
     # Possible aircraft to base assignments based on control
     for resource in range(len(resourceTypes)):
         for base in range(len(baseLocations)):
@@ -508,12 +543,13 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
             canBase[resource, base] = (
                 True if (travTime <= maxBase
                          and travTime +  accTime <= maxTime)
+                        or base == nearest[resource]
                 else False)
 
             if canBase[resource, base]:
                 if resourceTypes[resource] == 0:
                     baseMaxTankersE[base] += 1
-                else:
+                elif resourceTypes[resource] == 1:
                     baseMaxHelisE[base] += 1
 
     # Possible aircraft to fire assignments based on control
@@ -534,7 +570,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
             canFire[resource, fire] = (
                 True if (travTime <= maxFire
-                         and travTime +  accTime <= maxTime)
+                         and travTime + accTime <= maxTime)
                 else False)
 
             if canFire[resource, fire]:
@@ -543,7 +579,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                         fireMaxTankersE[fire] += 1
                     else:
                         fireMaxTankersL[fire] += 1
-                else:
+                elif resourceTypes[resource] == 1:
                     if travTime < 1/3:
                         fireMaxHelisE[fire] += 1
                     else:
@@ -659,7 +695,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             expFires = 0.0
 
                             for tt in range(time, time + lookahead):
-                                expFires += expFiresComp[time][base][0]
+                                expFires += expFiresComp[tt][base][0]
 
                             n_c = max(1, expFires)
                             weight_c = 1/n_c
@@ -678,8 +714,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             expFires = 0.0
 
                             for tt in range(time, time + lookahead):
-                                expFires += (expFiresComp[time][base][0]
-                                             + expFiresComp[time][base][2])
+                                expFires += (expFiresComp[tt][base][0]
+                                             + expFiresComp[tt][base][2])
 
                             n_c = max(1, expFires)
                             weight_c = 1/n_c
@@ -715,7 +751,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             expFires = 0.0
 
                             for tt in range(time, time + lookahead):
-                                expFires += expFiresComp[time][base][1]
+                                expFires += expFiresComp[tt][base][1]
 
                             n_c = max(1, expFires)
                             weight_c = 1/n_c
@@ -734,8 +770,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             expFires = 0.0
 
                             for tt in range(time, time + lookahead):
-                                expFires += (expFiresComp[time][base][1]
-                                             + expFiresComp[time][base][3])
+                                expFires += (expFiresComp[tt][base][1]
+                                             + expFiresComp[tt][base][3])
 
                             n_c = max(1, expFires)
                             weight_c = 1/n_c
@@ -2160,14 +2196,38 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
         # Update the assignments matrix #######################################
         if thisUpdateDType == 0:
-            aircraftAssignments[time][nextAC][1] = thisUpdateIdx
+            aircraftAssignments[time][nextAC][1] = thisUpdateIdx + 1
             # The following does not matter as it will never be referenced for
             # a calculation. It is only used to determine if the aircraft is
             # available, therefore we just assign a non-zero value to do this
             aircraftAssignments[time][nextAC][0] = 1
 
+            # Pick nearest base to fire that is within the maximum relocation
+            # distance from the aircraft's current base
+            bestBase = 0
+            bestTrav = math.inf
+            for base in range(noBases):
+                if canBase[nextAC, base]:
+                    dist = math.sqrt(((aircraftLocations[nextAC][time][0]
+                             - baseLocations[base][0])*
+                             40000*math.cos(
+                                 (aircraftLocations[nextAC][time][1]
+                                  + baseLocations[base][1])
+                                 * math.pi/360)/360) ** 2
+                             + ((baseLocations[base][1]
+                                 - aircraftLocations[nextAC][time][1])*
+                                 40000/360)**2)
+                travTime = dist / resourceSpeeds[nextAC]
+
+                if travTime < bestTrav:
+                    bestBase = base
+                    bestTrav = travTime
+
+            aircraftAssignments[time][nextAC][0] = bestBase + 1
+
         elif thisUpdateDType == 1:
-            aircraftAssignments[time][nextAC][0] = thisUpdateIdx
+            aircraftAssignments[time][nextAC][1] = 0
+            aircraftAssignments[time][nextAC][0] = thisUpdateIdx + 1
 
         #######################################################################
         # Reduce max component capacities (and possibly incremental
