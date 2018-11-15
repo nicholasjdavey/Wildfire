@@ -2747,9 +2747,12 @@ class Simulation():
         resources = region.getResources()
         resourceTypes = self.model.getResourceTypes()
         fires = region.getFires()
-        configsE = self.model.getUsefulConfigurationsExisting()
-        configsP = self.model.getUsefulConfigurationsPotential()
-        sampleFFDIs = self.model.getSamplePaths()
+        configsE = self.model.getUsefulConfigurationsExisting().astype(numpy.int32)
+        configsP = self.model.getUsefulConfigurationsPotential().astype(numpy.int32)
+        sampleFFDIs = numpy.array([self.model.getSamplePaths()[ii]
+                                   for ii in range(len(
+                                       self.model.getSamplePaths()))],
+                                  dtype=numpy.float32)
 
         samplePaths = (
                 len(sampleFFDIs)
@@ -2760,48 +2763,63 @@ class Simulation():
         """ Input data for ROV """
         noPatches = len(patches)
         noResources = len(resources)
-        patchVegetations = region.getVegetation()
-        patchAreas = numpy.array([patch.getArea() for patch in patches])
+        patchVegetations = region.getVegetation().astype(numpy.int32)
+        patchAreas = numpy.array([patch.getArea() for patch in patches],
+                                 dtype=numpy.float32)
         patchCentroids = numpy.array([patch.getCentroid()
-                                      for patch in patches])
+                                      for patch in patches],
+                                     dtype=numpy.float32)
         baseLocations = numpy.array([base.getLocation()
-                                     for base in bases])
+                                     for base in bases],
+                                    dtype=numpy.float32)
         resourceTypes = numpy.array([0 if type(resource).__name__ == 'Tanker' else 1
-                                     for resource in resourceTypes])
+                                     for resource in resourceTypes],
+                                    dtype=numpy.int32)
         resourceSpeeds = numpy.array([resource.getSpeed()
-                                      for resource in resources])
+                                      for resource in resources],
+                                     dtype=numpy.float32)
         maxHours = numpy.array([resource.getMaxDailyHours()
-                                 for resource in resources])
+                                 for resource in resources],
+                               dtype=numpy.float32)
         configurations = numpy.array([self.model.configurations[config]
-                                      for config in self.model.configurations])
+                                      for config in self.model.configurations],
+                                     dtype=numpy.int32)
         ffdiRanges = numpy.array([vegetation.getFFDIRange()
-                                  for vegetation in vegetations])
+                                  for vegetation in vegetations],
+                                 dtype=numpy.float32)
         rocA2PHMeans = numpy.array([[vegetation.getROCA2PerHourMean()[config]
                                      for config, _ in
                                          self.model.configurations.items()]
-                                    for vegetation in vegetations])
+                                    for vegetation in vegetations],
+                                   dtype=numpy.float32)
         rocA2PHSDs = numpy.array([[vegetation.getROCA2PerHourSD()[config]
                                    for config, _ in
                                        self.model.configurations.items()]
-                                  for vegetation in vegetations])
+                                  for vegetation in vegetations],
+                                 dtype=numpy.float32)
         occurrence = numpy.array([[vegetation.getOccurrence()[time]
                                    for time in range(totalSteps + lookahead
                                                      + 1)]
-                                  for vegetation in vegetations])
+                                  for vegetation in vegetations],
+                                 dtype=numpy.float32)
         initSizeM = numpy.array([[vegetation.getInitialSizeMean()[config]
                                   for config, _ in
                                   self.model.configurations.items()]
-                                 for vegetation in vegetations])
+                                 for vegetation in vegetations],
+                                dtype=numpy.float32)
         initSizeSD = numpy.array([[vegetation.getInitialSizeSD()[config]
                                    for config, _ in
                                    self.model.configurations.items()]
-                                  for vegetation in vegetations])
+                                  for vegetation in vegetations],
+                                 dtype=numpy.float32)
         initSuccess = numpy.array([[vegetation.getInitialSuccess()[config]
                                     for config, _ in
                                     self.model.configurations.items()]
-                                   for vegetation in vegetations])
-        thresholds = [self.model.getControls()[0].getLambda1(),
-                      self.model.getControls()[0].getLambda2()]
+                                   for vegetation in vegetations],
+                                  dtype=numpy.float32)
+        thresholds = numpy.array([self.model.getControls()[0].getLambda1(),
+                                  self.model.getControls()[0].getLambda2()],
+                                 dtype=numpy.float32)
 
         """ Initial Monte Carlo Paths """
 
@@ -2851,19 +2869,19 @@ class Simulation():
                     regressionX, regressionY, costs2go)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
-#            t0 = time.clock()
-#            SimulationNumba.simulateMC(
-#                    mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
-#                    patchCentroids, baseLocations, resourceTypes,
-#                    resourceSpeeds, configurations, configsE, configsP,
-#                    ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
-#                    initSizeM, initSizeSD, initSuccess, totalSteps, lookahead,
-#                    stepSize, accumulatedDamages, accumulatedHours, noFires,
-#                    fireSizes, fireLocations, firePatches, aircraftLocations,
-#                    aircraftAssignments, randCont, regressionX, regressionY,
-#                    costs2go)
-#            t1 = time.clock()
-#            print('Time:   ' + str(t1-t0))
+            t0 = time.clock()
+            SimulationNumba.simulateMC(
+                    mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
+                    patchCentroids, baseLocations, resourceTypes,
+                    resourceSpeeds, maxHours, configurations, configsE,
+                    configsP, thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
+                    occurrence, initSizeM, initSizeSD, initSuccess, totalSteps,
+                    lookahead, stepSize, accumulatedDamages, accumulatedHours,
+                    noFires, fireSizes, fireLocations, firePatches,
+                    aircraftLocations, aircraftAssignments, randCont,
+                    regressionX, regressionY, costs2go)
+            t1 = time.clock()
+            print('Time:   ' + str(t1-t0))
 
             """ For analysis purposes, we need to print our paths to output
             csv files or data dumps (use Pandas?)"""

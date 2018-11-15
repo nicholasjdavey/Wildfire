@@ -7,7 +7,7 @@ Created on Mon Oct 29 14:35:12 2018
 
 import numpy
 import math
-from numba import cuda, float32, int32
+from numba import cuda, float32, float64, int32
 from numba.types import b1
 #from pyculib import rand
 from numba.cuda.random import create_xoroshiro128p_states
@@ -29,7 +29,7 @@ global noConfP
 @cuda.jit
 def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                        patchVegetations, patchAreas, patchLocations,
-                       baseLocations, tankerCovers, heliCovers, ffdiRanges,
+                       baseLocations, tankerDists, heliDists, ffdiRanges,
                        rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM,
                        initSizeSD, initSuccess, resourceTypes, resourceSpeeds,
                        maxHours, configurations, configsE, configsP,
@@ -63,17 +63,18 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
         expectedP = cuda.local.array((noPatches, noConfP), dtype=float32)
         weightsP = cuda.local.array((noPatches, noConfP), dtype=float32)
 
-        for ii in range(15000):
-            weightsP[ii] = 0.1
+        for ii in range(noPatches):
+            for jj in range(noConfP):
+                weightsP[ii, jj] = 0.1
 
         for tt in range(start, totalSteps):
             expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
 
             expectedDamageExisting(
-                    expectedFFDI, firePatches[path][tt], fireSizes[path][tt],
-                    patchVegetations, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
-                    occurrence, configsE, lookahead, expectedE, rng_states,
-                    path, False)
+                    expectedFFDI, firePatches[path][tt], fires[path][tt],
+                    fireSizes[path][tt], patchVegetations, ffdiRanges,
+                    rocA2PHMeans, rocA2PHSDs, occurrence, configsE, lookahead,
+                    expectedE, rng_states, path, False)
 
             expectedDamagePotential(
                     expectedFFDI, patchVegetations, patchAreas, ffdiRanges,
@@ -91,7 +92,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
             # for now
             assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                            maxHours, aircraftLocations, accumulatedHours,
-                           baseLocations, tankerCovers, heliCovers, fires,
+                           baseLocations, tankerDists, heliDists, fires,
                            fireSizes, fireLocations, ffdiRanges, configurations,
                            configsE, configsP, baseConfigsMax, fireConfigsMax,
                            thresholds, sampleFFDIs, expFiresComp, expectedE,
@@ -111,12 +112,12 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
 
 #@jit(nopython=True, fastmath=True)
 @cuda.jit(device=True)
-def expectedDamageExisting(ffdi_path, fire_patches, fire_sizes,
+def expectedDamageExisting(ffdi_path, fire_patches, no_fires, fire_sizes,
                            patch_vegetations, ffdi_ranges, roc_a2_ph_means,
                            roc_a2_ph_sds, occurrence, configs, lookahead,
                            expected, rng_states, thread_id, random):
 
-    for fire in range(len(fire_sizes)):
+    for fire in range(no_fires):
         patch = int(fire_patches[fire])
         vegetation = int(patch_vegetations[patch])
         ffdi_range = ffdi_ranges[vegetation]
@@ -245,7 +246,7 @@ def getAllConfigsSorted(configurations, configsP, baseConfigsPossible,
             if expectedP[j] < expectedP[i]:
                 iMin = j
 
-        baseConfigsPossible[i] = iMin
+        baseConfigsPossible[i] = iMin + 1
 
 @cuda.jit(device=True)
 def maxComponentNo():
@@ -254,6 +255,14 @@ def maxComponentNo():
 @cuda.jit(device=True)
 def configWeight():
     pass
+
+#@cuda.jit(device=True)
+#def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
+#                     aircraftLocations, accumulatedHours, baseLocations,
+#                     fires, patchVegetations, patchLocations, ffdiRanges,
+#                     fireLocations, firePatches, sampleFFDIs, rocA2PHMeans,
+#                     rocA2PHSDs, fireSizes, configsE, configsP, weightsP):
+#    pass
 
 @cuda.jit(device=True)
 def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
@@ -375,7 +384,7 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
             initS = 0.0
 
             for config in range(len(patchConfigs)):
-                weight = configWeights[patch*100 + config]
+                weight = configWeights[patch, config]
 
                 if weight > 0.0:
                     sizeMean += weight * interpolate1D(
@@ -513,13 +522,13 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
         nearestDist = math.inf
 
         for base in range(len(baseLocations)):
-            dist = math.sqrt(((aircraftLocations[resource][time][0]
+            dist = math.sqrt(((aircraftLocations[thread_id][time][resource][0]
                              - baseLocations[base][0])*40000*math.cos(
-                                 (aircraftLocations[resource][time][1]
+                                 (aircraftLocations[thread_id][time][resource][1]
                                   + baseLocations[base][1])
                                  * math.pi/360)/360) ** 2
                              + ((baseLocations[base][1]
-                                 - aircraftLocations[resource][time][1])*
+                                 - aircraftLocations[thread_id][time][resource][1])*
                                  40000/360)**2)
             if dist < nearestDist:
                 nearestDist = dist
@@ -528,13 +537,13 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
     # Possible aircraft to base assignments based on control
     for resource in range(len(resourceTypes)):
         for base in range(len(baseLocations)):
-            dist = math.sqrt(((aircraftLocations[resource][time][0]
+            dist = math.sqrt(((aircraftLocations[thread_id][time][resource][0]
                              - baseLocations[base][0])*40000*math.cos(
-                                 (aircraftLocations[resource][time][1]
+                                 (aircraftLocations[thread_id][time][resource][1]
                                   + baseLocations[base][1])
                                  * math.pi/360)/360) ** 2
                              + ((baseLocations[base][1]
-                                 - aircraftLocations[resource][time][1])*
+                                 - aircraftLocations[thread_id][time][resource][1])*
                                  40000/360)**2)
             travTime = dist / resourceSpeeds[resource]
             accTime = accumulatedHours[thread_id][resource][time]
@@ -555,14 +564,14 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
     # Possible aircraft to fire assignments based on control
     for resource in range(len(resourceTypes)):
         for fire in range(noFires[thread_id][time]):
-            dist = math.sqrt(((aircraftLocations[resource][time][0]
+            dist = math.sqrt(((aircraftLocations[thread_id][time][resource][0]
                              - fireLocations[thread_id][time][fire][0])*
                              40000*math.cos(
-                                 (aircraftLocations[resource][time][1]
+                                 (aircraftLocations[thread_id][time][resource][1]
                                   + fireLocations[thread_id][time][fire][1])
                                  * math.pi/360)/360) ** 2
                              + ((fireLocations[thread_id][time][fire][1]
-                                 - aircraftLocations[resource][time][1])*
+                                 - aircraftLocations[thread_id][time][resource][1])*
                                  40000/360)**2)
             travTime = dist / resourceSpeeds[resource]
             accTime = accumulatedHours[thread_id][resource][time]
@@ -609,8 +618,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                 # Tankers
                 # Early
                 if fireMaxTankersE[fire] > 0:
-                    config = findConfigIdx(configurations, configsE, 1, 0, 0,
-                                           0)
+                    configNos[0] = 1
+                    configNos[1] = 0
+                    configNos[2] = 0
+                    configNos[3] = 0
+
+                    getAllConfigsSorted(configurations, configsE,
+                                        baseConfigsPossible,
+                                        expectedE[fire], configNos)
+                    config = baseConfigsPossible[0]
+
                     fireImproveTankerE[fire] = (expectedE[fire][0]
                         - expectedE[fire][config])
 
@@ -625,8 +642,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                 # Late
                 if fireMaxTankersL[fire] > 0:
-                    config = findConfigIdx(configurations, configsE, 0, 0, 1,
-                                           0)
+                    configNos[0] = 0
+                    configNos[1] = 0
+                    configNos[2] = 1
+                    configNos[3] = 0
+
+                    getAllConfigsSorted(configurations, configsE,
+                                        baseConfigsPossible,
+                                        expectedE[fire], configNos)
+                    config = baseConfigsPossible[0]
+
                     fireImproveTankerL[fire] = (expectedE[fire][0]
                         - expectedE[fire][config])
 
@@ -642,8 +667,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                 # Helis
                 # Early
                 if fireMaxHelisE[fire] > 0:
-                    config = findConfigIdx(configurations, configsE, 0, 1, 0,
-                                           0)
+                    configNos[0] = 0
+                    configNos[1] = 1
+                    configNos[2] = 0
+                    configNos[3] = 0
+
+                    getAllConfigsSorted(configurations, configsE,
+                                        baseConfigsPossible,
+                                        expectedE[fire], configNos)
+                    config = baseConfigsPossible[0]
+
                     fireImproveHeliE[fire] = (expectedE[fire][0]
                         - expectedE[fire][config])
 
@@ -658,8 +691,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                 # Late
                 if fireMaxHelisL[fire] > 0:
-                    config = findConfigIdx(configurations, configsE, 0, 0, 0,
-                                           1)
+                    configNos[0] = 0
+                    configNos[1] = 0
+                    configNos[2] = 0
+                    configNos[3] = 1
+
+                    getAllConfigsSorted(configurations, configsE,
+                                        baseConfigsPossible,
+                                        expectedE[fire], configNos)
+                    config = baseConfigsPossible[0]
+
                     fireImproveHeliL[fire] = (expectedE[fire][0]
                         - expectedE[fire][config])
 
@@ -688,8 +729,15 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                     for patch in range(noPatches):
                         if tankerCovers[patch, base] <= min(maxFire, 1/3):
-                            config = findConfigIdx(configurations, configsP, 1,
-                                                   0, 0, 0)
+                            configNos[0] = 1
+                            configNos[1] = 0
+                            configNos[2] = 0
+                            configNos[3] = 0
+
+                            getAllConfigsSorted(configurations, configsE,
+                                                baseConfigsPossible,
+                                                expectedE[fire], configNos)
+                            config = baseConfigsPossible[0]
 
                             # If the patch is close to the base
                             expFires = 0.0
@@ -701,14 +749,21 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             weight_c = 1/n_c
 
                             expectedDamageBase += (
-                                    expectedP[patch, time, 0] * (1 - weight_c) -
-                                    expectedP[patch, time, config] * weight_c)
+                                    expectedP[patch, 0] * (1 - weight_c) -
+                                    expectedP[patch, config] * weight_c)
 
-                            baseDamageBaseline += expectedP[patch, time, 0]
+                            baseDamageBaseline += expectedP[patch, 0]
 
                         elif tankerCovers[patch, base] <= maxFire:
-                            config = findConfigIdx(configurations, configsP, 0,
-                                                   0, 1, 0)
+                            configNos[0] = 0
+                            configNos[1] = 0
+                            configNos[2] = 1
+                            configNos[3] = 0
+
+                            getAllConfigsSorted(configurations, configsE,
+                                                baseConfigsPossible,
+                                                expectedE[fire], configNos)
+                            config = baseConfigsPossible[0]
 
                             # If the patch is close to the base
                             expFires = 0.0
@@ -721,10 +776,10 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             weight_c = 1/n_c
 
                             expectedDamageBase += (
-                                    expectedP[patch, time, 0] * (1 - weight_c) -
-                                    expectedP[patch, time, config] * weight_c)
+                                    expectedP[patch, 0] * (1 - weight_c) -
+                                    expectedP[patch, config] * weight_c)
 
-                            baseDamageBaseline += expectedP[patch, time, 0]
+                            baseDamageBaseline += expectedP[patch, 0]
 
                     baseImproveTankerE[base] = (baseDamageBaseline
                         - expectedDamageBase)
@@ -744,8 +799,15 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                     for patch in range(noPatches):
                         if heliCovers[patch, base] <= min(maxFire, 1/3):
-                            config = findConfigIdx(configurations, configsP, 0,
-                                                   1, 0, 0)
+                            configNos[0] = 0
+                            configNos[1] = 1
+                            configNos[2] = 0
+                            configNos[3] = 0
+
+                            getAllConfigsSorted(configurations, configsE,
+                                                baseConfigsPossible,
+                                                expectedE[fire], configNos)
+                            config = baseConfigsPossible[0]
 
                             # If the patch is close to the base
                             expFires = 0.0
@@ -757,14 +819,21 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             weight_c = 1/n_c
 
                             expectedDamageBase += (
-                                    expectedP[patch, time, 0] * (1 - weight_c) -
-                                    expectedP[patch, time, config] * weight_c)
+                                    expectedP[patch, 0] * (1 - weight_c) -
+                                    expectedP[patch, config] * weight_c)
 
-                            baseDamageBaseline += expectedP[patch, time, 0]
+                            baseDamageBaseline += expectedP[patch, 0]
 
                         elif heliCovers[patch, base] <= maxFire:
-                            config = findConfigIdx(configurations, configsP, 0,
-                                                   0, 0, 1)
+                            configNos[0] = 0
+                            configNos[1] = 0
+                            configNos[2] = 0
+                            configNos[3] = 1
+
+                            getAllConfigsSorted(configurations, configsE,
+                                                baseConfigsPossible,
+                                                expectedE[fire], configNos)
+                            config = baseConfigsPossible[0]
 
                             # If the patch is close to the base
                             expFires = 0.0
@@ -777,10 +846,10 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             weight_c = 1/n_c
 
                             expectedDamageBase += (
-                                    expectedP[patch, time, 0] * (1 - weight_c) -
-                                    expectedP[patch, time, config] * weight_c)
+                                    expectedP[patch, 0] * (1 - weight_c) -
+                                    expectedP[patch, config] * weight_c)
 
-                            baseDamageBaseline += expectedP[patch, time, 0]
+                            baseDamageBaseline += expectedP[patch, 0]
 
                     baseImproveHeliE[base] = (baseDamageBaseline
                         - expectedDamageBase)
@@ -804,11 +873,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                 # 1 more early tanker
                 if fireMaxTankersE[thisUpdateIdx] > fireTankersE[thisUpdateIdx]:
-                    config = findConfigIdx(configurations, configsE,
-                                           fireTankersE[thisUpdateIdx] + 1,
-                                           fireHelisE[thisUpdateIdx],
-                                           fireTankersL[thisUpdateIdx],
-                                           fireHelisL[thisUpdateIdx])
+                    configNos[0] = fireTankersE[thisUpdateIdx] + 1
+                    configNos[1] = fireHelisE[thisUpdateIdx]
+                    configNos[2] = fireTankersL[thisUpdateIdx]
+                    configNos[3] = fireHelisL[thisUpdateIdx]
+
+                    getAllConfigsSorted(configurations, configsE,
+                                        baseConfigsPossible,
+                                        expectedE[fire], configNos)
+                    config = baseConfigsPossible[0]
+
                     fireImproveTankerE[thisUpdateIdx] = (
                         expectedE[thisUpdateIdx][0] - currentImprove
                         - expectedE[thisUpdateIdx][config])
@@ -817,11 +891,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                 # 1 more early heli
                 if fireMaxHelisE[thisUpdateIdx] > fireHelisE[thisUpdateIdx]:
-                    config = findConfigIdx(configurations, configsE,
-                                           fireTankersE[thisUpdateIdx],
-                                           fireHelisE[thisUpdateIdx] + 1,
-                                           fireTankersL[thisUpdateIdx],
-                                           fireHelisL[thisUpdateIdx])
+                    configNos[0] = fireTankersE[thisUpdateIdx]
+                    configNos[1] = fireHelisE[thisUpdateIdx] + 1
+                    configNos[2] = fireTankersL[thisUpdateIdx]
+                    configNos[3] = fireHelisL[thisUpdateIdx]
+
+                    getAllConfigsSorted(configurations, configsE,
+                                        baseConfigsPossible,
+                                        expectedE[fire], configNos)
+                    config = baseConfigsPossible[0]
+
                     fireImproveHeliE[thisUpdateIdx] = (
                         expectedE[thisUpdateIdx][0] - currentImprove
                         - expectedE[thisUpdateIdx][config])
@@ -830,11 +909,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                 # 1 more late tanker
                 if fireMaxTankersL[thisUpdateIdx] > fireTankersL[thisUpdateIdx]:
-                    config = findConfigIdx(configurations, configsE,
-                                           fireTankersE[thisUpdateIdx],
-                                           fireHelisE[thisUpdateIdx],
-                                           fireTankersL[thisUpdateIdx] + 1,
-                                           fireHelisL[thisUpdateIdx])
+                    configNos[0] = fireTankersE[thisUpdateIdx]
+                    configNos[1] = fireHelisE[thisUpdateIdx]
+                    configNos[2] = fireTankersL[thisUpdateIdx] + 1
+                    configNos[3] = fireHelisL[thisUpdateIdx]
+
+                    getAllConfigsSorted(configurations, configsE,
+                                        baseConfigsPossible,
+                                        expectedE[fire], configNos)
+                    config = baseConfigsPossible[0]
+
                     fireImproveTankerL[thisUpdateIdx] = (
                         expectedE[thisUpdateIdx][0] - currentImprove
                         - expectedE[thisUpdateIdx][config])
@@ -843,11 +927,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                 # 1 more late heli
                 if fireMaxHelisL[thisUpdateIdx] > fireHelisL[thisUpdateIdx]:
-                    config = findConfigIdx(configurations, configsE,
-                                           fireTankersE[thisUpdateIdx],
-                                           fireHelisE[thisUpdateIdx],
-                                           fireTankersL[thisUpdateIdx],
-                                           fireHelisL[thisUpdateIdx] + 1)
+                    configNos[0] = fireTankersE[thisUpdateIdx]
+                    configNos[1] = fireHelisE[thisUpdateIdx]
+                    configNos[2] = fireTankersL[thisUpdateIdx]
+                    configNos[3] = fireHelisL[thisUpdateIdx] + 1
+
+                    getAllConfigsSorted(configurations, configsE,
+                                        baseConfigsPossible,
+                                        expectedE[fire], configNos)
+                    config = baseConfigsPossible[0]
+
                     fireImproveHeliL[thisUpdateIdx] = (
                         expectedE[thisUpdateIdx][0] - currentImprove
                         - expectedE[thisUpdateIdx][config])
@@ -968,13 +1057,13 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 weight_c = min(weight_c, 1 - weight_total)
 
                                 expectedDamageBase += (
-                                    expectedP[patch, time, config] *
+                                    expectedP[patch, config] *
                                     weight_c)
 
                                 weight_total += weight_c
                                 configIdx += 1
 
-                            baseDamageBaseline += expectedP[patch, time, 0]
+                            baseDamageBaseline += expectedP[patch, 0]
 
                         elif tankerCovers[patch, thisUpdateIdx] <= maxFire:
                             updatePatches[patch] = True
@@ -1068,13 +1157,13 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 weight_c = min(weight_c, 1 - weight_total)
 
                                 expectedDamageBase += (
-                                    expectedP[patch, time, config] *
+                                    expectedP[patch, config] *
                                     weight_c)
 
                                 weight_total += weight_c
                                 configIdx += 1
 
-                            baseDamageBaseline += expectedP[patch, time, 0]
+                            baseDamageBaseline += expectedP[patch, 0]
 
                     baseImproveTankerE[thisUpdateIdx] = (baseDamageBaseline
                         - currentImprove
@@ -1182,13 +1271,13 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 weight_c = min(weight_c, 1 - weight_total)
 
                                 expectedDamageBase += (
-                                    expectedP[patch, time, config] *
+                                    expectedP[patch, config] *
                                     weight_c)
 
                                 weight_total += weight_c
                                 configIdx += 1
 
-                            baseDamageBaseline += expectedP[patch, time, 0]
+                            baseDamageBaseline += expectedP[patch, 0]
 
                         elif heliCovers[patch, thisUpdateIdx] <= maxFire:
                             updatePatches[patch] = True
@@ -1280,13 +1369,13 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 weight_c = min(weight_c, 1 - weight_total)
 
                                 expectedDamageBase += (
-                                    expectedP[patch, time, config] *
+                                    expectedP[patch, config] *
                                     weight_c)
 
                                 weight_total += weight_c
                                 configIdx += 1
 
-                            baseDamageBaseline += expectedP[patch, time, 0]
+                            baseDamageBaseline += expectedP[patch, 0]
 
                     baseImproveHeliE[thisUpdateIdx] = (baseDamageBaseline
                         - currentImprove
@@ -1396,13 +1485,13 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                         weight_c = min(weight_c, 1 - weight_total)
 
                                         expectedDamageBase += (
-                                            expectedP[patch, time, config] *
+                                            expectedP[patch, config] *
                                             weight_c)
 
                                         weight_total += weight_c
                                         configIdx += 1
 
-                                    baseDamageBaseline += expectedP[patch, time, 0]
+                                    baseDamageBaseline += expectedP[patch, 0]
 
                                 elif tankerCovers[patch, baseOther] <= maxFire:
 
@@ -1491,13 +1580,13 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                         weight_c = min(weight_c, 1 - weight_total)
 
                                         expectedDamageBase += (
-                                            expectedP[patch, time, config] *
+                                            expectedP[patch, config] *
                                             weight_c)
 
                                         weight_total += weight_c
                                         configIdx += 1
 
-                                    baseDamageBaseline += expectedP[patch, time, 0]
+                                    baseDamageBaseline += expectedP[patch, 0]
 
                             baseImproveTankerE[baseOther] = (baseDamageBaseline
                                 - currentImprove
@@ -1603,13 +1692,13 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                         weight_c = min(weight_c, 1 - weight_total)
 
                                         expectedDamageBase += (
-                                            expectedP[patch, time, config] *
+                                            expectedP[patch, config] *
                                             weight_c)
 
                                         weight_total += weight_c
                                         configIdx += 1
 
-                                    baseDamageBaseline += expectedP[patch, time, 0]
+                                    baseDamageBaseline += expectedP[patch, 0]
 
                                 elif heliCovers[patch, baseOther] <= maxFire:
 
@@ -1698,13 +1787,13 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                         weight_c = min(weight_c, 1 - weight_total)
 
                                         expectedDamageBase += (
-                                            expectedP[patch, time, config] *
+                                            expectedP[patch, config] *
                                             weight_c)
 
                                         weight_total += weight_c
                                         configIdx += 1
 
-                                    baseDamageBaseline += expectedP[patch, time, 0]
+                                    baseDamageBaseline += expectedP[patch, 0]
 
                             baseImproveHeliE[baseOther] = (baseDamageBaseline
                                 - currentImprove
@@ -1789,6 +1878,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
         # For given assignment, pick best A/C #################################
         minMax = math.inf
         nextAC = 0
+        remaining -= 1
 
         # Next assignment is to a fire
         if thisUpdateDType == 0:
@@ -1797,20 +1887,20 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     nextBest = 0
 
                     if (resourceTypes[resource] == 0
-                        and aircraftAssignments[time][resource][0] == 0):
+                        and aircraftAssignments[thread_id][time][resource][0] == 0):
 
                         if canFire[resource, thisUpdateIdx]:
                             dist = math.sqrt(((
-                                aircraftLocations[resource][time][0]
+                                aircraftLocations[thread_id][time][resource][0]
                                 - fireLocations[thread_id][time][thisUpdateIdx][
                                 0])*40000*math.cos(
-                                    (aircraftLocations[resource][time][1]
+                                    (aircraftLocations[thread_id][time][resource][1]
                                      + fireLocations[thread_id][time][
                                      thisUpdateIdx][1]) * math.pi/360)/360)
                                      ** 2
                                 + ((fireLocations[thread_id][time][
                                     thisUpdateIdx][1] - aircraftLocations[
-                                    resource][time][1])*
+                                    thread_id][time][resource][1])*
                                    40000/360)**2)
                             travTime = dist / resourceSpeeds[resource]
 
@@ -1823,15 +1913,15 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                         and canFire[resource, fire]):
 
                                         dist = math.sqrt(((
-                                            aircraftLocations[resource][time][0]
+                                            aircraftLocations[thread_id][time][resource][0]
                                             - fireLocations[thread_id][time][
                                             fire][0])*40000*math.cos(
-                                                (aircraftLocations[resource][
-                                                time][1] + fireLocations[
+                                                (aircraftLocations[thread_id][
+                                                time][resource][1] + fireLocations[
                                                 thread_id][time][fire][
                                                 1]) * math.pi/360)/360) ** 2
                                             + ((fireLocations[thread_id][time][
-                                                fire][1] - aircraftLocations[
+                                                fire][1] - aircraftLocations[thread_id][
                                                 resource][time][1])*40000/360)
                                                 **2)
                                         travTime = (dist /
@@ -1869,20 +1959,20 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     nextBest = 0
 
                     if (resourceTypes[resource] == 1
-                        and aircraftAssignments[time][resource][0] == 0):
+                        and aircraftAssignments[thread_id][time][resource][0] == 0):
 
                         if canFire[resource, thisUpdateIdx]:
                             dist = math.sqrt(((
-                                aircraftLocations[resource][time][0]
+                                aircraftLocations[thread_id][time][resource][0]
                                 - fireLocations[thread_id][time][thisUpdateIdx][
                                 0])*40000*math.cos(
-                                    (aircraftLocations[resource][time][1]
+                                    (aircraftLocations[thread_id][time][resource][1]
                                      + fireLocations[thread_id][time][
                                      thisUpdateIdx][1]) * math.pi/360)/360)
                                      ** 2
                                 + ((fireLocations[thread_id][time][
                                     thisUpdateIdx][1] - aircraftLocations[
-                                    resource][time][1])*
+                                    thread_id][time][resource][1])*
                                    40000/360)**2)
                             travTime = dist / resourceSpeeds[resource]
 
@@ -1895,16 +1985,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                         and canFire[resource, fire]):
 
                                         dist = math.sqrt(((
-                                            aircraftLocations[resource][time][0]
+                                            aircraftLocations[thread_id][time][resource][0]
                                             - fireLocations[thread_id][time][
                                             fire][0])*40000*math.cos(
-                                                (aircraftLocations[resource][
-                                                time][1] + fireLocations[
+                                                (aircraftLocations[thread_id][
+                                                time][resource][1] + fireLocations[
                                                 thread_id][time][fire][
                                                 1]) * math.pi/360)/360) ** 2
                                             + ((fireLocations[thread_id][time][
                                                 fire][1] - aircraftLocations[
-                                                resource][time][1])*40000/360)
+                                                thread_id][time][resource][1])*40000/360)
                                                 **2)
                                         travTime = (dist /
                                             resourceSpeeds[resource])
@@ -1941,20 +2031,20 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     nextBest = 0
 
                     if (resourceTypes[resource] == 0
-                        and aircraftAssignments[time][resource][0] == 0):
+                        and aircraftAssignments[thread_id][time][resource][0] == 0):
 
                         if canFire[resource, thisUpdateIdx]:
                             dist = math.sqrt(((
-                                aircraftLocations[resource][time][0]
+                                aircraftLocations[thread_id][time][resource][0]
                                 - fireLocations[thread_id][time][thisUpdateIdx][
                                 0])*40000*math.cos(
-                                    (aircraftLocations[resource][time][1]
+                                    (aircraftLocations[thread_id][time][resource][1]
                                      + fireLocations[thread_id][time][
                                      thisUpdateIdx][1]) * math.pi/360)/360)
                                      ** 2
                                 + ((fireLocations[thread_id][time][
                                     thisUpdateIdx][1] - aircraftLocations[
-                                    resource][time][1])*
+                                    thread_id][time][resource][1])*
                                    40000/360)**2)
                             travTime = dist / resourceSpeeds[resource]
 
@@ -1967,16 +2057,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                         and canFire[resource, fire]):
 
                                         dist = math.sqrt(((
-                                            aircraftLocations[resource][time][0]
+                                            aircraftLocations[thread_id][time][resource][0]
                                             - fireLocations[thread_id][time][
                                             fire][0])*40000*math.cos(
-                                                (aircraftLocations[resource][
-                                                time][1] + fireLocations[
+                                                (aircraftLocations[thread_id][
+                                                time][resource][1] + fireLocations[
                                                 thread_id][time][fire][
                                                 1]) * math.pi/360)/360) ** 2
                                             + ((fireLocations[thread_id][time][
                                                 fire][1] - aircraftLocations[
-                                                resource][time][1])*40000/360)
+                                                thread_id][time][resource][1])*40000/360)
                                                 **2)
                                         travTime = (dist /
                                             resourceSpeeds[resource])
@@ -2013,20 +2103,20 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     nextBest = 0
 
                     if (resourceTypes[resource] == 1
-                        and aircraftAssignments[time][resource][0] == 0):
+                        and aircraftAssignments[thread_id][time][resource][0] == 0):
 
                         if canFire[resource, thisUpdateIdx]:
                             dist = math.sqrt(((
-                                aircraftLocations[resource][time][0]
+                                aircraftLocations[thread_id][time][resource][0]
                                 - fireLocations[thread_id][time][thisUpdateIdx][
                                 0])*40000*math.cos(
-                                    (aircraftLocations[resource][time][1]
+                                    (aircraftLocations[thread_id][time][resource][1]
                                      + fireLocations[thread_id][time][
                                      thisUpdateIdx][1]) * math.pi/360)/360)
                                      ** 2
                                 + ((fireLocations[thread_id][time][
                                     thisUpdateIdx][1] - aircraftLocations[
-                                    resource][time][1])*
+                                    thread_id][time][resource][1])*
                                    40000/360)**2)
                             travTime = dist / resourceSpeeds[resource]
 
@@ -2039,16 +2129,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                         and canFire[resource, fire]):
 
                                         dist = math.sqrt(((
-                                            aircraftLocations[resource][time][0]
+                                            aircraftLocations[thread_id][time][resource][0]
                                             - fireLocations[thread_id][time][
                                             fire][0])*40000*math.cos(
-                                                (aircraftLocations[resource][
-                                                time][1] + fireLocations[
+                                                (aircraftLocations[thread_id][
+                                                time][resource][1] + fireLocations[
                                                 thread_id][time][fire][
                                                 1]) * math.pi/360)/360) ** 2
                                             + ((fireLocations[thread_id][time][
                                                 fire][1] - aircraftLocations[
-                                                resource][time][1])*40000/360)
+                                                thread_id][time][resource][1])*40000/360)
                                                 **2)
                                         travTime = (dist /
                                             resourceSpeeds[resource])
@@ -2087,7 +2177,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     nextBest = 0
 
                     if (resourceTypes[resource] == 0
-                        and aircraftAssignments[time][resource][0] == 0):
+                        and aircraftAssignments[thread_id][time][resource][0] == 0):
 
                         if canBase[resource, thisUpdateIdx]:
                             # This resource is a candidate
@@ -2097,16 +2187,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 if canFire[resource, fire]:
 
                                     dist = math.sqrt(((
-                                        aircraftLocations[resource][time][0]
+                                        aircraftLocations[thread_id][time][resource][0]
                                         - fireLocations[thread_id][time][
                                         fire][0])*40000*math.cos(
-                                            (aircraftLocations[resource][
-                                            time][1] + fireLocations[
+                                            (aircraftLocations[thread_id][
+                                            time][resource][1] + fireLocations[
                                             thread_id][time][fire][
                                             1]) * math.pi/360)/360) ** 2
                                         + ((fireLocations[thread_id][time][
                                             fire][1] - aircraftLocations[
-                                            resource][time][1])*40000/360)
+                                            thread_id][time][resource][1])*40000/360)
                                             **2)
                                     travTime = (dist /
                                         resourceSpeeds[resource])
@@ -2144,7 +2234,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     nextBest = 0
 
                     if (resourceTypes[resource] == 1
-                        and aircraftAssignments[time][resource][0] == 0):
+                        and aircraftAssignments[thread_id][time][resource][0] == 0):
                             # This resource is a candidate
 
                             # Check potential benefit to other fires
@@ -2152,16 +2242,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 if canFire[resource, fire]:
 
                                     dist = math.sqrt(((
-                                        aircraftLocations[resource][time][0]
+                                        aircraftLocations[thread_id][time][resource][0]
                                         - fireLocations[thread_id][time][
                                         fire][0])*40000*math.cos(
-                                            (aircraftLocations[resource][
-                                            time][1] + fireLocations[
+                                            (aircraftLocations[thread_id][
+                                            time][resource][1] + fireLocations[
                                             thread_id][time][fire][
                                             1]) * math.pi/360)/360) ** 2
                                         + ((fireLocations[thread_id][time][
                                             fire][1] - aircraftLocations[
-                                            resource][time][1])*40000/360)
+                                            thread_id][time][resource][1])*40000/360)
                                             **2)
                                     travTime = (dist /
                                         resourceSpeeds[resource])
@@ -2196,11 +2286,11 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
         # Update the assignments matrix #######################################
         if thisUpdateDType == 0:
-            aircraftAssignments[time][nextAC][1] = thisUpdateIdx + 1
+            aircraftAssignments[thread_id][time][nextAC][1] = thisUpdateIdx + 1
             # The following does not matter as it will never be referenced for
             # a calculation. It is only used to determine if the aircraft is
             # available, therefore we just assign a non-zero value to do this
-            aircraftAssignments[time][nextAC][0] = 1
+            aircraftAssignments[thread_id][time][nextAC][0] = 1
 
             # Pick nearest base to fire that is within the maximum relocation
             # distance from the aircraft's current base
@@ -2208,14 +2298,14 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
             bestTrav = math.inf
             for base in range(noBases):
                 if canBase[nextAC, base]:
-                    dist = math.sqrt(((aircraftLocations[nextAC][time][0]
+                    dist = math.sqrt(((aircraftLocations[thread_id][time][nextAC][0]
                              - baseLocations[base][0])*
                              40000*math.cos(
-                                 (aircraftLocations[nextAC][time][1]
+                                 (aircraftLocations[thread_id][nextAC][time][1]
                                   + baseLocations[base][1])
                                  * math.pi/360)/360) ** 2
                              + ((baseLocations[base][1]
-                                 - aircraftLocations[nextAC][time][1])*
+                                 - aircraftLocations[thread_id][time][nextAC][1])*
                                  40000/360)**2)
                 travTime = dist / resourceSpeeds[nextAC]
 
@@ -2223,25 +2313,25 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     bestBase = base
                     bestTrav = travTime
 
-            aircraftAssignments[time][nextAC][0] = bestBase + 1
+            aircraftAssignments[thread_id][time][nextAC][0] = bestBase + 1
 
         elif thisUpdateDType == 1:
-            aircraftAssignments[time][nextAC][1] = 0
-            aircraftAssignments[time][nextAC][0] = thisUpdateIdx + 1
+            aircraftAssignments[thread_id][time][nextAC][1] = 0
+            aircraftAssignments[thread_id][time][nextAC][0] = thisUpdateIdx + 1
 
         #######################################################################
         # Reduce max component capacities (and possibly incremental
         # improvement) based on assignment just made
         for fire in range(noFires[thread_id][time]):
             if canFire[nextAC, fire]:
-                dist = math.sqrt(((aircraftLocations[nextAC][time][0]
+                dist = math.sqrt(((aircraftLocations[thread_id][time][nextAC][0]
                              - fireLocations[thread_id][time][fire][0])*
                              40000*math.cos(
-                                 (aircraftLocations[nextAC][time][1]
+                                 (aircraftLocations[thread_id][time][nextAC][1]
                                   + fireLocations[thread_id][time][fire][1])
                                  * math.pi/360)/360) ** 2
                              + ((fireLocations[thread_id][time][fire][1]
-                                 - aircraftLocations[nextAC][time][1])*
+                                 - aircraftLocations[thread_id][time][nextAC][1])*
                                  40000/360)**2)
                 travTime = dist / resourceSpeeds[nextAC]
 
@@ -2364,8 +2454,14 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
             weightsP[patch, config] = weight_c
 
 @cuda.jit(device=True)
-def findConfigIdx(configurations, noTE, noHE, noTL, noHL):
-    if [noTE, noHE, noTL, noHL] in configurations:
+def findConfigIdx(configurations, configs, noTE, noHE, noTL, noHL):
+    config = cuda.local.array(4, dtype=float64)
+    config[0] = noTE
+    config[1] = noHE
+    config[2] = noTL
+    config[3] = noHL
+
+    if config in configurations:
         return configurations.index([noTE, noHE, noTL, noHL])
     else:
         return 0
@@ -2399,8 +2495,8 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
     noConfE = len(configsE)
     noConfP = len(configsP)
 
-    tankerDists = numpy.zeros([noBases, noPatches])
-    heliDists = numpy.zeros([noBases, noPatches])
+    tankerDists = numpy.zeros([noBases, noPatches], dtype=numpy.float32)
+    heliDists = numpy.zeros([noBases, noPatches], dtype=numpy.float32)
 
     tankerDists = numpy.array(
         [[math.sqrt(
@@ -2435,12 +2531,10 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
     batches = math.ceil(paths / 1000)
     batchAmounts = [1000 for batch in range(batches - 1)]
     batchAmounts.append(paths - sum(batchAmounts))
-    # Initialise all random numbers state to use for each thread
-    rng_states = create_xoroshiro128p_states(paths, seed=1)
 
     # Absoloute maximum number of aircraft of each config component allowed
-    baseConfigsMax = [0, 0, 0, 0]
-    fireConfigsMax = [0, 0, 0, 0]
+    baseConfigsMax = numpy.array([0, 0, 0, 0], dtype=numpy.int32)
+    fireConfigsMax = numpy.array([0, 0, 0, 0], dtype=numpy.int32)
 
     # Maximum number in each component based on allowed configs
     for c in range(len(configurations)):
@@ -2482,6 +2576,25 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
             numpy.matmul(expectedFires[t], numpy.logical_not(heliCovers))]
         for t in range(totalSteps + lookahead)])
 
+    # Copy universal values to device
+    d_sampleFFDIs = cuda.to_device(sampleFFDIs)
+    d_patchVegetations = cuda.to_device(patchVegetations)
+    d_patchAreas = cuda.to_device(patchAreas)
+    d_patchLocations = cuda.to_device(patchLocations)
+    d_baseLocations = cuda.to_device(baseLocations)
+    d_ffdiRanges = cuda.to_device(ffdiRanges)
+    d_rocA2PHMeans = cuda.to_device(rocA2PHMeans)
+    d_rocA2PHSDs = cuda.to_device(rocA2PHSDs)
+    d_occurrence = cuda.to_device(occurrence)
+    d_initSizeM = cuda.to_device(initSizeM)
+    d_initSizeSD = cuda.to_device(initSizeSD)
+    d_initSuccess = cuda.to_device(initSuccess)
+    d_resourceTypes = cuda.to_device(resourceTypes)
+    d_resourceSpeeds = cuda.to_device(resourceSpeeds)
+    d_configsE = cuda.to_device(configsE)
+    d_configsP = cuda.to_device(configsP)
+    d_thresholds = cuda.to_device(thresholds)
+
     # Run this in chunks (i.e. multiple paths at a time)
     for b, batchSize in enumerate(batchAmounts):
         # CUDA requirements
@@ -2490,22 +2603,66 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
         threadsperblock = 32
         blockspergrid = (batchSize + (threadsperblock - 1)) // threadsperblock
 
+        # Copy batch-relevant memory to the device
+        d_accumulatedDamages = cuda.to_device(accumulatedDamages[
+                batchStart:batchEnd])
+        d_accumulatedHours = cuda.to_device(accumulatedHours[
+                batchStart:batchEnd])
+        d_fires = cuda.to_device(fires[batchStart:batchEnd])
+        d_fireSizes = cuda.to_device(fireSizes[batchStart:batchEnd])
+        d_fireLocations = cuda.to_device(fireLocations[batchStart:batchEnd])
+        d_firePatches = cuda.to_device(firePatches[batchStart:batchEnd])
+        d_aircraftLocations = cuda.to_device(aircraftLocations[
+                batchStart:batchEnd])
+        d_aircraftAssignments = cuda.to_device(aircraftAssignments[
+                batchStart:batchEnd])
+        d_expFiresComp = cuda.to_device(expFiresComp)
+        d_tankerDists = cuda.to_device(tankerDists)
+        d_heliDists = cuda.to_device(heliDists)
+        d_maxHours = cuda.to_device(maxHours)
+        d_configurations = cuda.to_device(configurations)
+        d_baseConfigsMax = cuda.to_device(baseConfigsMax)
+        d_fireConfigsMax = cuda.to_device(fireConfigsMax)
+        d_controls = cuda.to_device(controls)
+        d_regressionX = cuda.to_device(regressionX)
+        d_regressionY = cuda.to_device(regressionY)
+
+        # Initialise all random numbers state to use for each thread
+        rng_states = create_xoroshiro128p_states(batchSize, seed=1)
+
         # Compute the paths in batches to preserve memory (see if we can
         # exploit both GPUs to share the computational load)
         simulateSinglePath[blockspergrid, threadsperblock](
-                batchSize, totalSteps, lookahead, sampleFFDIs, expFiresComp,
-                patchVegetations, patchAreas, patchLocations, baseLocations,
-                tankerDists, heliDists, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
-                occurrence, initSizeM, initSizeSD, initSuccess, resourceTypes,
-                resourceSpeeds, maxHours, configurations, configsE, configsP,
-                baseConfigsMax, fireConfigsMax, thresholds, accumulatedDamages[
-                batchStart:batchEnd], accumulatedHours[ batchStart:batchEnd],
-                fires[batchStart:batchEnd], fireSizes[batchStart:batchEnd],
-                fireLocations[batchStart:batchEnd], firePatches[
-                batchStart:batchEnd], aircraftLocations[batchStart:batchEnd],
-                aircraftAssignments[batchStart:batchEnd], rng_states[
-                batchStart:batchEnd], controls[batchStart:batchEnd],
-                regressionX, regressionY, 0, stepSize, False)
+                batchSize, totalSteps, lookahead, d_sampleFFDIs,
+                d_expFiresComp, d_patchVegetations, d_patchAreas,
+                d_patchLocations, d_baseLocations, d_tankerDists, d_heliDists,
+                d_ffdiRanges, d_rocA2PHMeans, d_rocA2PHSDs, d_occurrence,
+                d_initSizeM, d_initSizeSD, d_initSuccess, d_resourceTypes,
+                d_resourceSpeeds, d_maxHours, d_configurations, d_configsE,
+                d_configsP, d_baseConfigsMax, d_fireConfigsMax, d_thresholds,
+                d_accumulatedDamages, d_accumulatedHours, d_fires, d_fireSizes,
+                d_fireLocations, d_firePatches, d_aircraftLocations,
+                d_aircraftAssignments, rng_states, d_controls, d_regressionX,
+                d_regressionY, 0, stepSize, False)
+
+#            cuda.synchronize()
+
+#        simulateSinglePath[blockspergrid, threadsperblock](
+#                batchSize, totalSteps, lookahead, sampleFFDIs, expFiresComp,
+#                patchVegetations, patchAreas, patchLocations, baseLocations,
+#                tankerDists, heliDists, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
+#                occurrence, initSizeM, initSizeSD, initSuccess, resourceTypes,
+#                resourceSpeeds, maxHours, configurations, configsE, configsP,
+#                baseConfigsMax, fireConfigsMax, thresholds, accumulatedDamages[
+#                batchStart:batchEnd], accumulatedHours[ batchStart:batchEnd],
+#                fires[batchStart:batchEnd], fireSizes[batchStart:batchEnd],
+#                fireLocations[batchStart:batchEnd], firePatches[
+#                batchStart:batchEnd], aircraftLocations[batchStart:batchEnd],
+#                aircraftAssignments[batchStart:batchEnd], rng_states[
+#                batchStart:batchEnd], controls[batchStart:batchEnd],
+#                regressionX, regressionY, 0, stepSize, False)
+
+        # Return memory to the host
 
 def analyseMCPaths():
     pass
