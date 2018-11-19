@@ -87,6 +87,11 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
             else:
                 control = int(6*xoroshiro128p_uniform_float32(rng_states, path))
 
+            saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
+                      aircraftLocations, accumulatedHours, fires, fireSizes,
+                      fireLocations, expectedE, configsP, stateVals, weightsP,
+                      tt, lookahead, path, control)
+
             # AssignAircraft
             # This could potentially be very slow. Just use a naive assignment
             # for now
@@ -2645,24 +2650,24 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
                 d_aircraftAssignments, rng_states, d_controls, d_regressionX,
                 d_regressionY, 0, stepSize, False)
 
-#            cuda.synchronize()
-
-#        simulateSinglePath[blockspergrid, threadsperblock](
-#                batchSize, totalSteps, lookahead, sampleFFDIs, expFiresComp,
-#                patchVegetations, patchAreas, patchLocations, baseLocations,
-#                tankerDists, heliDists, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
-#                occurrence, initSizeM, initSizeSD, initSuccess, resourceTypes,
-#                resourceSpeeds, maxHours, configurations, configsE, configsP,
-#                baseConfigsMax, fireConfigsMax, thresholds, accumulatedDamages[
-#                batchStart:batchEnd], accumulatedHours[ batchStart:batchEnd],
-#                fires[batchStart:batchEnd], fireSizes[batchStart:batchEnd],
-#                fireLocations[batchStart:batchEnd], firePatches[
-#                batchStart:batchEnd], aircraftLocations[batchStart:batchEnd],
-#                aircraftAssignments[batchStart:batchEnd], rng_states[
-#                batchStart:batchEnd], controls[batchStart:batchEnd],
-#                regressionX, regressionY, 0, stepSize, False)
+        cuda.synchronize()
 
         # Return memory to the host
+        d_accumulatedDamages.copy_to_host(accumulatedDamages[
+                batchStart:batchEnd])
+        d_accumulatedHours.copy_to_host(accumulatedHours[
+                batchStart:batchEnd])
+        d_fires.copy_to_host(fires[batchStart:batchEnd])
+        d_fireSizes.copy_to_host(fireSizes[batchStart:batchEnd])
+        d_fireLocations.copy_to_host(fireLocations[batchStart:batchEnd])
+        d_firePatches.copy_to_host(firePatches[batchStart:batchEnd])
+        d_aircraftLocations.copy_to_host(aircraftLocations[
+                batchStart:batchEnd])
+        d_aircraftAssignments.copy_to_host(aircraftAssignments[
+                batchStart:batchEnd])
+        d_controls.copy_to_host(controls)
+        d_regressionX.copy_to_host(regressionX)
+        d_regressionY.copy_to_host(regressionY)
 
 def analyseMCPaths():
     pass
