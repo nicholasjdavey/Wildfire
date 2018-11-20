@@ -2761,6 +2761,7 @@ class Simulation():
         mcPaths = self.model.getMCPaths()
 
         """ Input data for ROV """
+        noBases = len(bases)
         noPatches = len(patches)
         noResources = len(resources)
         patchVegetations = region.getVegetation().astype(numpy.int32)
@@ -2821,18 +2822,18 @@ class Simulation():
                                   self.model.getControls()[0].getLambda2()],
                                  dtype=numpy.float32)
 
-        """ Initial Monte Carlo Paths """
-
-        """ MC Path Outputs """
+        """ MC Path Outputs (Policy Maps)"""
         randCont = numpy.random.randint(6, size=[mcPaths, totalSteps])
         regressionX = numpy.zeros([totalSteps, 100, 3])
         regressionY = numpy.array([[[[0 for ii in range(100)]
                                      for ii in range(100)]
                                     for ii in range(100)]
                                    for ii in range(totalSteps)])
-        costs2go = numpy.array([0])
+        states = numpy.zeros([mcPaths, totalSteps, 10])
+        costs2go = numpy.array([mcPaths, totalSteps])
 
         for ii in range(samplePaths):
+            """ Set Up Data Stream for ROV """
             accumulatedDamages = numpy.zeros([mcPaths, totalSteps + 1,
                                               noPatches])
             accumulatedHours = numpy.zeros([mcPaths, totalSteps + 1,
@@ -2855,6 +2856,89 @@ class Simulation():
             firePatches[:, 0, 1:(len(fires) + 1)] = [[
                     fire.getPatchID() for fire in fires]]
 
+            tankerDists = numpy.zeros([noBases, noPatches], dtype=numpy.float32)
+            heliDists = numpy.zeros([noBases, noPatches], dtype=numpy.float32)
+
+            tankerDists = numpy.array(
+                [[math.sqrt(
+                       ((patchCentroids[patch][0] - baseLocations[base][0])*
+                           40000*math.cos((patchCentroids[patch][1]
+                                     + baseLocations[base][1]) * math.pi/360)/
+                                     360) ** 2
+                       + ((baseLocations[base][1] - patchCentroids[patch][1])*
+                       40000/360)**2) / resourceSpeeds[0]
+                  for base in range(noBases)]
+                 for patch in range(noPatches)])
+
+            heliDists = numpy.array(
+                [[math.sqrt(
+                       ((patchCentroids[patch][0] - baseLocations[base][0])*
+                           40000*math.cos((patchCentroids[patch][1]
+                                     + baseLocations[base][1]) * math.pi/360)/
+                                     360) ** 2
+                       + ((baseLocations[base][1] - patchCentroids[patch][1])*
+                       40000/360)**2) / resourceSpeeds[1]
+                  for base in range(noBases)]
+                 for patch in range(noPatches)])
+
+            tankerCovers = numpy.array(
+                [[True if tankerDists[patch, base] <= thresholds[0] else False
+                  for base in range(noBases)]
+                 for patch in range(noPatches)])
+
+            heliCovers = numpy.array(
+                [[True if heliDists[patch, base] <= thresholds[0] else False
+                  for base in range(noBases)]
+                 for patch in range(noPatches)])
+
+            # Maximum number of aircraft of each config component allowed
+            baseConfigsMax = numpy.array([0, 0, 0, 0], dtype=numpy.int32)
+            fireConfigsMax = numpy.array([0, 0, 0, 0], dtype=numpy.int32)
+
+            # Maximum number in each component based on allowed configs
+            for c in range(len(configurations)):
+                if c+1 in configsP:
+                    if configsP[0] > baseConfigsMax[0]:
+                        baseConfigsMax[0] += 1
+                    if configsP[1] > baseConfigsMax[1]:
+                        baseConfigsMax[1] += 1
+                    if configsP[2] > baseConfigsMax[2]:
+                        baseConfigsMax[2] += 1
+                    if configsP[3] > baseConfigsMax[3]:
+                        baseConfigsMax[3] += 1
+
+                if c+1 in configsE:
+                    if configsE[0] > fireConfigsMax[0]:
+                        fireConfigsMax[0] += 1
+                    if configsE[1] > fireConfigsMax[0]:
+                        fireConfigsMax[1] += 1
+                    if configsE[2] > fireConfigsMax[0]:
+                        fireConfigsMax[2] += 1
+                    if configsE[3] > fireConfigsMax[0]:
+                        fireConfigsMax[3] += 1
+
+            # Expected fires for each patch at each time step
+            expectedFires = numpy.array([[
+                    numpy.interp(sampleFFDIs[patch][t],
+                                 ffdiRanges[int(patchVegetations[patch])],
+                                 occurrence[int(patchVegetations[patch])][t]) *
+                                 patchAreas[patch]
+                    for patch in range(noPatches)]
+                   for t in range(totalSteps + lookahead)])
+
+            # Expected visible fires for each component for each patch at each
+            # time step. As FFDI is assumed deterministic, this array is used
+            # for all paths
+            expFiresComp = numpy.array([[
+                    numpy.matmul(expectedFires[t], tankerCovers),
+                    numpy.matmul(expectedFires[t],
+                                 numpy.logical_not(tankerCovers)),
+                    numpy.matmul(expectedFires[t], heliCovers),
+                    numpy.matmul(expectedFires[t],
+                                 numpy.logical_not(heliCovers))]
+                for t in range(totalSteps + lookahead)])
+
+            """ Initial Monte Carlo Paths """
             print("MC Paths")
             t0 = time.clock()
             SimulationNumba.simulateMC(
@@ -2862,31 +2946,45 @@ class Simulation():
                     patchCentroids, baseLocations, resourceTypes,
                     resourceSpeeds, maxHours, configurations, configsE,
                     configsP, thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
-                    occurrence, initSizeM, initSizeSD, initSuccess, totalSteps,
-                    lookahead, stepSize, accumulatedDamages, accumulatedHours,
-                    noFires, fireSizes, fireLocations, firePatches,
-                    aircraftLocations, aircraftAssignments, randCont,
-                    regressionX, regressionY, costs2go)
+                    occurrence, initSizeM, initSizeSD, initSuccess, tankerDists,
+                    heliDists, fireConfigsMax, baseConfigsMax, expFiresComp,
+                    totalSteps, lookahead, stepSize, accumulatedDamages,
+                    accumulatedHours, noFires, fireSizes, fireLocations,
+                    firePatches, aircraftLocations, aircraftAssignments,
+                    randCont, regressionX, regressionY, states, costs2go)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
-            t0 = time.clock()
-            SimulationNumba.simulateMC(
-                    mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
-                    patchCentroids, baseLocations, resourceTypes,
-                    resourceSpeeds, maxHours, configurations, configsE,
-                    configsP, thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
-                    occurrence, initSizeM, initSizeSD, initSuccess, totalSteps,
-                    lookahead, stepSize, accumulatedDamages, accumulatedHours,
-                    noFires, fireSizes, fireLocations, firePatches,
-                    aircraftLocations, aircraftAssignments, randCont,
-                    regressionX, regressionY, costs2go)
-            t1 = time.clock()
-            print('Time:   ' + str(t1-t0))
+#            t0 = time.clock()
+#            SimulationNumba.simulateMC(
+#                    mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
+#                    patchCentroids, baseLocations, resourceTypes,
+#                    resourceSpeeds, maxHours, configurations, configsE,
+#                    configsP, thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
+#                    occurrence, initSizeM, initSizeSD, initSuccess, totalSteps,
+#                    lookahead, stepSize, accumulatedDamages, accumulatedHours,
+#                    noFires, fireSizes, fireLocations, firePatches,
+#                    aircraftLocations, aircraftAssignments, randCont,
+#                    regressionX, regressionY, states, costs2go)
+#            t1 = time.clock()
+#            print('Time:   ' + str(t1-t0))
 
             """ For analysis purposes, we need to print our paths to output
             csv files or data dumps (use Pandas?)"""
 
-            """ Regressions """
+            """ Regressions and Forward Path Re-Computations"""
+            for tt in range(totalSteps - 1, -1, -1):
+                SimulationNumba.simulateMC(
+                    mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
+                    patchCentroids, baseLocations, resourceTypes,
+                    resourceSpeeds, maxHours, configurations, configsE,
+                    configsP, thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
+                    occurrence, initSizeM, initSizeSD, initSuccess, tankerDists,
+                    heliDists, fireConfigsMax, baseConfigsMax, expFiresComp,
+                    totalSteps, lookahead, stepSize, accumulatedDamages,
+                    accumulatedHours, noFires, fireSizes, fireLocations,
+                    firePatches, aircraftLocations, aircraftAssignments,
+                    randCont, regressionX, regressionY, states, costs2go, tt,
+                    True)
 
         """//////////////////////// MODEL VALIDATION ///////////////////////"""
 
