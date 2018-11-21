@@ -2954,25 +2954,16 @@ class Simulation():
                     randCont, regressionX, regressionY, states, costs2go)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
-#            t0 = time.clock()
-#            SimulationNumba.simulateMC(
-#                    mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
-#                    patchCentroids, baseLocations, resourceTypes,
-#                    resourceSpeeds, maxHours, configurations, configsE,
-#                    configsP, thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
-#                    occurrence, initSizeM, initSizeSD, initSuccess, totalSteps,
-#                    lookahead, stepSize, accumulatedDamages, accumulatedHours,
-#                    noFires, fireSizes, fireLocations, firePatches,
-#                    aircraftLocations, aircraftAssignments, randCont,
-#                    regressionX, regressionY, states, costs2go)
-#            t1 = time.clock()
-#            print('Time:   ' + str(t1-t0))
 
-            """ For analysis purposes, we need to print our paths to output
-            csv files or data dumps (use Pandas?)"""
-
+            """ BACKWARD INDUCTION """
             """ Regressions and Forward Path Re-Computations"""
             for tt in range(totalSteps - 1, -1, -1):
+                """ Regressions """
+                for control in range():
+                    """ Pull the relevant temporary states and costs-to go """
+                    pass
+                    """ Push the regressions back onto the GPU for reuse """
+
                 SimulationNumba.simulateMC(
                     mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
                     patchCentroids, baseLocations, resourceTypes,
@@ -2986,18 +2977,15 @@ class Simulation():
                     randCont, regressionX, regressionY, states, costs2go, tt,
                     True)
 
-        """//////////////////////// MODEL VALIDATION ///////////////////////"""
+            """ Pull the costs 2 go from the GPU and save to an output file """
+            """ For analysis purposes, we need to print our paths to output
+            csv files or data dumps (use Pandas?)"""
 
-        """ Now test the performance of the evaluation """
-        """ These are for the actual simulation runs """
-        self.finalDamageMaps = [None]*samplePaths
-        self.expectedDamages = [None]*samplePaths
-        self.realisedAssignments = [None]*samplePaths
-        self.realisedFires = [None]*samplePaths
-        self.realisedFFDIs = [None]*samplePaths
-        self.aircraftHours = [None]*samplePaths
 
-        for ii in range(samplePaths):
+            """////////////////////// MODEL VALIDATION /////////////////////"""
+
+            """ Now test the performance of the evaluation using the ROV
+            results. These lines are for the actual simulation runs """
             for run in range(self.model.getRuns()):
                 pass
 

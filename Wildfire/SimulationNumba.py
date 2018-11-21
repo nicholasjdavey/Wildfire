@@ -62,6 +62,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
         expectedE = cuda.local.array((noFiresMax, noConfE), dtype=float32)
         expectedP = cuda.local.array((noPatches, noConfP), dtype=float32)
         weightsP = cuda.local.array((noPatches, noConfP), dtype=float32)
+        selectedE = cuda.local.array((noFiresMax), dtype=int32)
 
         for ii in range(noPatches):
             for jj in range(noConfP):
@@ -82,15 +83,12 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                     tt, lookahead, expectedP)
 
             if optimal:
-                # Compute the optimal control using regressions
+                # Compute the optimal control using regressions. Need to
+                # compute the expected damage for fires and patches under
+                # each control. This could be time-consuming.
                 pass
             else:
                 control = int(6*xoroshiro128p_uniform_float32(rng_states, path))
-
-            saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
-                      aircraftLocations, accumulatedHours, fires, fireSizes,
-                      fireLocations, expectedE, configsP, states, weightsP,
-                      tt - time, lookahead, path)
 
             # AssignAircraft
             # This could potentially be very slow. Just use a naive assignment
@@ -101,8 +99,13 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                            fireSizes, fireLocations, ffdiRanges, configurations,
                            configsE, configsP, baseConfigsMax, fireConfigsMax,
                            thresholds, sampleFFDIs, expFiresComp, expectedE,
-                           expectedP, weightsP, tt, stepSize, lookahead, path,
-                           control)
+                           expectedP, selectedE, weightsP, states, tt,
+                           stepSize, lookahead, path, control)
+
+            saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
+                      aircraftLocations, accumulatedHours, fires, fireSizes,
+                      fireLocations, expectedE, expectedP, states, weightsP,
+                      tt - time, lookahead, path)
 
             # SimulateNextStep
             simulateNextStep(aircraftAssignments, resourceTypes, resourceSpeeds,
@@ -111,9 +114,9 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                              patchLocations, ffdiRanges, fireLocations,
                              firePatches, sampleFFDIs, rocA2PHMeans,
                              rocA2PHSDs, fireSizes, configsE, configsP,
-                             weightsP, initSizeM, initSizeSD, initSuccess,
-                             occurrence, accumulatedDamages, tt, stepSize,
-                             rng_states, path)
+                             selectedE, weightsP, initSizeM, initSizeSD,
+                             initSuccess, occurrence, accumulatedDamages, tt,
+                             stepSize, rng_states, path)
 
 #@jit(nopython=True, fastmath=True)
 @cuda.jit(device=True)
@@ -261,22 +264,15 @@ def maxComponentNo():
 def configWeight():
     pass
 
-#@cuda.jit(device=True)
-#def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
-#                     aircraftLocations, accumulatedHours, baseLocations,
-#                     fires, patchVegetations, patchLocations, ffdiRanges,
-#                     fireLocations, firePatches, sampleFFDIs, rocA2PHMeans,
-#                     rocA2PHSDs, fireSizes, configsE, configsP, weightsP):
-#    pass
-
 @cuda.jit(device=True)
 def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                      aircraftLocations, accumulatedHours, baseLocations,
                      noFires, patchVegetations, patchLocations, ffdiRanges,
                      fireLocations, firePatches, ffdis, roc_a2_ph_means,
                      roc_a2_ph_sds, fireSizes, fireConfigs, patchConfigs,
-                     configWeights, initM, initSD, init_succ, occurrence,
-                     accumulatedDamage, time, stepSize, rng_states, thread_id):
+                     selectedE, configWeights, initM, initSD, init_succ,
+                     occurrence, accumulatedDamage, time, stepSize, rng_states,
+                     thread_id):
 
     """ Update aircraft locations """
     for resource in range(len(aircraftLocations)):
@@ -427,8 +423,9 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                    baseLocations, tankerCovers, heliCovers, noFires,
                    fireSizes, fireLocations, ffdiRanges, configurations,
                    configsE, configsP, baseConfigsMax, fireConfigsMax,
-                   thresholds, sampleFFDIs, expFiresComp, expectedE, expectedP,
-                   weightsP, time, stepSize, lookahead, thread_id, control):
+                   fireConfigs, patchConfigs, thresholds, sampleFFDIs,
+                   expFiresComp, expectedE, expectedP, selectedE, weightsP,
+                   states, time, stepSize, lookahead, thread_id, control):
 
     """ This is a simple fast heuristic for approximately relocating the
     aircraft. An optimal algorithm would be too slow and may not be
@@ -2458,6 +2455,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
             weightsP[patch, config] = weight_c
 
+    # Now save the expected damages for this assignment
+    targetDamageE[thread_id][time] = sum([
+        expectedE[patch, selectedE[patch]]
+        for patch in range(noPatches)])
+
+    targetDamageP[thread_id][time] = sum([
+            weightsP[patch, config] * expectedP[patch, config]
+            for patch in range(noPatches)
+        for config in range(len(configsP))])
+
 @cuda.jit(device=True)
 def findConfigIdx(configurations, configs, noTE, noHE, noTL, noHL):
     config = cuda.local.array(4, dtype=float64)
@@ -2612,10 +2619,19 @@ def analyseMCPaths():
     pass
 
 @cuda.jit(device=True)
+def travTime(X1, X2, speed):
+
+    dist = math.sqrt(((X1[0] - X2[0]) * 40000*math.cos((X1[1] + X2[1])
+         * math.pi/360)/360) ** 2 + ((X2[1] - X1[1]) * 40000/360)**2)
+
+    return dist
+
+@cuda.jit(device=True)
 def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
-              resourceLocations, accumulatedHours, fires, fireSizes,
-              fireLocations, expectedE, configsP, states, weightsP,
-              time, lookahead, thread_id):
+              aircraftLocations, accumulatedHours, patchLocations, fires,
+              fireSizes, fireLocations, expectedE, expectedP, states,
+              configurations, shortTermE, shortTermP, time, lookahead,
+              thread_id):
 
     """ Remaining hours: Simple and Weighted """
     states[thread_id, time, 0] = sum([
@@ -2624,35 +2640,105 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
 
     states[thread_id, time, 1] = sum([
         maxHours[resource] - accumulatedHours[time, resource] *
-        (sum([expectedE[base, 0] for base in range(len(noBases))])
-            + sum([expectedE[base, 0] for base in range(len(noBases))]))
+        (sum([expectedE[fire, 0] for fire in range(fires[thread_id, time])])
+            + sum([expectedE[patch, 0] for patch in range(len(noPatches))]))
         for resource in range(len(noAircraft))])
 
     """ OPTION 1 """
-    """ Phase 1: Sum of Weighted Distances to Fires and Bases BEFORE
+    """ Phase 1: Sum of Weighted Distances to Fires and Patches BEFORE
     assignments"""
-    states[thread_id, time, 2] = sum([
-        sum([expectedE[]
-            for fire in range(len(noFires))])
-        for resource in range(len(noAircraft))])
+    stateVal = 0
+    # Fires
+    for resource in range(len(noAircraft)):
+        for fire in range(len(fires[thread_id][time])):
+           dist = math.sqrt(((
+                aircraftLocations[thread_id][time][resource][0]
+                - fireLocations[thread_id][time][fire][0]) * 40000
+                * math.cos((aircraftLocations[thread_id][time][resource][1]
+                     + fireLocations[thread_id][time][fire][1])
+                     * math.pi/360)/360) ** 2
+                + ((fireLocations[thread_id][time][fire][1]
+                    - aircraftLocations[thread_id][time][resource][1])
+                    * 40000/360)**2)
 
-    states[thread_id, time, 3] =
+           stateVal += dist * expectedE[fire, 0]
 
-    """ Phase 2: Sum of Weighted Distance to Fires and Bases AFTER
+    states[thread_id, time, 2] = stateVal
+
+    stateVal = 0
+    # Patches
+    for resource in range(len(noAircraft)):
+        for patch in range(noPatches):
+           dist = math.sqrt(((
+                aircraftLocations[thread_id][time][resource][0]
+                - patchLocations[patch][0]) * 40000
+                * math.cos((aircraftLocations[thread_id][time][resource][1]
+                     + patchLocations[patch][1])
+                     * math.pi/360)/360) ** 2
+                + ((patchLocations[patch][1]
+                    - aircraftLocations[thread_id][time][resource][1])
+                    * 40000/360)**2)
+
+           stateVal += dist * expectedP[patch, 0]
+
+    states[thread_id, time, 2] = stateVal
+
+    """ Phase 2: Sum of Weighted Distance to Fires and Patches AFTER
     assignment """
-    states[thread_id, time, 4] =
+    stateVal = 0
+    # Fires
+    for resource in range(len(noAircraft)):
+        for fire in range(len(fires[thread_id][time])):
+           dist = math.sqrt(((
+                aircraftLocations[thread_id][time+1][resource][0]
+                - fireLocations[thread_id][time+1][fire][0]) * 40000
+                * math.cos((aircraftLocations[thread_id][time+1][resource][1]
+                     + fireLocations[thread_id][time+1][fire][1])
+                     * math.pi/360)/360) ** 2
+                + ((fireLocations[thread_id][time+1][fire][1]
+                    - aircraftLocations[thread_id][time+1][resource][1])
+                    * 40000/360)**2)
 
-    states[thread_id, time, 5] =
+           stateVal += dist * expectedE[fire, 0]
+
+    states[thread_id, time, 4] = stateVal
+
+    stateVal = 0
+    # Patches
+    for resource in range(len(noAircraft)):
+        for patch in range(noPatches):
+           dist = math.sqrt(((
+                aircraftLocations[thread_id][time+1][resource][0]
+                - patchLocations[patch][0]) * 40000
+                * math.cos((aircraftLocations[thread_id][time+1][resource][1]
+                     + patchLocations[patch][1])
+                     * math.pi/360)/360) ** 2
+                + ((patchLocations[patch][1]
+                    - aircraftLocations[thread_id][time+1][resource][1])
+                    * 40000/360)**2)
+
+           stateVal += dist * expectedP[patch, 0]
+
+    states[thread_id, time, 5] = stateVal
 
     """ OPTION 2 """
-    """ Phase 3: Short-Term Expected Damage from Fires and Bases BEFORE
+    """ Phase 3: Short-Term Expected Damage from Fires and Patches BEFORE
     assignments"""
-    states[thread_id, time, 6] =
+    if time > 0:
+        # Fires
+        states[thread_id, time, 6] = shortTermE[thread_id][time-1]
 
-    states[thread_id, time, 7] =
+        # Patches
+        states[thread_id, time, 7] = shortTermP[thread_id][time-1]
+    else:
+        # Compute the no-relocation option to determine the baseline expected
+        # damage for time 0
+        pass
 
-    """ Phase 4: Short-Term Expected Damage from Fires and Bases AFTER
+    """ Phase 4: Short-Term Expected Damage from Fires and Patches AFTER
     assignments """
-    states[thread_id, time, 8] =
+    # Fires
+    states[thread_id, time, 8] = shortTermE[thread_id][time]
 
-    states[thread_id, time, 9] =
+    # Patches
+    states[thread_id, time, 9] = shortTermP[thread_id][time]
