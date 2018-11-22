@@ -86,7 +86,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                 # Compute the optimal control using regressions. Need to
                 # compute the expected damage for fires and patches under
                 # each control. This could be time-consuming.
-                pass
+                pickControl()
             else:
                 control = int(6*xoroshiro128p_uniform_float32(rng_states, path))
 
@@ -2542,6 +2542,7 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
 
     # Run this in chunks (i.e. multiple paths at a time)
     for b, batchSize in enumerate(batchAmounts):
+        # We may even need to batch this on the CPU using Big-Data structures
         # CUDA requirements
         batchStart = sum(batchAmounts[:b])
         batchEnd = batchStart + batchAmounts[b]

@@ -47,7 +47,12 @@ class Simulation():
         self.realisedFFDIs = []
         self.aircraftHours = []
         self.id = Simulation.simulations
-        Simulation.simulations = Simulation.simulations + 1
+        self.statePaths = None
+        self.costs2Go = None
+        self.regressionsX = None
+        self.regressionsY = None
+        self.rSquared = None
+        Simulation.simulations += 1
 
     def getModel(self):
         return self.model
@@ -138,6 +143,36 @@ class Simulation():
 
     def setAircraftHours(self, ah):
         self.aircraftHours = ah
+
+    def getStatePaths(self):
+        return self.statePaths
+
+    def setStatePaths(self, p):
+        self.statePaths = p
+
+    def getCosts2Go(self):
+        return self.costs2Go
+
+    def setCosts2Go(self, c):
+        self.costs2Go = c
+
+    def getRegressionsX(self):
+        return self.regressionsX
+
+    def setRegressionsX(self, r):
+        self.regressionsX = r
+
+    def getRegressionsY(self):
+        return self.regressionsY
+
+    def setRegressionsY(self, r):
+        self.regressionsY = r
+
+    def getRSquared(self):
+        return self.rSquared
+
+    def setRSquared(self, r):
+        self.rSquared = r
 
     def simulate(self):
 
@@ -2973,8 +3008,8 @@ class Simulation():
             for tt in range(totalSteps - 1, -1, -1):
                 """ Regressions """
                 for control in range(noControls):
-                    pass
                     """ Pull the relevant temporary states and costs-to go """
+
 
                     """ Compute the regression """
                     X,Y = np.mgrid[-5:5.1:0.5, -5:5.1:0.5]
@@ -2999,7 +3034,7 @@ class Simulation():
 
             """ Pull the costs 2 go from the GPU and save to an output file """
             """ For analysis purposes, we need to print our paths to output
-            csv files or data dumps (use Pandas?)"""
+            csv files or data dumps (use Pandas?/Spark?)"""
 
 
             """////////////////////// MODEL VALIDATION /////////////////////"""
@@ -3008,6 +3043,20 @@ class Simulation():
             results. These lines are for the actual simulation runs """
             for run in range(self.model.getRuns()):
                 pass
+
+                # Store the output results
+                self.finalDamageMaps[ii][run] = accumulatedDamage
+                self.expectedDamages[ii][run] = damage
+                self.realisedAssignments[ii][run] = assignmentsPath
+                self.realisedFFDIs[ii][run] = FFDI
+                self.aircraftHours[ii][run] = accumulatedHours
+
+                """Save the results for this sample"""
+                self.writeOutResults(ii, run)
+
+            self.writeOutROV(ii)
+
+        self.writeOutSummary()
 
     def forwardPaths(self):
         os.system("taskset -p 0xff %d" % os.getpid())
@@ -3748,11 +3797,6 @@ class Simulation():
 
                 outputGraphs.close()
 
-        if self.model.getAlgo() == 2:
-            """ ROV Regressions """
-            # Need to do after conference paper
-            pass
-
     def writeOutSummary(self):
         root = ("../Experiments/Experiments/" +
                 self.model.getInputFile().split(
@@ -3790,6 +3834,60 @@ class Simulation():
                        for run in range(self.model.getRuns())]
                     for path in range(len(
                             self.model.getSamplePaths()))])
+
+    def writeOutROV(self, sample):
+        root = ("../Experiments/Experiments/" +
+                self.model.getInputFile().split(
+                        "../Experiments/Experiments/")[1].split("/")[0])
+
+        """ Output folder """
+        outfolder = (root + "/Outputs/Scenario_" + str(self.id) + "/Sample_" +
+                     str(sample))
+
+        if not os.path.exists(os.path.dirname(outfolder)):
+            try:
+                os.makedirs(os.path.dirname(outfolder))
+            except OSError as exc:  # Guard against race condition
+                if exc.errno != errno.EEXIST:
+                    raise
+
+        """ Monte Carlo Paths (with Reduced States) """
+        outputfile = outfolder + "/ROVPaths.csv"
+
+        with open(outputfile, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile, delimiter=',')
+
+            columns = (self.model.getTotalSteps()*11+1)
+
+            rowLists = ([
+                    ['T_' + str(tt) + 'S_' + str(ss) for ss in range(10)]
+                    + ['C2G_' + str(tt)]
+                for tt in range(self.model.getTotalSteps() + 1)])
+
+            row = (['PATH'] + [listVal[ii]
+                for listVal in rowLists
+                for ii in range(len(listVal))])
+
+            writer.writerow(row)
+
+            for ii in range(self.model.getMCPaths()):
+                row = [str(ii + 1)]
+
+                for tt in range(self.model.getTotalSteps() + 1):
+                    row.extend([
+                        self.statePaths[sample][tt][ii][ss]
+                        for ss in range(10)])
+                    row.append(self.costs2Go[sample][tt][ii])
+
+                writer.writerow(row)
+
+        """ ROV Regressions """
+        outputfile = outfolder + "/ROVRegressions.csv"
+
+        with open(outputfile, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile, delimiter=',')
+
+
 
     def currPos2Fire(self, currLocs, fires):
         # Computes the distance between each aircraft and each fire
