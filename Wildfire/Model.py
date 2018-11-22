@@ -68,6 +68,9 @@ class Model():
         self.samplePaths = []
         self.useSamplePaths = False
         self.runs = 0
+        self.baseThreshold = 0
+        self.fireThreshold = 0
+        self.controlMethod = 0
         self.shape = None
         self.plot = False
 
@@ -287,6 +290,24 @@ class Model():
     def setRuns(self, r):
         self.runs = r
 
+    def getFireThreshold(self):
+        return self.fireThreshold
+
+    def setFireThreshold(self, f):
+        self.fireThreshold = f
+
+    def getBaseThreshold(self):
+        return self.baseThreshold
+
+    def setBaseThreshold(self, b):
+        self.baseThreshold = b
+
+    def getControlMethod(self):
+        return self.controlMethod
+
+    def setControlMethod(self, c):
+        self.controlMethod = c
+
     def generatePlots(self, setting):
         self.plots = setting
 
@@ -452,6 +473,18 @@ class Model():
         self.runs = int(contents[84 + noAircraft + noLandcraft
                                  + noVegetations + noControls]
                         .split(":")[1].strip())
+
+        self.fireThreshold = float(contents[85 + noAircraft + noLandcraft
+                                            + noVegetations + noControls]
+                                   .split(":")[1].strip())
+
+        self.baseThreshold = float(contents[86 + noAircraft + noLandcraft
+                                            + noVegetations + noControls]
+                                   .split(":")[1].strip())
+
+        self.controlMethod = int(contents[87 + noAircraft + noLandcraft
+                                          + noVegetations + noControls]
+                                 .split(":")[1].strip())
 
         self.variableParameters = varParams
 

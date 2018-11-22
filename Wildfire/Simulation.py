@@ -18,7 +18,8 @@ import matplotlib.patches as mpp
 import matplotlib.collections as mpc
 import matplotlib.cm as clrmp
 import matplotlib.backends.backend_pdf as pdf
-# import multiprocessing as mp
+import pyqt_fit.nonparam_regression as smooth
+from pyqt_fit import npr_methods
 
 import SimulationNumba
 
@@ -2754,6 +2755,18 @@ class Simulation():
                                        self.model.getSamplePaths()))],
                                   dtype=numpy.float32)
 
+        method = self.model.getControlMethod()
+
+        lambdas = numpy.array([[
+                self.model.getControls()[ii].getLambda1(),
+                self.model.getControls()[ii].getLambda2()]
+            for ii in range(len(self.model.getControls()))])
+
+        if method == 1:
+            noControls = len(lambdas)
+        elif  method == 2:
+            noControls = 6
+
         samplePaths = (
                 len(sampleFFDIs)
                 if len(sampleFFDIs) > 0
@@ -2818,8 +2831,8 @@ class Simulation():
                                     self.model.configurations.items()]
                                    for vegetation in vegetations],
                                   dtype=numpy.float32)
-        thresholds = numpy.array([self.model.getControls()[0].getLambda1(),
-                                  self.model.getControls()[0].getLambda2()],
+        thresholds = numpy.array([self.model.fireThreshold,
+                                  self.model.baseThreshold],
                                  dtype=numpy.float32)
 
         """ MC Path Outputs (Policy Maps)"""
@@ -2891,7 +2904,7 @@ class Simulation():
                   for base in range(noBases)]
                  for patch in range(noPatches)])
 
-            # Maximum number of aircraft of each config component allowed
+            # Min number of aircraft needed for each component of each config
             baseConfigsMax = numpy.array([0, 0, 0, 0], dtype=numpy.int32)
             fireConfigsMax = numpy.array([0, 0, 0, 0], dtype=numpy.int32)
 
@@ -2959,23 +2972,30 @@ class Simulation():
             """ Regressions and Forward Path Re-Computations"""
             for tt in range(totalSteps - 1, -1, -1):
                 """ Regressions """
-                for control in range():
-                    """ Pull the relevant temporary states and costs-to go """
+                for control in range(noControls):
                     pass
+                    """ Pull the relevant temporary states and costs-to go """
+
+                    """ Compute the regression """
+                    X,Y = np.mgrid[-5:5.1:0.5, -5:5.1:0.5]
+                    reg = smooth.NonParamRegression(
+                        xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
+                    reg.fit()
+
                     """ Push the regressions back onto the GPU for reuse """
 
                 SimulationNumba.simulateMC(
                     mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
                     patchCentroids, baseLocations, resourceTypes,
                     resourceSpeeds, maxHours, configurations, configsE,
-                    configsP, thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
-                    occurrence, initSizeM, initSizeSD, initSuccess, tankerDists,
-                    heliDists, fireConfigsMax, baseConfigsMax, expFiresComp,
-                    totalSteps, lookahead, stepSize, accumulatedDamages,
-                    accumulatedHours, noFires, fireSizes, fireLocations,
-                    firePatches, aircraftLocations, aircraftAssignments,
-                    randCont, regressionX, regressionY, states, costs2go, tt,
-                    True)
+                    configsP, thresholds, lambdas, ffdiRanges, rocA2PHMeans,
+                    rocA2PHSDs, initSizeM, initSizeSD, initSuccess,
+                    tankerDists, heliDists, fireConfigsMax, baseConfigsMax,
+                    expFiresComp, totalSteps, lookahead, stepSize,
+                    accumulatedDamages, accumulatedHours, noFires, fireSizes,
+                    fireLocations, firePatches, aircraftLocations,
+                    aircraftAssignments, randCont, regressionX, regressionY,
+                    states, costs2go, tt, True)
 
             """ Pull the costs 2 go from the GPU and save to an output file """
             """ For analysis purposes, we need to print our paths to output
