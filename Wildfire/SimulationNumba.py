@@ -5,7 +5,6 @@ Created on Mon Oct 29 14:35:12 2018
 @author: nicholas
 """
 
-import numpy
 import math
 from numba import cuda, float32, float64, int32
 from numba.types import b1
@@ -103,9 +102,10 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                            stepSize, lookahead, path, control)
 
             saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
-                      aircraftLocations, accumulatedHours, fires, fireSizes,
-                      fireLocations, expectedE, expectedP, states, weightsP,
-                      tt - time, lookahead, path)
+                      maxHours, aircraftLocations, accumulatedHours,
+                      patchLocations, fires, fireSizes, fireLocations,
+                      expectedE, expectedP, states, configurations, selectedE,
+                      weightsP, tt, lookahead, path)
 
             # SimulateNextStep
             simulateNextStep(aircraftAssignments, resourceTypes, resourceSpeeds,
@@ -2382,6 +2382,17 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
     # Compute resulting fire configurations and patch configuration weights
     # given these assignments
+    for fire in range(noFiresMax):
+        configNos[0] = fireTankersE[fire]
+        configNos[1] = fireHelisE[fire]
+        configNos[2] = fireTankersL[fire]
+        configNos[3] = fireHelisL[fire]
+
+        getAllConfigsSorted(configurations, configsE,
+                            baseConfigsPossible,
+                            expectedE[fire], configNos)
+        selectedE[fire] = baseConfigsPossible[0]
+
     for patch in range(noPatches):
         weight_total = 0
         for c in range(4):
@@ -2454,16 +2465,6 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
             configIdx += 1
 
             weightsP[patch, config] = weight_c
-
-    # Now save the expected damages for this assignment
-    targetDamageE[thread_id][time] = sum([
-        expectedE[patch, selectedE[patch]]
-        for patch in range(noPatches)])
-
-    targetDamageP[thread_id][time] = sum([
-            weightsP[patch, config] * expectedP[patch, config]
-            for patch in range(noPatches)
-        for config in range(len(configsP))])
 
 @cuda.jit(device=True)
 def findConfigIdx(configurations, configs, noTE, noHE, noTL, noHL):
@@ -2625,14 +2626,24 @@ def travTime(X1, X2, speed):
     dist = math.sqrt(((X1[0] - X2[0]) * 40000*math.cos((X1[1] + X2[1])
          * math.pi/360)/360) ** 2 + ((X2[1] - X1[1]) * 40000/360)**2)
 
-    return dist
+    return dist / speed
 
 @cuda.jit(device=True)
 def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
               aircraftLocations, accumulatedHours, patchLocations, fires,
               fireSizes, fireLocations, expectedE, expectedP, states,
-              configurations, shortTermE, shortTermP, time, lookahead,
-              thread_id):
+              configurations, selectedE, weightsP, time, lookahead, thread_id):
+
+
+    # Now save the expected damages for this assignment
+    shortTermE = sum([
+        expectedE[patch, selectedE[patch]]
+        for patch in range(noPatches)])
+
+    shortTermP = sum([
+            weightsP[patch, config] * expectedP[patch, config]
+            for patch in range(noPatches)
+        for config in range(len(configsP))])
 
     """ Remaining hours: Simple and Weighted """
     states[thread_id, time, 0] = sum([
@@ -2727,19 +2738,21 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
     assignments"""
     if time > 0:
         # Fires
-        states[thread_id, time, 6] = shortTermE[thread_id][time-1]
+        states[thread_id, time, 6] = shortTermE
 
         # Patches
-        states[thread_id, time, 7] = shortTermP[thread_id][time-1]
+        states[thread_id, time, 7] = shortTermP
     else:
         # Compute the no-relocation option to determine the baseline expected
         # damage for time 0
+        states[thread_id, time, 6] = 0
+        states[thread_id, time, 7] = 0
         pass
 
     """ Phase 4: Short-Term Expected Damage from Fires and Patches AFTER
     assignments """
     # Fires
-    states[thread_id, time, 8] = shortTermE[thread_id][time]
+    states[thread_id, time, 8] = shortTermE
 
     # Patches
-    states[thread_id, time, 9] = shortTermP[thread_id][time]
+    states[thread_id, time, 9] = shortTermP
