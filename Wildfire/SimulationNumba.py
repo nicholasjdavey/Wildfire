@@ -5,6 +5,7 @@ Created on Mon Oct 29 14:35:12 2018
 @author: nicholas
 """
 
+import numpy
 import math
 from numba import cuda, float32, float64, int32
 from numba.types import b1
@@ -12,6 +13,8 @@ from numba.types import b1
 from numba.cuda.random import create_xoroshiro128p_states
 from numba.cuda.random import xoroshiro128p_normal_float32
 from numba.cuda.random import xoroshiro128p_uniform_float32
+import pyqt_fit.nonparam_regression as smooth
+from pyqt_fit import npr_methods
 
 """ GLOBAL VARIABLES USED FOR ARRAY DIMENSIONS IN CUDA """
 """ Remember to modify the values in the wrapper functions before using them in
@@ -37,6 +40,9 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                        fireLocations, firePatches, aircraftLocations,
                        aircraftAssignments, rng_states, controls, regressionX,
                        regressionY, states, costs2Go, start, stepSize, optimal):
+
+    # Batched values start at zero here, but at different locations in the host
+    # arrays. This is because only a portion of the host array is transferred.
 
     global noBases
     global noPatches
@@ -71,15 +77,16 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
             expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
 
             expectedDamageExisting(
-                    expectedFFDI, firePatches[path][tt], fires[path][tt],
-                    fireSizes[path][tt], patchVegetations, ffdiRanges,
-                    rocA2PHMeans, rocA2PHSDs, occurrence, configsE, lookahead,
+                    expectedFFDI, firePatches[path][tt - start], fires[path][tt
+                    - start], fireSizes[path][tt - start], patchVegetations,
+                    ffdiRanges, rocA2PHMeans, rocA2PHSDs, configsE, lookahead,
                     expectedE, rng_states, path, False)
 
             expectedDamagePotential(
                     expectedFFDI, patchVegetations, patchAreas, ffdiRanges,
-                    rocA2PHMeans, occurrence, initSizeM, initSuccess, configsP,
-                    tt, lookahead, expectedP)
+                    rocA2PHMeans, occurrence[:][start:(totalSteps + lookahead +
+                    1)], initSizeM, initSuccess, configsP, tt - start,
+                    lookahead, expectedP)
 
             if optimal:
                 # Compute the optimal control using regressions. Need to
@@ -97,33 +104,33 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                            baseLocations, tankerDists, heliDists, fires,
                            fireSizes, fireLocations, ffdiRanges, configurations,
                            configsE, configsP, baseConfigsMax, fireConfigsMax,
-                           thresholds, sampleFFDIs, expFiresComp, expectedE,
-                           expectedP, selectedE, weightsP, states, tt,
-                           stepSize, lookahead, path, control)
+                           thresholds, expFiresComp, expectedE, expectedP,
+                           selectedE, weightsP, states, tt - start, stepSize,
+                           lookahead, path, control)
 
             saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
                       maxHours, aircraftLocations, accumulatedHours,
                       patchLocations, fires, fireSizes, fireLocations,
                       expectedE, expectedP, states, configurations, selectedE,
-                      weightsP, tt, lookahead, path)
+                      weightsP, tt - start, lookahead, path)
 
             # SimulateNextStep
             simulateNextStep(aircraftAssignments, resourceTypes, resourceSpeeds,
                              aircraftLocations, accumulatedHours,
                              baseLocations, fires, patchVegetations,
                              patchLocations, ffdiRanges, fireLocations,
-                             firePatches, sampleFFDIs, rocA2PHMeans,
+                             firePatches, expectedFFDI, rocA2PHMeans,
                              rocA2PHSDs, fireSizes, configsE, configsP,
                              selectedE, weightsP, initSizeM, initSizeSD,
-                             initSuccess, occurrence, accumulatedDamages, tt,
-                             stepSize, rng_states, path)
+                             initSuccess, occurrence, accumulatedDamages, tt -
+                             start, stepSize, rng_states, path)
 
 #@jit(nopython=True, fastmath=True)
 @cuda.jit(device=True)
 def expectedDamageExisting(ffdi_path, fire_patches, no_fires, fire_sizes,
                            patch_vegetations, ffdi_ranges, roc_a2_ph_means,
-                           roc_a2_ph_sds, occurrence, configs, lookahead,
-                           expected, rng_states, thread_id, random):
+                           roc_a2_ph_sds, configs, lookahead, expected,
+                           rng_states, thread_id, random):
 
     for fire in range(no_fires):
         patch = int(fire_patches[fire])
@@ -336,7 +343,7 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
         roc_a2_ph_mean = roc_a2_ph_means[vegetation]
         roc_a2_ph_sd = roc_a2_ph_sds[vegetation]
 
-        ffdi = ffdis[patch, time]
+        ffdi = ffdis[patch, 0]
         config = int(fireConfigs[fire])
         size = max(growFire(ffdi, config, ffdi_range, roc_a2_ph_mean,
                             roc_a2_ph_sd, fireSizes[thread_id][time][fire],
@@ -362,7 +369,7 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
     for patch in range(len(patchLocations)):
         vegetation = int(patchVegetations[patch])
         ffdi_range = ffdiRanges[vegetation]
-        ffdi = ffdis[patch, time]
+        ffdi = ffdis[patch, 0]
         initial_size_M = initM[vegetation]
         initial_size_SD = initSD[vegetation]
         initial_success = init_succ[vegetation]
@@ -423,9 +430,9 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                    baseLocations, tankerCovers, heliCovers, noFires,
                    fireSizes, fireLocations, ffdiRanges, configurations,
                    configsE, configsP, baseConfigsMax, fireConfigsMax,
-                   fireConfigs, patchConfigs, thresholds, sampleFFDIs,
-                   expFiresComp, expectedE, expectedP, selectedE, weightsP,
-                   states, time, stepSize, lookahead, thread_id, control):
+                   fireConfigs, patchConfigs, thresholds, expFiresComp,
+                   expectedE, expectedP, selectedE, weightsP, states, time,
+                   stepSize, lookahead, thread_id, control):
 
     """ This is a simple fast heuristic for approximately relocating the
     aircraft. An optimal algorithm would be too slow and may not be
@@ -2479,18 +2486,18 @@ def findConfigIdx(configurations, configs, noTE, noHE, noTL, noHL):
     else:
         return 0
 
-""" WRAPPER """
-#@jit(parallel=True, fastmath=True)
-def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
-               patchLocations, baseLocations, resourceTypes, resourceSpeeds,
-               maxHours, configurations, configsE, configsP, thresholds,
-               ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM,
-               initSizeSD, initSuccess, tankerDists, heliDists, fireConfigsMax,
-               baseConfigsMax, expFiresComp, totalSteps, lookahead, stepSize,
-               accumulatedDamages, accumulatedHours, fires, fireSizes,
-               fireLocations, firePatches, aircraftLocations,
-               aircraftAssignments, controls, regressionX, regressionY,
-               states, costs2Go, start=0, static=False):
+""" WRAPPERS """
+""" Main Wrapper """
+def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
+                patchLocations, baseLocations, resourceTypes, resourceSpeeds,
+                maxHours, configurations, configsE, configsP, thresholds,
+                ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM,
+                initSizeSD, initSuccess, tankerDists, heliDists, fireConfigsMax,
+                baseConfigsMax, expFiresComp, totalSteps, lookahead, stepSize,
+                accumulatedDamages, accumulatedHours, fires, fireSizes,
+                fireLocations, firePatches, aircraftLocations,
+                aircraftAssignments, controls, regressionX, regressionY,
+                states, costs2Go, lambdas, method, noControls):
 
     """ Set global values """
     global noBases
@@ -2509,11 +2516,10 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
     noConfE = len(configsE)
     noConfP = len(configsP)
 
-    batches = math.ceil(paths / 1000)
-    batchAmounts = [1000 for batch in range(batches - 1)]
-    batchAmounts.append(paths - sum(batchAmounts))
-
-    # Copy universal values to device
+    """ Copy data to the device """
+    # Copy universal values to device. Path values are copied on-the-fly in
+    # batches as too much memory will be required on the GPU if we copy it all
+    # at once.
     d_sampleFFDIs = cuda.to_device(sampleFFDIs)
     d_patchVegetations = cuda.to_device(patchVegetations)
     d_patchAreas = cuda.to_device(patchAreas)
@@ -2540,6 +2546,92 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
     d_baseConfigsMax = cuda.to_device(baseConfigsMax)
     d_fireConfigsMax = cuda.to_device(fireConfigsMax)
     d_expFiresComp = cuda.to_device(expFiresComp)
+    d_lambdas = cuda.to_device(lambdas)
+
+    """ Initial Monte Carlo Paths """
+    simulateMC(
+            paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
+            d_patchLocations, d_baseLocations, d_resourceTypes,
+            d_resourceSpeeds, d_maxHours, d_configurations, d_configsE,
+            d_configsP, d_thresholds, d_ffdiRanges, d_rocA2PHMeans,
+            d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
+            d_initSuccess, d_tankerDists, d_heliDists, d_fireConfigsMax,
+            d_baseConfigsMax, d_expFiresComp, totalSteps, lookahead,
+            stepSize, accumulatedDamages, accumulatedHours, fires, fireSizes,
+            fireLocations, firePatches, aircraftLocations, aircraftAssignments,
+            controls, d_regressionX, d_regressionY, states, costs2Go,
+            d_lambdas, method, noControls)
+
+    """ BACKWARD INDUCTION """
+    """ Regressions and Forward Path Re-Computations"""
+    for tt in range(totalSteps - 1, -1, -1):
+        """ Regressions """
+        for control in range(noControls):
+            """ Compute the regression using the relevant states and
+            costs2Go """
+            xs = states[tt]
+            ys = costs2Go[tt]
+
+            reg = smooth.NonParamRegression(
+                xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
+            reg.fit()
+
+            regressionX[tt] = numpy.mgrid[
+                numpy.linspace(min(xs[0]), max(xs[0], 50)),
+                numpy.linspace(min(xs[1]), max(xs[1], 50)),
+                numpy.linspace(min(xs[2]), max(xs[2], 50))]
+
+            regressionY = reg(regressionX[tt])
+
+            """ Push the regressions back onto the GPU for reuse """
+            SimulationNumba.pushStateResults()
+
+        simulateMC(
+            mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
+            patchCentroids, baseLocations, resourceTypes,
+            resourceSpeeds, maxHours, configurations, configsE,
+            configsP, thresholds, lambdas, ffdiRanges, rocA2PHMeans,
+            rocA2PHSDs, initSizeM, initSizeSD, initSuccess,
+            tankerDists, heliDists, fireConfigsMax, baseConfigsMax,
+            expFiresComp, totalSteps, lookahead, stepSize,
+            accumulatedDamages, accumulatedHours, noFires, fireSizes,
+            fireLocations, firePatches, aircraftLocations,
+            aircraftAssignments, randCont, regressionX, regressionY,
+            states, costs2go, tt, True)
+
+    """ Pull the costs 2 go from the GPU and save to an output file """
+    """ For analysis purposes, we need to print our paths to output
+    csv files or data dumps (use Pandas?/Spark?)"""
+
+""" Monte Carlo Routine """
+#@jit(parallel=True, fastmath=True)
+def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
+               d_patchLocations, d_baseLocations, d_resourceTypes,
+               d_resourceSpeeds, d_maxHours, d_configurations, d_configsE,
+               d_configsP, d_thresholds, d_ffdiRanges, d_rocA2PHMeans,
+               d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
+               d_initSuccess, d_tankerDists, d_heliDists, d_fireConfigsMax,
+               d_baseConfigsMax, d_expFiresComp, totalSteps, lookahead,
+               stepSize, accumulatedDamages, accumulatedHours, fires,
+               fireSizes, fireLocations, firePatches, aircraftLocations,
+               aircraftAssignments, controls, d_regressionX, d_regressionY,
+               states, costs2Go, start=0, static=False):
+
+    # Input values prefixed with 'd_' are already on the device and will not
+    # be copied across
+
+    """ Set global values """
+    global noBases
+    global noPatches
+    global noAircraft
+    global noFiresMax
+    global noConfigs
+    global noConfE
+    global noConfP
+
+    batches = math.ceil(paths / 1000)
+    batchAmounts = [1000 for batch in range(batches - 1)]
+    batchAmounts.append(paths - sum(batchAmounts))
 
     # Run this in chunks (i.e. multiple paths at a time)
     for b, batchSize in enumerate(batchAmounts):
@@ -2594,7 +2686,9 @@ def simulateMC(paths, sampleFFDIs, patchVegetations, patchAreas,
 
         cuda.synchronize()
 
-        # Return memory to the host
+        # Return memory to the host. We unfortunately have to do this all the
+        # time due to the batching requirement to prevent excessive memory
+        # use on the GPU
         d_accumulatedDamages.copy_to_host(accumulatedDamages[
                 batchStart:batchEnd][start:totalSteps])
         d_accumulatedHours.copy_to_host(accumulatedHours[
@@ -2643,7 +2737,7 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
     shortTermP = sum([
             weightsP[patch, config] * expectedP[patch, config]
             for patch in range(noPatches)
-        for config in range(len(configsP))])
+        for config in range(len(weightsP))])
 
     """ Remaining hours: Simple and Weighted """
     states[thread_id, time, 0] = sum([
@@ -2693,7 +2787,7 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
 
            stateVal += dist * expectedP[patch, 0]
 
-    states[thread_id, time, 2] = stateVal
+    states[thread_id, time, 3] = stateVal
 
     """ Phase 2: Sum of Weighted Distance to Fires and Patches AFTER
     assignment """
