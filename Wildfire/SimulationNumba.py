@@ -26,6 +26,8 @@ global noFiresMax
 global noConfigs
 global noConfE
 global noConfP
+global method
+global noControls
 
 
 @cuda.jit
@@ -51,6 +53,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
     global noConfigs
     global noConfE
     global noConfP
+    global noControls
 
     # ThreadID
     tx = cuda.threadIdx.x
@@ -92,9 +95,49 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                 # Compute the optimal control using regressions. Need to
                 # compute the expected damage for fires and patches under
                 # each control. This could be time-consuming.
-                pickControl()
+                bestControl = 0
+                bestC2G = math.inf
+
+                for control in range(noControls):
+                    """ Need to determine the expected cost to go for each
+                    control in order to determine the best one to pick. This
+                    requires computing the state for each control using the
+                    assignment heuristic and then the regressions. """
+
+                    assignAircraft(aircraftAssignments, resourceSpeeds,
+                                   resourceTypes, maxHours, aircraftLocations,
+                                   accumulatedHours, baseLocations,
+                                   tankerDists, heliDists, fires, fireSizes,
+                                   fireLocations, ffdiRanges, configurations,
+                                   configsE, configsP, baseConfigsMax,
+                                   fireConfigsMax, thresholds, expFiresComp,
+                                   expectedE, expectedP, selectedE, weightsP,
+                                   states, tt - start, stepSize, lookahead,
+                                   path, control)
+
+                    saveState(aircraftAssignments, resourceTypes,
+                              resourceSpeeds, maxHours, aircraftLocations,
+                              accumulatedHours, patchLocations, fires,
+                              fireSizes, fireLocations, expectedE, expectedP,
+                              states, configurations, selectedE, weightsP,
+                              tt - start, lookahead, path)
+
+                    """ Get the expected cost 2 go for this control at this
+                    time for the prevailing state """
+                    currC2G = interpolateCost2Go(states, regressionX,
+                                                 regressionY, tt - start, path,
+                                                 3)
+
+                    if currC2G < bestC2G:
+                        bestC2G = currC2G
+                        bestControl = control
+
+                controls[path][tt] = bestControl
+
             else:
-                control = int(6*xoroshiro128p_uniform_float32(rng_states, path))
+                bestControl = int(6*xoroshiro128p_uniform_float32(rng_states,
+                                                                  path))
+                controls[path][tt] = bestControl
 
             # AssignAircraft
             # This could potentially be very slow. Just use a naive assignment
@@ -106,7 +149,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                            configsE, configsP, baseConfigsMax, fireConfigsMax,
                            thresholds, expFiresComp, expectedE, expectedP,
                            selectedE, weightsP, states, tt - start, stepSize,
-                           lookahead, path, control)
+                           lookahead, path, bestControl)
 
             saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
                       maxHours, aircraftLocations, accumulatedHours,
@@ -233,6 +276,31 @@ def interpolate1D(xval, xrange, yrange):
              (yrange[idxMax] - yrange[idxMin]))
 
     return value
+
+@cuda.jit(device=True)
+def interpolateCost2Go(state, regressionX, regressionY, time, path, dims):
+
+    """ Get the global upper and lower bounds for each dimension """
+    lower = cuda.local.array(3, dtype=float32)
+    upper = cuda.local.array(3, dtype=float32)
+    coeffs = cuda.local.array(8, dtype=float32)
+    lowerInd = cuda.local.array(3, dtype=int32)
+
+    # Indices for each state dimension value
+    for dim in range(3):
+        lower[dim] = regressionX[time][dim][0]
+        upper[dim] = regressionX[time][dim][-1]
+        lowerInd[dim] = int(len(regressionX[dim]) * state[path][time][dim] /
+                (upper[dim] - lower[dim]))
+
+        if lowerInd[dim] < 0:
+            lowerInd[dim] = 0
+        elif lowerInd[dim] >= len(regressionX[time][dim]):
+            lowerInd[dim] = len(regressionX[time][dim]) - 2
+
+    # Now that we have all the index requirements, let's interpolate
+    # Uppermost dimension X value
+
 
 @cuda.jit(device=True)
 def getAllConfigsSorted(configurations, configsP, baseConfigsPossible,
@@ -2581,27 +2649,32 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 numpy.linspace(min(xs[1]), max(xs[1], 50)),
                 numpy.linspace(min(xs[2]), max(xs[2], 50))]
 
-            regressionY = reg(regressionX[tt])
+            regressionY[tt] = reg(regressionX[tt])
 
-            """ Push the regressions back onto the GPU for reuse """
-            SimulationNumba.pushStateResults()
+            """ Push the regressions back onto the GPU for reuse in the forward
+            path recomputations """
+            d_regressionX[tt] = cuda.to_device(regressionX[tt])
+            d_regressionY[tt] = cuda.to_device(regressionY[tt])
 
         simulateMC(
-            mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,
-            patchCentroids, baseLocations, resourceTypes,
-            resourceSpeeds, maxHours, configurations, configsE,
-            configsP, thresholds, lambdas, ffdiRanges, rocA2PHMeans,
-            rocA2PHSDs, initSizeM, initSizeSD, initSuccess,
-            tankerDists, heliDists, fireConfigsMax, baseConfigsMax,
-            expFiresComp, totalSteps, lookahead, stepSize,
-            accumulatedDamages, accumulatedHours, noFires, fireSizes,
-            fireLocations, firePatches, aircraftLocations,
-            aircraftAssignments, randCont, regressionX, regressionY,
-            states, costs2go, tt, True)
+                paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
+                d_patchLocations, d_baseLocations, d_resourceTypes,
+                d_resourceSpeeds, d_maxHours, d_configurations, d_configsE,
+                d_configsP, d_thresholds, d_ffdiRanges, d_rocA2PHMeans,
+                d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
+                d_initSuccess, d_tankerDists, d_heliDists, d_fireConfigsMax,
+                d_baseConfigsMax, d_expFiresComp, d_lambdas, totalSteps,
+                lookahead, stepSize, accumulatedDamages, accumulatedHours,
+                fires, fireSizes, fireLocations, firePatches, aircraftLocations,
+                aircraftAssignments, controls, d_regressionX, d_regressionY,
+                states, costs2Go, tt)
 
-    """ Pull the costs 2 go from the GPU and save to an output file """
-    """ For analysis purposes, we need to print our paths to output
-    csv files or data dumps (use Pandas?/Spark?)"""
+    """ Pull the final states and costs 2 go from the GPU and save to an output
+    file. For analysis purposes, we need to print our paths to output csv files
+    or data dumps (use Pandas?/Spark?)
+    The extraction is already done but the saving of the data is not. We save
+    the data in the calling routine. """
+
 
 """ Monte Carlo Routine """
 #@jit(parallel=True, fastmath=True)
@@ -2611,23 +2684,14 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
                d_configsP, d_thresholds, d_ffdiRanges, d_rocA2PHMeans,
                d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
                d_initSuccess, d_tankerDists, d_heliDists, d_fireConfigsMax,
-               d_baseConfigsMax, d_expFiresComp, totalSteps, lookahead,
-               stepSize, accumulatedDamages, accumulatedHours, fires,
-               fireSizes, fireLocations, firePatches, aircraftLocations,
+               d_baseConfigsMax, d_expFiresComp, d_lambdas, totalSteps,
+               lookahead, stepSize, accumulatedDamages, accumulatedHours,
+               fires, fireSizes, fireLocations, firePatches, aircraftLocations,
                aircraftAssignments, controls, d_regressionX, d_regressionY,
                states, costs2Go, start=0, static=False):
 
     # Input values prefixed with 'd_' are already on the device and will not
     # be copied across
-
-    """ Set global values """
-    global noBases
-    global noPatches
-    global noAircraft
-    global noFiresMax
-    global noConfigs
-    global noConfE
-    global noConfP
 
     batches = math.ceil(paths / 1000)
     batchAmounts = [1000 for batch in range(batches - 1)]
