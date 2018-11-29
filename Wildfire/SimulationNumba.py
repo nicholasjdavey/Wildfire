@@ -29,6 +29,7 @@ global noConfE
 global noConfP
 global method
 global noControls
+global epsilon
 
 
 @cuda.jit
@@ -287,6 +288,8 @@ def interpolate1D(xval, xrange, yrange):
 @cuda.jit(device=True)
 def interpolateCost2Go(state, regressionX, regressionY, time, path, control):
 
+    global epsilon
+
     """ Get the global upper and lower bounds for each dimension """
     lower = cuda.local.array(3, dtype=float32)
     upper = cuda.local.array(3, dtype=float32)
@@ -310,7 +313,7 @@ def interpolateCost2Go(state, regressionX, regressionY, time, path, control):
     x0 = regressionX[time][control][0][lowerInd[0]]
     x1 = regressionX[time][control][0][lowerInd[0] + 1]
 
-    if abs(x1 - x0) < sys.float_info.epsilon:
+    if abs(x1 - x0) < epsilon:
         xd = 0.0
     else:
         xd = (state[path][time][0] - x0) / (x1 - x0)
@@ -333,7 +336,7 @@ def interpolateCost2Go(state, regressionX, regressionY, time, path, control):
     x0 = regressionX[time][control][1][lowerInd[0]]
     x1 = regressionX[time][control][1][lowerInd[0] + 1]
 
-    if abs(x1 - x0) < sys.float_info.epsilon:
+    if abs(x1 - x0) < epsilon:
         xd = 0.0
     else:
         xd = (state[path][time][1] - x0) / (x1 - x0)
@@ -345,7 +348,7 @@ def interpolateCost2Go(state, regressionX, regressionY, time, path, control):
     x0 = regressionX[time][control][2][lowerInd[0]]
     x1 = regressionX[time][control][2][lowerInd[0] + 1]
 
-    if abs(x1 - x0) < sys.float_info.epsilon:
+    if abs(x1 - x0) < epsilon:
         xd = 0.0
     else:
         xd = (state[path][time][2] - x0) / (x1 - x0)
@@ -2475,23 +2478,26 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
               configurations, selectedE, weightsP, time, lookahead, thread_id):
 
     """ Remaining hours: Simple """
-    states[thread_id, time, 0] = sum([
-        maxHours[resource] - accumulatedHours[time, resource]
-        for resource in len(resourceTypes)])
+    stateVal = 0
+    for resource in range(noAircraft):
+        stateVal += maxHours[resource] - accumulatedHours[thread_id][time][
+                resource]
+
+    states[thread_id, time, 0] = stateVal
 
     """ Now save the expected damages for this assignment """
-    shortTermE = sum([
-        expectedE[patch, selectedE[patch]]
-        for patch in range(noPatches)])
+    shortTermE = 0
+    for patch in range(noPatches):
+        shortTermE += expectedE[patch, selectedE[patch]]
 
-    states[thread_id, time, 1]
+    states[thread_id, time, 1] = shortTermE
 
-    shortTermP = sum([
-            weightsP[patch, config] * expectedP[patch, config]
-            for patch in range(noPatches)
-        for config in range(len(weightsP))])
+    shortTermP = 0
+    for config in range(len(weightsP)):
+        for patch in range(noPatches):
+            shortTermP += weightsP[patch, config] * expectedP[patch, config]
 
-    states[thread_id, time, 2]
+    states[thread_id, time, 2] = shortTermP
 
     """ Other state values to try """
 
@@ -2499,8 +2505,8 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
     assignment """
     stateVal = 0
     # Fires
-    for resource in range(len(noAircraft)):
-        for fire in range(len(fires[thread_id][time])):
+    for resource in range(noAircraft):
+        for fire in range(fires[thread_id][time]):
             dist = geoDist(aircraftLocations[thread_id][time+1][resource],
                            fireLocations[thread_id][time+1][fire])
 
@@ -2510,7 +2516,7 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
 
     stateVal = 0
     # Patches
-    for resource in range(len(noAircraft)):
+    for resource in range(noAircraft):
         for patch in range(noPatches):
             dist = geoDist(aircraftLocations[thread_id][time+1][resource],
                            patchLocations[patch])
@@ -2520,19 +2526,26 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
     states[thread_id, time, 4] = stateVal
 
     """" Remaining hours: Weighted """
-    states[thread_id, time, 5] = sum([
-        maxHours[resource] - accumulatedHours[time, resource] *
-        (sum([expectedE[fire, 0] for fire in range(fires[thread_id, time])])
-            + sum([expectedE[patch, 0] for patch in range(len(noPatches))]))
-        for resource in range(len(noAircraft))])
+    stateVal = 0
+
+    for resource in range(noAircraft):
+        weight = 0
+        for fire in range(fires[thread_id, time]):
+            weight += expectedE[fire, 0]
+
+        for patch in range(noPatches):
+            weight += expectedP[patch, 0]
+
+        stateVal += weight * (maxHours[resource]
+            - accumulatedHours[thread_id][time][resource])
 
     """ OPTION 1 """
     """ Phase 1: Sum of Weighted Distances to Fires and Patches BEFORE
     assignments"""
     stateVal = 0
     # Fires
-    for resource in range(len(noAircraft)):
-        for fire in range(len(fires[thread_id][time])):
+    for resource in range(noAircraft):
+        for fire in range(fires[thread_id][time]):
             dist = geoDist(aircraftLocations[thread_id][time][resource],
                            fireLocations[thread_id][time][fire])
 
@@ -2542,7 +2555,7 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
 
     stateVal = 0
     # Patches
-    for resource in range(len(noAircraft)):
+    for resource in range(noAircraft):
         for patch in range(noPatches):
             dist = geoDist(aircraftLocations[thread_id][time][resource],
                            patchLocations[patch])
@@ -2578,7 +2591,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 accumulatedDamages, accumulatedHours, fires, fireSizes,
                 fireLocations, firePatches, aircraftLocations,
                 aircraftAssignments, controls, regressionX, regressionY,
-                states, costs2Go, lambdas, method, noControls):
+                states, costs2Go, lambdas, method, noCont):
 
     """ Set global values """
     global noBases
@@ -2588,14 +2601,18 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
     global noConfigs
     global noConfE
     global noConfP
+    global noControls
+    global epsilon
 
     noBases = len(baseLocations)
     noPatches = len(patchLocations)
     noAircraft = len(resourceTypes)
-    noFiresMax = 200
+    noFiresMax = 500
     noConfigs = len(configurations)
     noConfE = len(configsE)
     noConfP = len(configsP)
+    noControls = noCont
+    epsilon = sys.float_info.epsilon
 
     """ Copy data to the device """
     # Copy universal values to device. Path values are copied on-the-fly in
@@ -2643,52 +2660,54 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             controls, d_regressionX, d_regressionY, states, costs2Go, method,
             noControls)
 
-    """ BACKWARD INDUCTION """
-    """ Regressions and Forward Path Re-Computations"""
-    for tt in range(totalSteps - 1, -1, -1):
-        """ Regressions """
-        for control in range(noControls):
-            """ Compute the regression using the relevant states and
-            costs2Go """
-            xs = states[:][tt]
-            ys = costs2Go[:][tt]
-
-            reg = smooth.NonParamRegression(
-                xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
-            reg.fit()
-
-            tempGrid = numpy.meshgrid(
-                numpy.linspace(min(xs[0]), max(xs[0], 50)),
-                numpy.linspace(min(xs[1]), max(xs[1], 50)),
-                numpy.linspace(min(xs[2]), max(xs[2], 50)))
-
-            regressionY[tt][control] = reg(tempGrid)
-
-            regressionX[tt][control] = numpy.array([
-                numpy.linspace(min(xs[0]), max(xs[0], 50)),
-                numpy.linspace(min(xs[1]), max(xs[1], 50)),
-                numpy.linspace(min(xs[2]), max(xs[2], 50))])
-
-            """ Push the regressions back onto the GPU for reuse in the forward
-            path recomputations """
-            d_regressionX[tt][control] = cuda.to_device(
-                    regressionX[tt][control])
-            d_regressionY[tt][control] = cuda.to_device(
-                    regressionY[tt][control])
-
-        simulateMC(
-                paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
-                d_patchLocations, d_baseLocations, d_resourceTypes,
-                d_resourceSpeeds, d_maxHours, d_configurations, d_configsE,
-                d_configsP, d_thresholds, d_ffdiRanges, d_rocA2PHMeans,
-                d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
-                d_initSuccess, d_tankerDists, d_heliDists, d_fireConfigsMax,
-                d_baseConfigsMax, d_expFiresComp, d_lambdas, totalSteps,
-                lookahead, stepSize, accumulatedDamages, accumulatedHours,
-                fires, fireSizes, fireLocations, firePatches,
-                aircraftLocations, aircraftAssignments, controls,
-                d_regressionX, d_regressionY, states, costs2Go, method,
-                noControls, tt, optimal=True)
+#    sys.exit()
+#
+#    """ BACKWARD INDUCTION """
+#    """ Regressions and Forward Path Re-Computations"""
+#    for tt in range(totalSteps - 1, -1, -1):
+#        """ Regressions """
+#        for control in range(noControls):
+#            """ Compute the regression using the relevant states and
+#            costs2Go """
+#            xs = states[:][tt]
+#            ys = costs2Go[:][tt]
+#
+#            reg = smooth.NonParamRegression(
+#                xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
+#            reg.fit()
+#
+#            tempGrid = numpy.meshgrid(
+#                numpy.linspace(min(xs[0]), max(xs[0], 50)),
+#                numpy.linspace(min(xs[1]), max(xs[1], 50)),
+#                numpy.linspace(min(xs[2]), max(xs[2], 50)))
+#
+#            regressionY[tt][control] = reg(tempGrid)
+#
+#            regressionX[tt][control] = numpy.array([
+#                numpy.linspace(min(xs[0]), max(xs[0], 50)),
+#                numpy.linspace(min(xs[1]), max(xs[1], 50)),
+#                numpy.linspace(min(xs[2]), max(xs[2], 50))])
+#
+#            """ Push the regressions back onto the GPU for reuse in the forward
+#            path recomputations """
+#            d_regressionX[tt][control] = cuda.to_device(
+#                    regressionX[tt][control])
+#            d_regressionY[tt][control] = cuda.to_device(
+#                    regressionY[tt][control])
+#
+#        simulateMC(
+#                paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
+#                d_patchLocations, d_baseLocations, d_resourceTypes,
+#                d_resourceSpeeds, d_maxHours, d_configurations, d_configsE,
+#                d_configsP, d_thresholds, d_ffdiRanges, d_rocA2PHMeans,
+#                d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
+#                d_initSuccess, d_tankerDists, d_heliDists, d_fireConfigsMax,
+#                d_baseConfigsMax, d_expFiresComp, d_lambdas, totalSteps,
+#                lookahead, stepSize, accumulatedDamages, accumulatedHours,
+#                fires, fireSizes, fireLocations, firePatches,
+#                aircraftLocations, aircraftAssignments, controls,
+#                d_regressionX, d_regressionY, states, costs2Go, method,
+#                noControls, tt, optimal=True)
 
     """ Pull the final states and costs 2 go from the GPU and save to an output
     file. For analysis purposes, we need to print our paths to output csv files
@@ -2730,32 +2749,35 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
 
         # Copy batch-relevant memory to the device
         d_accumulatedDamages = cuda.to_device(accumulatedDamages[
-                batchStart:batchEnd][start:totalSteps])
+                batchStart:batchEnd, start:(totalSteps+1), :])
         d_accumulatedHours = cuda.to_device(accumulatedHours[
-                batchStart:batchEnd][start:totalSteps])
-        d_fires = cuda.to_device(fires[batchStart:batchEnd][start:totalSteps])
-        d_fireSizes = cuda.to_device(fireSizes[batchStart:batchEnd]
-                                     [start:totalSteps])
-        d_fireLocations = cuda.to_device(fireLocations[batchStart:batchEnd]
-                                         [start:totalSteps])
-        d_firePatches = cuda.to_device(firePatches[batchStart:batchEnd]
-                                       [start:totalSteps])
+                batchStart:batchEnd, start:(totalSteps+1), :])
+        d_fires = cuda.to_device(fires[batchStart:batchEnd,
+                                       start:(totalSteps+1)])
+        d_fireSizes = cuda.to_device(fireSizes[batchStart:batchEnd,
+                                               start:(totalSteps+1), :])
+        d_fireLocations = cuda.to_device(fireLocations[batchStart:batchEnd,
+                                                       start:(totalSteps+1),
+                                                       :])
+        d_firePatches = cuda.to_device(firePatches[batchStart:batchEnd,
+                                                   start:(totalSteps+1), :])
         d_aircraftLocations = cuda.to_device(aircraftLocations[
-                batchStart:batchEnd][start:totalSteps])
+                batchStart:batchEnd, start:(totalSteps+1), :])
         d_aircraftAssignments = cuda.to_device(aircraftAssignments[
-                batchStart:batchEnd][start:totalSteps])
-        d_controls = cuda.to_device(controls[batchStart:batchEnd]
-                                    [start:totalSteps])
-        d_states = cuda.to_device(states[batchStart:batchEnd]
-                                  [start:totalSteps])
-        d_costs2Go = cuda.to_device(costs2Go[batchStart:batchEnd]
-                                    [start:totalSteps])
+                batchStart:batchEnd, start:(totalSteps+1), :])
+        d_controls = cuda.to_device(controls[batchStart:batchEnd,
+                                             start:(totalSteps+1)])
+        d_states = cuda.to_device(states[batchStart:batchEnd,
+                                         start:(totalSteps+1), :])
+        d_costs2Go = cuda.to_device(costs2Go[batchStart:batchEnd,
+                                             start:(totalSteps+1)])
 
         # Initialise all random numbers state to use for each thread
         rng_states = create_xoroshiro128p_states(batchSize, seed=1)
 
         # Compute the paths in batches to preserve memory (see if we can
         # exploit both GPUs to share the computational load)
+
         simulateSinglePath[blockspergrid, threadsperblock](
                 batchSize, totalSteps, lookahead, d_sampleFFDIs,
                 d_expFiresComp, d_lambdas, d_patchVegetations, d_patchAreas,
@@ -2776,26 +2798,26 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
         # time due to the batching requirement to prevent excessive memory
         # use on the GPU
         d_accumulatedDamages.copy_to_host(accumulatedDamages[
-                batchStart:batchEnd][start:totalSteps])
+                batchStart:batchEnd, start:(totalSteps+1), :])
         d_accumulatedHours.copy_to_host(accumulatedHours[
-                batchStart:batchEnd][start:totalSteps])
-        d_fires.copy_to_host(fires[batchStart:batchEnd][start:totalSteps])
-        d_fireSizes.copy_to_host(fireSizes[batchStart:batchEnd]
-                                 [start:totalSteps])
-        d_fireLocations.copy_to_host(fireLocations[batchStart:batchEnd]
-                                     [start:totalSteps])
-        d_firePatches.copy_to_host(firePatches[batchStart:batchEnd]
-                                   [start:totalSteps])
+                batchStart:batchEnd, start:(totalSteps+1), :])
+        d_fires.copy_to_host(fires[batchStart:batchEnd, start:(totalSteps+1)])
+        d_fireSizes.copy_to_host(fireSizes[batchStart:batchEnd,
+                                           start:(totalSteps+1), :])
+        d_fireLocations.copy_to_host(fireLocations[batchStart:batchEnd,
+                                                   start:(totalSteps+1), :])
+        d_firePatches.copy_to_host(firePatches[batchStart:batchEnd,
+                                               start:(totalSteps+1), :])
         d_aircraftLocations.copy_to_host(aircraftLocations[
-                batchStart:batchEnd][start:totalSteps])
+                batchStart:batchEnd, start:(totalSteps+1), :])
         d_aircraftAssignments.copy_to_host(aircraftAssignments[
-                batchStart:batchEnd][start:totalSteps])
-        d_controls.copy_to_host(controls[batchStart:batchEnd]
-                                [start:totalSteps])
-        d_states.copy_to_host(states[batchStart:batchEnd]
-                              [start:totalSteps])
-        d_costs2Go.copy_to_host(costs2Go[batchStart:batchEnd]
-                                [start:totalSteps])
+                batchStart:batchEnd, start:(totalSteps+1), :])
+        d_controls.copy_to_host(controls[batchStart:batchEnd,
+                                         start:(totalSteps+1)])
+        d_states.copy_to_host(states[batchStart:batchEnd,
+                                     start:(totalSteps+1), :])
+        d_costs2Go.copy_to_host(costs2Go[batchStart:batchEnd,
+                                         start:(totalSteps+1)])
 
 def analyseMCPaths():
     pass

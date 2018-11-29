@@ -2908,11 +2908,15 @@ class Simulation():
                                  dtype=numpy.float32)
 
         """ MC Path Outputs (Policy Maps)"""
+        self.statePaths = [None]*samplePaths
+        self.costs2Go = [None]*samplePaths
+        self.controls = [None]*samplePaths
+
         randCont = numpy.random.randint(6, size=[mcPaths, totalSteps])
         regressionX = numpy.zeros([totalSteps, noControls, 50, 3])
         regressionY = numpy.zeros([totalSteps, noControls, 50, 50, 50])
         states = numpy.zeros([mcPaths, totalSteps, 10])
-        costs2go = numpy.array([mcPaths, totalSteps])
+        costs2go = numpy.zeros([mcPaths, totalSteps])
 
         for ii in range(samplePaths):
             """ Set Up Data Stream for ROV """
@@ -2929,12 +2933,12 @@ class Simulation():
             noFires = numpy.zeros([mcPaths, totalSteps + 1],
                                   dtype=numpy.int32)
             noFires[:, 0] = numpy.array([len(fires)]*mcPaths)
-            fireSizes = numpy.zeros([mcPaths, totalSteps + 1, 1000],
+            fireSizes = numpy.zeros([mcPaths, totalSteps + 1, 500],
                                     dtype=numpy.float32)
             fireSizes[:, 0, 1:(len(fires) + 1)] = [[
                     fire.getSize() for fire in fires]]*mcPaths
 
-            fireLocations = numpy.zeros([mcPaths, totalSteps, 1000, 2],
+            fireLocations = numpy.zeros([mcPaths, totalSteps, 500, 2],
                                         dtype=numpy.float32)
             fireLocations[:, 0, 1:(len(fires) + 1), :] = [[
                     fire.getLocation() for fire in fires]]
@@ -3047,6 +3051,10 @@ class Simulation():
                     states, costs2go, lambdas, method, noControls)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
+
+            self.statePaths[ii] = states
+            self.costs2Go[ii] = costs2go
+            self.controls[ii] = randCont
 
             self.writeOutROV(ii)
 
@@ -3840,7 +3848,7 @@ class Simulation():
 
         """ Output folder """
         outfolder = (root + "/Outputs/Scenario_" + str(self.id) + "/Sample_" +
-                     str(sample))
+                     str(sample) + "/")
 
         if not os.path.exists(os.path.dirname(outfolder)):
             try:
@@ -3877,13 +3885,32 @@ class Simulation():
 
                 writer.writerow(row)
 
-        """ ROV Regressions """
-        outputfile = outfolder + "/ROVRegressions.csv"
+#        """ ROV Regressions """
+#        outputfile = outfolder + "/ROVRegressions.csv"
+#
+#        with open(outputfile, 'w', newline='') as csvfile:
+#            writer = csv.writer(csvfile, delimiter=',')
+
+
+        """ Controls """
+        outputfile = outfolder + "/Controls.csv"
 
         with open(outputfile, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile, delimiter=',')
 
+            row = (['PATH']
+                   + ['T_' + str(ii)
+                      for ii in range(self.model.getTotalSteps() + 1)])
 
+            writer.writerow(row)
+
+            for ii in range(self.model.getMCPaths()):
+                row = [str(ii+1)]
+
+                for tt in range(self.model.getTotalSteps() + 1):
+                    row.extend([self.controls[sample][ii][tt]])
+
+                writer.writerow(row)
 
     def currPos2Fire(self, currLocs, fires):
         # Computes the distance between each aircraft and each fire
