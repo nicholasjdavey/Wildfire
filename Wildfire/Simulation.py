@@ -305,15 +305,8 @@ class Simulation():
 
         """ Distances between base B and patch N"""
         cplxMod.d3_BN = {
-                (b, n):
-                (math.sqrt(
-                        ((patches[n].getCentroid()[0]
-                         - bases[b].getLocation()[0])*40000*math.cos(
-                                 (patches[n].getCentroid()[1]
-                                  + bases[b].getLocation()[1])
-                                 * math.pi/360)/360) ** 2
-                        + ((bases[b].getLocation()[1]
-                           - patches[n].getCentroid()[1])*40000/360)**2))
+                (b, n): self.geoDist(patches[n].getCentroid(),
+                                     bases[b].getCentroid())
                 for b in cplxMod.B
                 for n in cplxMod.N}
 
@@ -995,7 +988,7 @@ class Simulation():
                                for tt in range(self.model.getTotalSteps() + 1
                                                + self.model.getLookahead())])
 
-    def simulateMPC(self, static=False, regressionX=None, regressionY=None):
+    def simulateMPC(self, static=False, rovX=None, rovY=None):
         # Computes a Model Predictive Control approach for reallocating
         # aerial resources for fighting fires. The input conditional
         # probabilities are provided as inputs to the program. We just run the
@@ -1215,7 +1208,7 @@ class Simulation():
                             # Use the current states to interpolate the
                             # data representing the expectations
                             currC2G = self.interpolateC2G(
-                                    regressionX, regressionY, [s1, s2, s3],
+                                    rovX, rovY, [s1, s2, s3],
                                     c, tt)
 
                             if currC2G < bestC2G:
@@ -1306,31 +1299,17 @@ class Simulation():
                 for r in tempModel.R}
 
         tempModel.d1_RB = {
-                (r, b):
-                (math.sqrt(
-                        ((bases[b].getLocation()[0]
-                         - resourcesPath[r].getLocation()[0])*40000*math.cos(
-                                 (bases[b].getLocation()[1]
-                                  + resourcesPath[r].getLocation()[1])
-                                 * math.pi/360)/360) ** 2
-                        + ((resourcesPath[r].getLocation()[1]
-                            - bases[b].getLocation()[1])*40000/360)**2)) /
-                resourcesPath[r].getSpeed()
+                (r, b): self.geoDist(bases[b].getLocation(),
+                                     resourcesPath[r].getLocation()) /
+                        resourcesPath[r].getSpeed()
                 for r in tempModel.R
                 for b in tempModel.B}
 
         """ Travel times between resource R and fire M """
         tempModel.d2_RM = {
-                (r, m):
-                (math.sqrt(
-                        ((activeFires[m].getLocation()[0]
-                         - resourcesPath[r].getLocation()[0])*40000*math.cos(
-                                 (activeFires[m].getLocation()[1]
-                                  + resourcesPath[r].getLocation()[1])
-                                 * math.pi/360)/360) ** 2
-                        + ((resourcesPath[r].getLocation()[1]
-                            - activeFires[m].getLocation()[1])*40000/360)**2) /
-                 resourcesPath[r].getSpeed())
+                (r, m): self.geoDist(activeFires[m].getLocation(),
+                                     resourcesPath[r].getLocation()) /
+                 resourcesPath[r].getSpeed()
                 for r in tempModel.R
                 for m in tempModel.M}
 
@@ -1457,15 +1436,8 @@ class Simulation():
 
         """ Travel times between base B and patch N for component C"""
         tempModel.d4_BNC = {
-                (b, n, c):
-                (math.sqrt(
-                        ((patches[n].getCentroid()[0]
-                         - bases[b].getLocation()[0])*40000*math.cos(
-                                 (patches[n].getCentroid()[1]
-                                  + bases[b].getLocation()[1])
-                                 * math.pi/360)/360) ** 2
-                        + ((bases[b].getLocation()[1]
-                            - patches[n].getCentroid()[1])*40000/360)**2) /
+                (b, n, c): (self.geoDist(patches[n].getCentroid(),
+                                         bases[b].getLocation()) /
                  (self.model.getResourceTypes()[0].getSpeed() if c in [1, 3]
                   else self.model.getResourceTypes()[1].getSpeed()))
                 for b in tempModel.B
@@ -1976,14 +1948,8 @@ class Simulation():
         """ Travel times between base B and patch N for component C"""
         tempModel.d4_BNC = {
                 (b, n, c):
-                (math.sqrt(
-                        ((patches[n].getCentroid()[0]
-                         - bases[b].getLocation()[0])*40000*math.cos(
-                                 (patches[n].getCentroid()[1]
-                                  + bases[b].getLocation()[1])
-                                 * math.pi/360)/360) ** 2
-                        + ((bases[b].getLocation()[1]
-                            - patches[n].getCentroid()[1])*40000/360)**2) /
+                (self.geoDist(patches[n].getCentroid(),
+                              bases[b].getLocation()) /
                  (self.model.getResourceTypes()[0].getSpeed() if c in [1, 3]
                   else self.model.getResourceTypes()[1].getSpeed()))
                 for b in tempModel.B
@@ -2324,14 +2290,8 @@ class Simulation():
         """ Travel times between base B and patch N for component C"""
         tempModel.d4_BNC = {
                 (b, n, c):
-                (math.sqrt(
-                        ((patches[n].getCentroid()[0]
-                         - bases[b].getLocation()[0])*40000*math.cos(
-                                 (patches[n].getCentroid()[1]
-                                  + bases[b].getLocation()[1])
-                                 * math.pi/360)/360) ** 2
-                        + ((bases[b].getLocation()[1]
-                            - patches[n].getCentroid()[1])*40000/360)**2) /
+                (self.geoDist(patches[n].getCentroid(),
+                              bases[b].getLocation()) /
                  (self.model.getResourceTypes()[0].getSpeed() if c in [1, 3]
                   else self.model.getResourceTypes()[1].getSpeed()))
                 for b in tempModel.B
@@ -2752,6 +2712,16 @@ class Simulation():
         tempModel.d3_BN = copyModel.d3_BN
         tempModel.d3_BCN = copyModel.d3_BCN
 
+    def geoDist(self, x1d, x2d):
+        x1 = [x1d[0] * math.pi/180, x1d[1] * math.pi/180]
+        x2 = [x2d[0] * math.pi/180, x2d[1] * math.pi/180]
+        a = (math.sin(0.5 * (x2[1] - x1[1])) ** 2
+             + math.cos(x1[0]) * math.cos(x2[0])
+             * math.sin(0.5 * (x2[0] - x1[0])) ** 2)
+        c = math.sqrt(a)
+        dist = 2 * 6371 * math.asin(c)
+        return dist
+
     def expectedDamageExisting(self, fire, ffdiPath, configID, time, look):
         damage = 0
         fireTemp = copy.copy(fire)
@@ -2818,7 +2788,6 @@ class Simulation():
         bases = region.getStations()[0]
         vegetations = self.model.getRegion().getVegetations()
         resources = region.getResources()
-        resourceTypes = self.model.getResourceTypes()
         fires = region.getFires()
         configsE = self.model.getUsefulConfigurationsExisting().astype(numpy.int32)
         configsP = self.model.getUsefulConfigurationsPotential().astype(numpy.int32)
@@ -2858,8 +2827,11 @@ class Simulation():
         baseLocations = numpy.array([base.getLocation()
                                      for base in bases],
                                     dtype=numpy.float32)
-        resourceTypes = numpy.array([0 if type(resource).__name__ == 'Tanker' else 1
-                                     for resource in resourceTypes],
+        resourceTypes = numpy.array([0 if type(resource).__name__ == 'Tanker'
+                                        else (1 if type(resource).__name__ == 'Heli'
+                                        else 2 if type(resource).__name__ == 'Land'
+                                        else -1)
+                                     for resource in resources],
                                     dtype=numpy.int32)
         resourceSpeeds = numpy.array([resource.getSpeed()
                                       for resource in resources],
@@ -2903,6 +2875,11 @@ class Simulation():
                                     self.model.configurations.items()]
                                    for vegetation in vegetations],
                                   dtype=numpy.float32)
+        extSuccess = numpy.array([[vegetation.getExtendedSuccess()[config]
+                                   for config, _ in
+                                   self.model.configurations.items()]
+                                  for vegetation in vegetations],
+                                 dtype=numpy.float32)
         thresholds = numpy.array([self.model.fireThreshold,
                                   self.model.baseThreshold],
                                  dtype=numpy.float32)
@@ -2927,52 +2904,44 @@ class Simulation():
             aircraftLocations = numpy.zeros([mcPaths, totalSteps + 1,
                                              noResources, 2],
                                              dtype=numpy.float32)
+            aircraftLocations[:, 0, :] = ([[
+                    aircraft.getLocation()
+                    for aircraft in self.model.getRegion().getResources()]]
+                    *mcPaths)
             aircraftAssignments = numpy.zeros([mcPaths, totalSteps + 1,
                                                noResources, 2],
                                                dtype=numpy.int32)
+            aircraftAssignments[:, 0, :] = [[
+                    [resource.getBase(), 0]
+                    for resource in self.model.getRegion().getResources()
+                ]]*mcPaths
             noFires = numpy.zeros([mcPaths, totalSteps + 1],
                                   dtype=numpy.int32)
             noFires[:, 0] = numpy.array([len(fires)]*mcPaths)
             fireSizes = numpy.zeros([mcPaths, totalSteps + 1, 500],
                                     dtype=numpy.float32)
-            fireSizes[:, 0, 1:(len(fires) + 1)] = [[
+            fireSizes[:, 0, 0:len(fires)] = [[
                     fire.getSize() for fire in fires]]*mcPaths
 
             fireLocations = numpy.zeros([mcPaths, totalSteps, 500, 2],
                                         dtype=numpy.float32)
-            fireLocations[:, 0, 1:(len(fires) + 1), :] = [[
+            fireLocations[:, 0, 0:len(fires), :] = [[
                     fire.getLocation() for fire in fires]]
-
             firePatches = numpy.zeros([mcPaths, totalSteps, 500],
                                       dtype=numpy.int32)
-            firePatches[:, 0, 1:(len(fires) + 1)] = [[
+            firePatches[:, 0, 0:len(fires)] = [[
                     fire.getPatchID() for fire in fires]]
 
-            tankerDists = numpy.zeros([noBases, noPatches],
-                                      dtype=numpy.float32)
-            heliDists = numpy.zeros([noBases, noPatches],
-                                    dtype=numpy.float32)
-
             tankerDists = numpy.array(
-                [[math.sqrt(
-                       ((patchCentroids[patch][0] - baseLocations[base][0])*
-                           40000*math.cos((patchCentroids[patch][1]
-                                     + baseLocations[base][1]) * math.pi/360)/
-                                     360) ** 2
-                       + ((baseLocations[base][1] - patchCentroids[patch][1])*
-                       40000/360)**2) / resourceSpeeds[0]
+                [[self.geoDist(patchCentroids[patch], baseLocations[base])
+                  / resourceSpeeds[0]
                   for base in range(noBases)]
                  for patch in range(noPatches)],
                 dtype=numpy.float32)
 
             heliDists = numpy.array(
-                [[math.sqrt(
-                       ((patchCentroids[patch][0] - baseLocations[base][0])*
-                           40000*math.cos((patchCentroids[patch][1]
-                                     + baseLocations[base][1]) * math.pi/360)/
-                                     360) ** 2
-                       + ((baseLocations[base][1] - patchCentroids[patch][1])*
-                       40000/360)**2) / resourceSpeeds[1]
+                [[self.geoDist(patchCentroids[patch], baseLocations[base])
+                  / resourceSpeeds[1]
                   for base in range(noBases)]
                  for patch in range(noPatches)],
                 dtype=numpy.float32)
@@ -2994,23 +2963,23 @@ class Simulation():
             # Maximum number in each component based on allowed configs
             for c in range(len(configurations)):
                 if c+1 in configsP:
-                    if configsP[0] > baseConfigsMax[0]:
+                    if configurations[int(c)][0] > baseConfigsMax[0]:
                         baseConfigsMax[0] += 1
-                    if configsP[1] > baseConfigsMax[1]:
+                    if configurations[int(c)][1] > baseConfigsMax[1]:
                         baseConfigsMax[1] += 1
-                    if configsP[2] > baseConfigsMax[2]:
+                    if configurations[int(c)][2] > baseConfigsMax[2]:
                         baseConfigsMax[2] += 1
-                    if configsP[3] > baseConfigsMax[3]:
+                    if configurations[int(c)][3] > baseConfigsMax[3]:
                         baseConfigsMax[3] += 1
 
                 if c+1 in configsE:
-                    if configsE[0] > fireConfigsMax[0]:
+                    if configurations[int(c)][0] > fireConfigsMax[0]:
                         fireConfigsMax[0] += 1
-                    if configsE[1] > fireConfigsMax[0]:
+                    if configurations[int(c)][1] > fireConfigsMax[1]:
                         fireConfigsMax[1] += 1
-                    if configsE[2] > fireConfigsMax[0]:
+                    if configurations[int(c)][2] > fireConfigsMax[2]:
                         fireConfigsMax[2] += 1
-                    if configsE[3] > fireConfigsMax[0]:
+                    if configurations[int(c)][3] > fireConfigsMax[3]:
                         fireConfigsMax[3] += 1
 
             # Expected fires for each patch at each time step
@@ -3042,7 +3011,7 @@ class Simulation():
                     patchCentroids, baseLocations, resourceTypes,
                     resourceSpeeds, maxHours, configurations, configsE,
                     configsP, thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
-                    occurrence, initSizeM, initSizeSD, initSuccess,
+                    occurrence, initSizeM, initSizeSD, initSuccess, extSuccess,
                     tankerDists, heliDists, fireConfigsMax, baseConfigsMax,
                     expFiresComp, totalSteps, lookahead, stepSize,
                     accumulatedDamages, accumulatedHours, noFires, fireSizes,
@@ -3056,10 +3025,13 @@ class Simulation():
             self.costs2Go[ii] = costs2go
             self.controls[ii] = randCont
 
+#            print(aircraftLocations[1, :, :, :])
+
             self.writeOutROV(ii)
 
         """////////////////////// MODEL VALIDATION /////////////////////"""
         """ Just run MPC code but with the ROV regressions as input """
+        sys.exit()
         self.simulateMPC(static=False, rovX=regressionX, rovY=regressionY)
 
         self.writeOutSummary()
@@ -3864,9 +3836,9 @@ class Simulation():
             writer = csv.writer(csvfile, delimiter=',')
 
             rowLists = ([
-                    ['T_' + str(tt) + 'S_' + str(ss) for ss in range(10)]
-                    + ['C2G_' + str(tt)]
-                for tt in range(self.model.getTotalSteps() + 1)])
+                    ['T_' + str(tt) + '_S_' + str(ss) for ss in range(10)]
+                    + ['T_' + str(tt) + '_C2G_' + str(tt)]
+                for tt in range(self.model.getTotalSteps())])
 
             row = (['PATH'] + [listVal[ii]
                 for listVal in rowLists
@@ -3877,11 +3849,11 @@ class Simulation():
             for ii in range(self.model.getMCPaths()):
                 row = [str(ii + 1)]
 
-                for tt in range(self.model.getTotalSteps() + 1):
+                for tt in range(self.model.getTotalSteps()):
                     row.extend([
-                        self.statePaths[sample][tt][ii][ss]
+                        self.statePaths[sample][ii][tt][ss]
                         for ss in range(10)])
-                    row.append(self.costs2Go[sample][tt][ii])
+                    row.append(self.costs2Go[sample][ii][tt])
 
                 writer.writerow(row)
 
@@ -3891,7 +3863,6 @@ class Simulation():
 #        with open(outputfile, 'w', newline='') as csvfile:
 #            writer = csv.writer(csvfile, delimiter=',')
 
-
         """ Controls """
         outputfile = outfolder + "/Controls.csv"
 
@@ -3900,14 +3871,14 @@ class Simulation():
 
             row = (['PATH']
                    + ['T_' + str(ii)
-                      for ii in range(self.model.getTotalSteps() + 1)])
+                      for ii in range(self.model.getTotalSteps())])
 
             writer.writerow(row)
 
             for ii in range(self.model.getMCPaths()):
                 row = [str(ii+1)]
 
-                for tt in range(self.model.getTotalSteps() + 1):
+                for tt in range(self.model.getTotalSteps()):
                     row.extend([self.controls[sample][ii][tt]])
 
                 writer.writerow(row)

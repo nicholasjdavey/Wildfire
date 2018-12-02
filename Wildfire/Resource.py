@@ -15,6 +15,7 @@ class Resource():
         self.speed = 0.0
         self.capacity = 0.0
         self.location = [0, 0]
+        self.base = 0
         self.assignedFires = []
 
     def getType(self):
@@ -40,6 +41,12 @@ class Resource():
 
     def setLocation(self, l):
         self.location = l
+
+    def getBase(self):
+        return self.base
+
+    def setBase(self, b):
+        self.base = b
 
     def getAssignedFires(self):
         return self.assignedFires

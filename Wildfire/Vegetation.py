@@ -76,3 +76,9 @@ class Vegetation():
 
     def setInitialSizeSD(self, e):
         self.initialSizeSD = e
+
+    def getExtendedSuccess(self):
+        return self.extendedSuccess
+
+    def setExtendedSuccess(self, e):
+        self.extendedSuccess = e

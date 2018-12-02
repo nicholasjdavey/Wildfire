@@ -650,6 +650,18 @@ class Model():
                     vegetation.setInitialSuccess(initialSuccess)
 
                     iterator = iterator + 1
+                    extendedSuccess = {}
+                    for config in self.configurations:
+                        extendedSuccess[config] = (
+                                [float(col)
+                                 for col in
+                                 rows[iterator][2:(len(rows[iterator]))]])
+
+                        iterator = iterator + 1
+
+                    vegetation.setExtendedSuccess(extendedSuccess)
+
+                    iterator = iterator + 1
                     initialSizeMean = {}
                     for config in self.configurations:
                         initialSizeMean[config] = (
@@ -703,6 +715,8 @@ class Model():
             # Store all the air strips
             # We only have 1 tanker and 1 helicopter at the moment
             test = True
+            baseIdx = 0
+
             while test:
                 if (all('' == s or s.isspace()
                         for s in rows[iterator][1:4]) or
@@ -729,6 +743,7 @@ class Model():
                         aircraft.setSpeed(float(
                             aircraftDetails[7].split(":")[1]))
                         aircraft.setLocation(airStrip.getLocation())
+                        aircraft.setBase(baseIdx)
                         aircraftList.append(aircraft)
                         totalTankers.append(aircraft)
                         totalResources.append(aircraft)
@@ -748,6 +763,7 @@ class Model():
                         heli.setSpeed(float(
                             helicopterDetails[7].split(":")[1]))
                         heli.setLocation(airStrip.getLocation())
+                        heli.setBase(baseIdx)
                         heliList.append(heli)
                         totalHelis.append(heli)
                         totalResources.append(heli)
@@ -755,6 +771,7 @@ class Model():
                     airStrip.setHelicopters(heliList)
                     airStrip.setCapacity(float(rows[iterator][5]))
                     airStrips.append(airStrip)
+                    baseIdx += 1
                     iterator = iterator + 1
 
             self.region.setAssignments(numpy.array(resourceAssignments))
