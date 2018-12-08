@@ -3175,6 +3175,8 @@ class Simulation():
 #                self.realisedFFDIs[ii][run] = FFDI
 #                self.aircraftHours[ii][run] = accumulatedHours
 #
+#        for ii in range(samplePaths):
+#            for run in range(self.model.getRuns()):
 #                """Save the results for this sample"""
 #                self.writeOutResults(ii, run)
 #
@@ -3410,10 +3412,10 @@ class Simulation():
                 self.model.getInputFile().split(
                         "../Experiments/Experiments/")[1].split("/")[0])
 
-        maxFFDI = self.realisedFFDIs[sample][run].max()
-        minFFDI = self.realisedFFDIs[sample][run].min()
-        maxDamage = self.finalDamageMaps[sample][run].max()
-        minDamage = self.finalDamageMaps[sample][run].min()
+        maxFFDI = self.realisedFFDIs.max()
+        minFFDI = self.realisedFFDIs.min()
+        maxDamage = self.finalDamageMaps.max()
+        minDamage = self.finalDamageMaps.min()
 
         """ Output folder """
         outfolder = (root + "/Outputs/Scenario_" + str(self.id) + "/Sample_" +
