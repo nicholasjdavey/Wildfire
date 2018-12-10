@@ -96,6 +96,6 @@ Used Configurations (Exist)                 : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
 Used Configurations (Poten)                 : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
 Use Sample Paths                            : 1
 Runs                                        : 5
-Fire Threshold Distance (hrs)               : 0.33
+Fire Threshold Distance (hrs)               : 5
 Base Relocation Threshold Distance (hrs)    : 0.33
 Control Method (1=Lambdas, 2=Fixed)         : 2
