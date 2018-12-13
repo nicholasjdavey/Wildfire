@@ -2946,13 +2946,14 @@ class Simulation():
                  for patch in range(noPatches)],
                 dtype=numpy.float32)
 
+            # Whether bases are within 20 minutes for each aircraft type
             tankerCovers = numpy.array(
-                [[True if tankerDists[patch, base] <= thresholds[0] else False
+                [[True if tankerDists[patch, base] <= 1/3 else False
                   for base in range(noBases)]
                  for patch in range(noPatches)])
 
             heliCovers = numpy.array(
-                [[True if heliDists[patch, base] <= thresholds[0] else False
+                [[True if heliDists[patch, base] <= 1/3 else False
                   for base in range(noBases)]
                  for patch in range(noPatches)])
 
