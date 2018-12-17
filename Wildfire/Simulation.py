@@ -2837,7 +2837,7 @@ class Simulation():
                                       for resource in resources],
                                      dtype=numpy.float32)
         maxHours = numpy.array([resource.getMaxDailyHours()
-                                 for resource in resources],
+                                for resource in resources],
                                dtype=numpy.float32)
         configurations = numpy.array([self.model.configurations[config]
                                       for config in self.model.configurations],
@@ -2889,13 +2889,16 @@ class Simulation():
         self.costs2Go = [None]*samplePaths
         self.controls = [None]*samplePaths
 
-        randCont = numpy.random.randint(6, size=[mcPaths, totalSteps])
-        regressionX = numpy.zeros([totalSteps, noControls, 50, 3])
-        regressionY = numpy.zeros([totalSteps, noControls, 50, 50, 50])
-        states = numpy.zeros([mcPaths, totalSteps, 10])
-        costs2go = numpy.zeros([mcPaths, totalSteps])
-
         for ii in range(samplePaths):
+            randCont = numpy.random.randint(6, size=[mcPaths, totalSteps])
+            regressionX = numpy.zeros([totalSteps, noControls, 50, 3],
+                                      dtype=numpy.float32)
+            regressionY = numpy.zeros([totalSteps, noControls, 50, 50, 50],
+                                      dtype=numpy.float32)
+            states = numpy.zeros([mcPaths, totalSteps + 1, 10],
+                                 dtype=numpy.float32)
+            costs2go = numpy.zeros([mcPaths, totalSteps], dtype=numpy.float32)
+
             """ Set Up Data Stream for ROV """
             accumulatedDamages = numpy.zeros([mcPaths, totalSteps + 1,
                                               noPatches], dtype=numpy.float32)
@@ -2912,7 +2915,7 @@ class Simulation():
                                                noResources, 2],
                                                dtype=numpy.int32)
             aircraftAssignments[:, 0, :] = [[
-                    [resource.getBase(), 0]
+                    [resource.getBase() + 1, 0]
                     for resource in self.model.getRegion().getResources()
                 ]]*mcPaths
             noFires = numpy.zeros([mcPaths, totalSteps + 1],

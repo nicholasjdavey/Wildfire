@@ -85,7 +85,7 @@ Weather Uncertainty                         : 1
 Time Steps                                  : 15
 Step Size (Hours)                           : 1
 Daylight Hours Per Day                      : 15
-ROV Paths                                   : 100
+ROV Paths                                   : 10000
 Relocation LP Method                        : 3
 Lookahead                                   : 5
 Cover Time (minutes)                        : 20
@@ -96,6 +96,6 @@ Used Configurations (Exist)                 : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
 Used Configurations (Poten)                 : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
 Use Sample Paths                            : 1
 Runs                                        : 5
-Fire Threshold Distance (hrs)               : 2
+Fire Threshold Distance (hrs)               : 1
 Base Relocation Threshold Distance (hrs)    : 0.33
 Control Method (1=Lambdas, 2=Fixed)         : 2
