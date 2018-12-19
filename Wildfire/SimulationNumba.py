@@ -91,6 +91,11 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                     extSuccess, configsP, tt - start, lookahead, expectedP,
                     rng_states, path, False)
 
+
+            if path == 0:
+                for patch in range(16):
+                    expectedTemp[0, tt, patch] = tt + 1
+
             if optimal:
                 # Compute the optimal control using regressions. Need to
                 # compute the expected damage for fires and patches under
@@ -436,7 +441,7 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                      rng_states, thread_id):
 
     """ Update aircraft locations """
-    for resource in range(len(aircraftLocations)):
+    for resource in range(len(aircraftSpeeds)):
         baseAssignment = int(aircraftAssignments[thread_id][time+1][resource][
                              0]) - 1
         fireAssignment = int(aircraftAssignments[thread_id][time+1][resource][
@@ -444,6 +449,9 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
         speed = aircraftSpeeds[resource]
         acX = aircraftLocations[thread_id][time][resource][0]
         acY = aircraftLocations[thread_id][time][resource][1]
+
+        aircraftLocations[thread_id][time+1][resource][0] = acX
+        aircraftLocations[thread_id][time+1][resource][1] = acY
 
         if fireAssignment >= 0:
             [fireX, fireY] = fireLocations[thread_id][time][fireAssignment]
@@ -453,8 +461,8 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
 
             if distance / speed > stepSize:
                 frac = stepSize / (distance / speed)
-                # This distance is not direct as we are not accounting for the
-                # curvature of the earth. This will be fixed later.
+#                This distance is not direct as we are not accounting for the
+#                curvature of the earth. This will be fixed later.
                 aircraftLocations[thread_id][time+1][resource][0] = (
                         acX + (fireX - acX) * frac)
                 aircraftLocations[thread_id][time+1][resource][1] = (
@@ -494,7 +502,7 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                 accumulatedDamage[thread_id][time][patch])
 
     """ Fight existing fires, maintaining ones that are not extinguished """
-    noFires[thread_id][time+1] = 0
+    count = 0
 
     for fire in range(int(noFires[thread_id][time])):
         patch = int(firePatches[thread_id][time][fire])
@@ -516,7 +524,6 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
 
         accumulatedDamage[thread_id][time + 1][patch] += size - sizeTemp
 
-        count = int(noFires[thread_id][time+1])
         rand_no = xoroshiro128p_uniform_float32(rng_states, thread_id)
 
         if rand_no > success:
@@ -527,7 +534,7 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                     fireLocations[thread_id][time][fire][1])
             firePatches[thread_id][time + 1][count] = firePatches[
                     thread_id][time][fire]
-            noFires[thread_id][time + 1] += 1
+            count += 1
 
     """ New fires in each patch """
     for patch in range(len(patchLocations)):
@@ -578,14 +585,15 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                 accumulatedDamage[thread_id][time+1][patch] += size
 
                 if not success:
-                    fireSizes[thread_id][time+1][fire] = size
-                    fireLocations[thread_id][time + 1][newFires][0] = (
+                    fireSizes[thread_id][time+1][count] = size
+                    fireLocations[thread_id][time + 1][count][0] = (
                             patchLocations[patch][0])
-                    fireLocations[thread_id][time + 1][newFires][1] = (
+                    fireLocations[thread_id][time + 1][count][1] = (
                             patchLocations[patch][1])
-                    firePatches[thread_id][time + 1][newFires] = firePatches[
-                            thread_id][time][fire]
-                    noFires[thread_id][time + 1] += 1
+                    firePatches[thread_id][time + 1][count] = patch
+                    count += 1
+
+    noFires[thread_id][time + 1] = count
 
 
 @cuda.jit(device=True)
@@ -672,8 +680,9 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
             maxFire = math.inf
             maxBase = math.inf
     else:
+        # Lambda 1 must be between 0 and 1
         fw = lambdas[control][0]
-        pw = lambdas[control][1]
+        pw = 1 - lambdas[control][0]
         maxFire = math.inf
         maxBase = math.inf
 
@@ -1743,21 +1752,11 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
             aircraftAssignments[thread_id][time+1][nextAC][0] = (
                 thisUpdateIdx + 1)
 
-        if thread_id == 0:
-            if time == 0:
-                for fire in range(noFires[thread_id][time]):
+        if thread_id == 865:
+            if time == 10:
+                for fire in range(16):
                     for config in range(16):
                         expectedTemp[0, fire, config] = expectedE[fire, config]
-#                    expectedTemp[1, fire, 17 - remaining] = fireImproveTankerL[fire]
-
-#                    expectedTemp[0, fire, 17 - remaining] = fireImproveTankerE[fire]
-#                    expectedTemp[1, fire, 17 - remaining] = fireImproveTankerL[fire]
-
-#                for base in range(noBases):
-#                    expectedTemp[2, base, 17 - remaining] = baseImproveTankerE[base]
-#                    expectedTemp[3, base, 17 - remaining] = baseImproveHeliE[base]
-#                    expectedTemp[0, fire, 17 - remaining] = fireCumulativeSavings[fire]
-#                    expectedTemp[2, fire, 17 - remaining] = fireTankersL[fire]
 
         #######################################################################
         # Reduce max component capacities (and possibly incremental
@@ -1837,33 +1836,36 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                 baseTankersE, baseHelisE, expectedP, expFiresComp, weightsP,
                 patch, time, lookahead, pw, maxFire)
 
-    if thread_id == 0 and time == 0:
+    if thread_id == 865 and time == 10:
         for patch in range(17):
             for config in range(16):
                 expectedTemp[1, patch, config] = weightsP[patch, config]
 
     # If we have aircraft that have not been assigned to anything (not possible
     # if the program is run in its entirety), we need to make sure that they
-    # are assigned at least to the nearest base.
-#    for resource in range(noAircraft):
-#        if aircraftAssignments[thread_id][time+1][resource][0] == 0:
-#
-#            # Pick nearest base to fire that is within the maximum relocation
-#            # distance from the aircraft's current base
-#            bestBase = 0
-#            bestTrav = math.inf
-#            for base in range(noBases):
-#                if canBase[resource, base]:
-#                    dist = geoDist(aircraftLocations[thread_id][time][resource],
-#                                   baseLocations[base])
-#
-#                    travTime = dist / resourceSpeeds[resource]
-#
-#                    if travTime < bestTrav:
-#                        bestBase = base
-#                        bestTrav = travTime
-#
-#            aircraftAssignments[thread_id][time+1][resource][0] = bestBase + 1
+    # are assigned at least to the nearest base. This covers scenarios where
+    # an aircraft provides no benefit from the data analysis. In this case, the
+    # conditional probabilities should be calculated and provided to the
+    # program otherwise it will not know what to do with these aircraft.
+    for resource in range(noAircraft):
+        if aircraftAssignments[thread_id][time+1][resource][0] == 0:
+
+            # Pick nearest base to fire that is within the maximum relocation
+            # distance from the aircraft's current base
+            bestBase = 0
+            bestTrav = math.inf
+            for base in range(noBases):
+                if canBase[resource, base]:
+                    dist = geoDist(aircraftLocations[thread_id][time][resource],
+                                   baseLocations[base])
+
+                    travTime = dist / resourceSpeeds[resource]
+
+                    if travTime < bestTrav:
+                        bestBase = base
+                        bestTrav = travTime
+
+            aircraftAssignments[thread_id][time+1][resource][0] = bestBase + 1
 
 
 @cuda.jit(device=True)
@@ -2207,9 +2209,6 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 aircraftLocations, aircraftAssignments, controls, regressionX,
                 regressionY, states, costs2Go, lambdas, method, noCont):
 
-#    print(initSizeSD[0])
-#    sys.exit()
-
     """ Set global values """
     global noBases
     global noPatches
@@ -2278,8 +2277,6 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             aircraftLocations, aircraftAssignments, controls, d_regressionX,
             d_regressionY, states, costs2Go, method, noControls)
 
-#    sys.exit()
-#
 #    """ BACKWARD INDUCTION """
 #    """ Regressions and Forward Path Re-Computations"""
 #    for tt in range(totalSteps - 1, -1, -1):
@@ -2357,7 +2354,6 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
     batchAmounts.append(paths - sum(batchAmounts))
 
     expectedTemp = numpy.zeros([4, 17, 17])
-#    expectedTemp = numpy.zeros([15, 16])
     d_expectedTemp = cuda.to_device(expectedTemp)
 
     # Run this in chunks (i.e. multiple paths at a time)
@@ -2443,11 +2439,10 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
                                          start:(totalSteps+1)])
 
     d_expectedTemp.copy_to_host(expectedTemp)
-    print(expectedTemp[0, :, :])
-    print(expectedTemp[1, :, :])
-    print(expectedTemp[2, :, :])
-    print(expectedTemp[3, :, :])
-    print(aircraftAssignments[0, 0:2, :])
+#    print(fires[865])
+#    print(expectedTemp[0, :, :])
+#    print(expectedTemp[1, :, :])
+#    print(aircraftAssignments[0, 0:5, :])
 
 def analyseMCPaths():
     pass

@@ -69,7 +69,7 @@ Vegetation 5              : Experiments/Input_Data/Regions/Region_Provinces/Prob
 # Therefore, our control options are coordinate pairs of (lambda_1,lambda_2)
 # that lie in the unit square ([0,1]^2):
 Number of Control Options : 5
-#                       lambda_1                lambda_2
+#                 lambda_1 (potential vs. existing)   lambda_2 (or B_2 threshold)
 Control 1       :              0.9                     0.1
 Control 2       :              0.9                     0.9
 Control 3       :              0.1                     0.1
@@ -85,7 +85,7 @@ Weather Uncertainty                         : 1
 Time Steps                                  : 15
 Step Size (Hours)                           : 1
 Daylight Hours Per Day                      : 15
-ROV Paths                                   : 10
+ROV Paths                                   : 10000
 Relocation LP Method                        : 3
 Lookahead                                   : 5
 Cover Time (minutes)                        : 20
@@ -95,4 +95,7 @@ Algorithm (1=MPC, 2=ROV, 3=Static)          : 2
 Used Configurations (Exist)                 : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
 Used Configurations (Poten)                 : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
 Use Sample Paths                            : 1
-Runs                                        : 20
+Runs                                        : 5
+Fire Threshold Distance (hrs)               : 1
+Base Relocation Threshold Distance (hrs)    : 0.33
+Control Method (1=Lambdas, 2=Fixed)         : 2

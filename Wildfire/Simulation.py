@@ -48,6 +48,7 @@ class Simulation():
         self.id = Simulation.simulations
         self.statePaths = None
         self.costs2Go = None
+        self.accumulatedDamages = None
         self.regressionsX = None
         self.regressionsY = None
         self.rSquared = None
@@ -2812,7 +2813,7 @@ class Simulation():
                 len(sampleFFDIs)
                 if len(sampleFFDIs) > 0
                 else self.model.getRuns())
-        mcPaths = self.model.getMCPaths()
+        mcPaths = self.model.getROVPaths()
 
         """ Input data for ROV """
         noBases = len(bases)
@@ -2887,6 +2888,7 @@ class Simulation():
         """ MC Path Outputs (Policy Maps)"""
         self.statePaths = [None]*samplePaths
         self.costs2Go = [None]*samplePaths
+        self.accumulatedDamages = [None]*samplePaths
         self.controls = [None]*samplePaths
 
         for ii in range(samplePaths):
@@ -3025,12 +3027,13 @@ class Simulation():
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
 
+            """ Aggregate accumulated damages """
+            accumulatedDamages = accumulatedDamages.sum(2)
+
             self.statePaths[ii] = states
+            self.accumulatedDamages[ii] = accumulatedDamages
             self.costs2Go[ii] = costs2go
             self.controls[ii] = randCont
-
-#            print(aircraftLocations[1, :, :, :])
-
             self.writeOutROV(ii)
 
         """////////////////////// MODEL VALIDATION /////////////////////"""
@@ -3843,7 +3846,7 @@ class Simulation():
 
             rowLists = ([
                     ['T_' + str(tt) + '_S_' + str(ss) for ss in range(10)]
-                    + ['T_' + str(tt) + '_C2G_' + str(tt)]
+                    + ['T_' + str(tt) + '_C2G'] + ['T_' + str(tt) + '_AD']
                 for tt in range(self.model.getTotalSteps())])
 
             row = (['PATH'] + [listVal[ii]
@@ -3852,7 +3855,7 @@ class Simulation():
 
             writer.writerow(row)
 
-            for ii in range(self.model.getMCPaths()):
+            for ii in range(self.model.getROVPaths()):
                 row = [str(ii + 1)]
 
                 for tt in range(self.model.getTotalSteps()):
@@ -3860,6 +3863,7 @@ class Simulation():
                         self.statePaths[sample][ii][tt][ss]
                         for ss in range(10)])
                     row.append(self.costs2Go[sample][ii][tt])
+                    row.append(self.accumulatedDamages[sample][ii][tt])
 
                 writer.writerow(row)
 
@@ -3881,13 +3885,50 @@ class Simulation():
 
             writer.writerow(row)
 
-            for ii in range(self.model.getMCPaths()):
+            for ii in range(self.model.getROVPaths()):
                 row = [str(ii+1)]
 
                 for tt in range(self.model.getTotalSteps()):
                     row.extend([self.controls[sample][ii][tt]])
 
                 writer.writerow(row)
+
+        """ Regression Data Points, Grouped by Control """
+        method = self.model.getControlMethod()
+        if method == 1:
+            noControls = len(len(self.model.getControls))
+        elif  method == 2:
+            noControls = 6
+
+        for c in range(noControls):
+            outputfile = outfolder + "/Regression_Raw_data_" + str(c) + ".csv"
+
+            with open(outputfile, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile, delimiter=',')
+
+                rowLists = ([
+                        ['T_' + str(tt) + '_S_' + str(ss) for ss in range(10)]
+                        + ['T_' + str(tt) + '_C2G'] + ['T_' + str(tt) + '_AD']
+                    for tt in range(self.model.getTotalSteps())])
+
+                row = (['PATH'] + [listVal[ii]
+                    for listVal in rowLists
+                    for ii in range(len(listVal))])
+
+                writer.writerow(row)
+
+                for ii in range(self.model.getROVPaths()):
+                    if int(self.controls[sample][ii][tt]) == c:
+                        row = [str(ii + 1)]
+
+                        for tt in range(self.model.getTotalSteps()):
+                            row.extend([
+                                self.statePaths[sample][ii][tt][ss]
+                                for ss in range(10)])
+                            row.append(self.costs2Go[sample][ii][tt])
+                            row.append(self.accumulatedDamages[sample][ii][tt])
+
+                        writer.writerow(row)
 
     def currPos2Fire(self, currLocs, fires):
         # Computes the distance between each aircraft and each fire
