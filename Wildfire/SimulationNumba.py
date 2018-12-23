@@ -14,8 +14,10 @@ from numba.types import b1
 from numba.cuda.random import create_xoroshiro128p_states
 from numba.cuda.random import xoroshiro128p_normal_float32
 from numba.cuda.random import xoroshiro128p_uniform_float32
-import pyqt_fit.nonparam_regression as smooth
-from pyqt_fit import npr_methods
+#import pyqt_fit.nonparam_regression as smooth
+#from pyqt_fit import npr_methods
+from sklearn.kernel_ridge import KernelRidge
+
 
 """ GLOBAL VARIABLES USED FOR ARRAY DIMENSIONS IN CUDA """
 """ Remember to modify the values in the wrapper functions before using them in
@@ -96,6 +98,13 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                 for patch in range(16):
                     expectedTemp[0, tt, patch] = tt + 1
 
+            saveState(aircraftAssignments, resourceTypes,
+                      resourceSpeeds, maxHours, aircraftLocations,
+                      accumulatedHours, patchLocations, fires,
+                      fireSizes, fireLocations, expectedE, expectedP,
+                      states, configurations, selectedE, weightsP,
+                      tt - start, lookahead, path)
+
             if optimal:
                 # Compute the optimal control using regressions. Need to
                 # compute the expected damage for fires and patches under
@@ -109,23 +118,16 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                     requires computing the state for each control using the
                     assignment heuristic and then the regressions. """
 
-                    assignAircraft(aircraftAssignments, resourceSpeeds,
-                                   resourceTypes, maxHours, aircraftLocations,
-                                   accumulatedHours, baseLocations,
-                                   tankerDists, heliDists, fires, fireSizes,
-                                   fireLocations, ffdiRanges, configurations,
-                                   configsE, configsP, baseConfigsMax,
-                                   fireConfigsMax, thresholds, expFiresComp,
-                                   expectedE, expectedP, selectedE, weightsP,
-                                   tt - start, stepSize, lookahead, path,
-                                   control, lambdas, method, expectedTemp)
-
-                    saveState(aircraftAssignments, resourceTypes,
-                              resourceSpeeds, maxHours, aircraftLocations,
-                              accumulatedHours, patchLocations, fires,
-                              fireSizes, fireLocations, expectedE, expectedP,
-                              states, configurations, selectedE, weightsP,
-                              tt - start, lookahead, path)
+#                    assignAircraft(aircraftAssignments, resourceSpeeds,
+#                                   resourceTypes, maxHours, aircraftLocations,
+#                                   accumulatedHours, baseLocations,
+#                                   tankerDists, heliDists, fires, fireSizes,
+#                                   fireLocations, ffdiRanges, configurations,
+#                                   configsE, configsP, baseConfigsMax,
+#                                   fireConfigsMax, thresholds, expFiresComp,
+#                                   expectedE, expectedP, selectedE, weightsP,
+#                                   tt - start, stepSize, lookahead, path,
+#                                   control, lambdas, method, expectedTemp)
 
                     """ Get the expected cost 2 go for this control at this
                     time for the prevailing state """
@@ -162,12 +164,6 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                            stepSize, lookahead, path, bestControl, lambdas,
                            method, expectedTemp)
 
-            saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
-                      maxHours, aircraftLocations, accumulatedHours,
-                      patchLocations, fires, fireSizes, fireLocations,
-                      expectedE, expectedP, states, configurations, selectedE,
-                      weightsP, tt - start, lookahead, path)
-
             # SimulateNextStep
             simulateNextStep(aircraftAssignments, resourceTypes,
                              resourceSpeeds, aircraftLocations,
@@ -179,6 +175,13 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                              initSizeSD, initSuccess, extSuccess, occurrence,
                              accumulatedDamages, tt - start, stepSize,
                              rng_states, path)
+
+#            # Save the state
+#            saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
+#                      maxHours, aircraftLocations, accumulatedHours,
+#                      patchLocations, fires, fireSizes, fireLocations,
+#                      expectedE, expectedP, states, configurations, selectedE,
+#                      weightsP, tt - start, lookahead, path)
 
 
 #@jit(nopython=True, fastmath=True)
@@ -657,7 +660,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
         aircraftAssignments[thread_id][time+1][resource][1] = 0
 
     """ Threshold distances """
-    if method == 2:
+    if method == 1:
+        # Fixed six possible controls
         fw = 1
         pw = 1
 
@@ -679,12 +683,20 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
         elif control == 5:
             maxFire = math.inf
             maxBase = math.inf
-    else:
+    elif method == 2:
+        # Weight existing and potential
+        # All relocations possible
         # Lambda 1 must be between 0 and 1
         fw = lambdas[control][0]
         pw = 1 - lambdas[control][0]
         maxFire = math.inf
         maxBase = math.inf
+    else:
+        # Custom thresholds
+        fw = 1
+        pw = 1
+        maxFire = lambdas[control][0]
+        maxBase = lambdas[control][1]
 
     """ Whether patches are covered within threshold time for different
     aircraft types """
@@ -2099,6 +2111,10 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
 
     states[thread_id, time, 0] = stateVal
 
+    """ No relocation, best existing saving """
+
+    """ No relocation, best potential saving """
+
     """ Now save the expected damages for this assignment """
     stateVal = 0
     for fire in range(fires[thread_id][time]):
@@ -2284,24 +2300,32 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
 #        for control in range(noControls):
 #            """ Compute the regression using the relevant states and
 #            costs2Go """
-#            xs = states[:][tt]
+#            xs = states[:][tt][1:6]
 #            ys = costs2Go[:][tt]
 #
-#            reg = smooth.NonParamRegression(
-#                xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
-#            reg.fit()
+##            reg = smooth.NonParamRegression(
+##                xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
+##            reg.fit()
+#            clf = KernelRidge(kernel='rbf', gamma=0.1, alpha=0.1)
+#            clf.fit(xs, ys)
 #
 #            tempGrid = numpy.meshgrid(
-#                numpy.linspace(min(xs[0]), max(xs[0], 50)),
-#                numpy.linspace(min(xs[1]), max(xs[1], 50)),
-#                numpy.linspace(min(xs[2]), max(xs[2], 50)))
+#                numpy.linspace(min(xs[:, 0]), max(xs[:, 0], 50)),
+#                numpy.linspace(min(xs[:, 1]), max(xs[:, 1], 50)),
+#                numpy.linspace(min(xs[:, 2]), max(xs[:, 2], 50)),
+#                numpy.linspace(min(xs[:, 3]), max(xs[:, 3], 50)))
 #
-#            regressionY[tt][control] = reg(tempGrid)
+#            regressionY[tt][control] = clf.predict(
+#                numpy.array([tempGrid[0].flatten(),
+#                             tempGrid[1].flatten(),
+#                             tempGrid[2].flatten(),
+#                             tempGrid[3].flatten()]).transpose())
 #
 #            regressionX[tt][control] = numpy.array([
 #                numpy.linspace(min(xs[0]), max(xs[0], 50)),
 #                numpy.linspace(min(xs[1]), max(xs[1], 50)),
-#                numpy.linspace(min(xs[2]), max(xs[2], 50))])
+#                numpy.linspace(min(xs[2]), max(xs[2], 50)),
+#                numpy.linspace(min(xs[3]), max(xs[3], 50))])
 #
 #            """ Push the regressions back onto the GPU for reuse in the forward
 #            path recomputations """

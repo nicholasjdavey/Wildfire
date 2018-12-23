@@ -3896,7 +3896,7 @@ class Simulation():
         """ Regression Data Points, Grouped by Control """
         method = self.model.getControlMethod()
         if method == 1:
-            noControls = len(len(self.model.getControls))
+            noControls = len(self.model.getControls())
         elif  method == 2:
             noControls = 6
 

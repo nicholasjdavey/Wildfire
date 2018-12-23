@@ -99,4 +99,4 @@ Use Sample Paths                            : 1
 Runs                                        : 5
 Fire Threshold Distance (hrs)               : 1
 Base Relocation Threshold Distance (hrs)    : 0.33
-Control Method (1=Lambdas, 2=Fixed)         : 2
+Control Method (1=Lambdas, 2=Fixed)         : 1
