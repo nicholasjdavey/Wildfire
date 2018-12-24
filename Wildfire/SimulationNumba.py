@@ -319,13 +319,13 @@ def interpolateCost2Go(state, regressionX, regressionY, time, path, control):
     global epsilon
 
     """ Get the global upper and lower bounds for each dimension """
-    lower = cuda.local.array(3, dtype=float32)
-    upper = cuda.local.array(3, dtype=float32)
-    coeffs = cuda.local.array(8, dtype=float32)
-    lowerInd = cuda.local.array(3, dtype=int32)
+    lower = cuda.local.array(5, dtype=float32)
+    upper = cuda.local.array(5, dtype=float32)
+    coeffs = cuda.local.array(32, dtype=float32)
+    lowerInd = cuda.local.array(5, dtype=int32)
 
     # Indices for each state dimension value
-    for dim in range(3):
+    for dim in range(5):
         lower[dim] = regressionX[time][control][dim][0]
         upper[dim] = regressionX[time][control][dim][-1]
         lowerInd[dim] = int(len(regressionX[time][control][dim]) *
@@ -2103,98 +2103,115 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
     global noPatches
     global noConfP
 
-    """ Remaining hours: Simple """
-    stateVal = 0
-    for resource in range(noAircraft):
-        stateVal += maxHours[resource] - accumulatedHours[thread_id, time,
-                                                          resource]
+#    """ Remaining hours: Simple """
+#    stateVal = 0
+#    for resource in range(noAircraft):
+#        stateVal += maxHours[resource] - accumulatedHours[thread_id, time,
+#                                                          resource]
+#
+#    states[thread_id, time, 0] = stateVal
 
-    states[thread_id, time, 0] = stateVal
+    """ STATES """
+    """ 1. Expected potential damage (no relocation, no existing) """
+    """ Or weighted cover without relocation """
+    states[thread_id, time, 0] = potentialNoRelocation()
 
-    """ No relocation, best existing saving """
+    """ 2. Expected existing damage (no suppression) """
+    states[thread_id, time, 1] = existingNoSuppression()
 
-    """ No relocation, best potential saving """
+    """ 3. Expected potential damage (relocate to existing, no existing) """
+    """ Relocate as much to existing as needed. Remainder cover potential. """
+    """ Or weighted cover with relocation to existing """
+    """ Or weighted cover of potential with relocation to existing """
+    states[thread_id, time, 2] = potentialRelocate2Existing()
 
-    """ Now save the expected damages for this assignment """
-    stateVal = 0
-    for fire in range(fires[thread_id][time]):
-        stateVal += expectedE[fire][selectedE[fire]]
+    """ 4. Expected existing damage (relocate to existing) (NOT USED YET) """
+    states[thread_id, time, 3] = existingRelocate2Existing()
 
-    states[thread_id, time, 1] = stateVal
+    """ 5. Expected potential damage (relocate to potential) (NOT USED YET) """
+    """ Relocate as much to potential as needed. Remainder cover existing. """
+    states[thread_id, time, 4] = potentialRelocate2Potential()
 
-    shortTermP = 0
-    for config in range(noConfP):
-        for patch in range(noPatches):
-            shortTermP += weightsP[patch, config] * expectedP[patch, config]
+#    """ Now save the expected damages for this assignment """
+#    stateVal = 0
+#    for fire in range(fires[thread_id][time]):
+#        stateVal += expectedE[fire][selectedE[fire]]
+#
+#    states[thread_id, time, 1] = stateVal
 
-    states[thread_id, time, 2] = shortTermP
+#    shortTermP = 0
+#    for config in range(noConfP):
+#        for patch in range(noPatches):
+#            shortTermP += weightsP[patch, config] * expectedP[patch, config]
+#
+#    states[thread_id, time, 2] = shortTermP
 
     """ Other state values to try """
 
-    """ Phase 2: Sum of Weighted Distance to Fires and Patches AFTER
-    assignment """
-    stateVal = 0
-    # Fires
-    for resource in range(noAircraft):
-        for fire in range(fires[thread_id][time]):
-            dist = geoDist(aircraftLocations[thread_id, time+1, resource],
-                           fireLocations[thread_id, time+1, fire])
-
-            stateVal += dist * expectedE[fire, 0]
-
-    states[thread_id, time, 3] = stateVal
-
-    stateVal = 0
-    # Patches
-    for resource in range(noAircraft):
-        for patch in range(noPatches):
-            dist = geoDist(aircraftLocations[thread_id, time+1, resource],
-                           patchLocations[patch])
-
-            stateVal += dist * expectedP[patch, 0]
-
-    states[thread_id, time, 4] = stateVal
-
-    """" Remaining hours: Weighted """
-    stateVal = 0
-
-    for resource in range(noAircraft):
-        weight = 0
-        for fire in range(fires[thread_id, time]):
-            weight += expectedE[fire, 0]
-
-        for patch in range(noPatches):
-            weight += expectedP[patch, 0]
-
-        stateVal += weight * (maxHours[resource]
-            - accumulatedHours[thread_id, time, resource])
-
-    states[thread_id, time, 5] = stateVal
-
-    """ OPTION 1 """
-    """ Phase 1: Sum of Weighted Distances to Fires and Patches BEFORE
-    assignments"""
-    stateVal = 0
-    # Fires
-    for resource in range(noAircraft):
-        for fire in range(fires[thread_id][time]):
-            dist = geoDist(aircraftLocations[thread_id, time, resource],
-                           fireLocations[thread_id, time, fire])
-
-            stateVal += dist * expectedE[fire, 0]
-
-    states[thread_id, time, 6] = stateVal
-
-    stateVal = 0
-    # Patches
-    for resource in range(noAircraft):
-        for patch in range(noPatches):
-            dist = geoDist(aircraftLocations[thread_id, time, resource],
-                           patchLocations[patch])
-
-            stateVal += dist * expectedP[patch, 0]
-
-    states[thread_id, time, 7] = stateVal
+#    """ Phase 2: Sum of Weighted Distance to Fires and Patches AFTER
+#    assignment """
+#    stateVal = 0
+#    # Fires
+#    for resource in range(noAircraft):
+#        for fire in range(fires[thread_id][time]):
+#            dist = geoDist(aircraftLocations[thread_id, time+1, resource],
+#                           fireLocations[thread_id, time+1, fire])
+#
+#            stateVal += dist * expectedE[fire, 0]
+#
+#    states[thread_id, time, 3] = stateVal
+#
+#    stateVal = 0
+#    # Patches
+#    for resource in range(noAircraft):
+#        for patch in range(noPatches):
+#            dist = geoDist(aircraftLocations[thread_id, time+1, resource],
+#                           patchLocations[patch])
+#
+#            stateVal += dist * expectedP[patch, 0]
+#
+#    states[thread_id, time, 4] = stateVal
+#
+#    """" Remaining hours: Weighted """
+#    stateVal = 0
+#
+#    for resource in range(noAircraft):
+#        weight = 0
+#        for fire in range(fires[thread_id, time]):
+#            weight += expectedE[fire, 0]
+#
+#        for patch in range(noPatches):
+#            weight += expectedP[patch, 0]
+#
+#        stateVal += weight * (maxHours[resource]
+#            - accumulatedHours[thread_id, time, resource])
+#
+#    states[thread_id, time, 5] = stateVal
+#
+#    """ OPTION 1 """
+#    """ Phase 1: Sum of Weighted Distances to Fires and Patches BEFORE
+#    assignments"""
+#    stateVal = 0
+#    # Fires
+#    for resource in range(noAircraft):
+#        for fire in range(fires[thread_id][time]):
+#            dist = geoDist(aircraftLocations[thread_id, time, resource],
+#                           fireLocations[thread_id, time, fire])
+#
+#            stateVal += dist * expectedE[fire, 0]
+#
+#    states[thread_id, time, 6] = stateVal
+#
+#    stateVal = 0
+#    # Patches
+#    for resource in range(noAircraft):
+#        for patch in range(noPatches):
+#            dist = geoDist(aircraftLocations[thread_id, time, resource],
+#                           patchLocations[patch])
+#
+#            stateVal += dist * expectedP[patch, 0]
+#
+#    states[thread_id, time, 7] = stateVal
 
     """ OPTION 2 """
     """ Phase 3: Short-Term Expected Damage from Fires and Patches BEFORE
@@ -2293,60 +2310,64 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             aircraftLocations, aircraftAssignments, controls, d_regressionX,
             d_regressionY, states, costs2Go, method, noControls)
 
-#    """ BACKWARD INDUCTION """
-#    """ Regressions and Forward Path Re-Computations"""
-#    for tt in range(totalSteps - 1, -1, -1):
-#        """ Regressions """
-#        for control in range(noControls):
-#            """ Compute the regression using the relevant states and
-#            costs2Go """
-#            xs = states[:][tt][1:6]
-#            ys = costs2Go[:][tt]
-#
-##            reg = smooth.NonParamRegression(
-##                xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
-##            reg.fit()
-#            clf = KernelRidge(kernel='rbf', gamma=0.1, alpha=0.1)
-#            clf.fit(xs, ys)
-#
-#            tempGrid = numpy.meshgrid(
-#                numpy.linspace(min(xs[:, 0]), max(xs[:, 0], 50)),
-#                numpy.linspace(min(xs[:, 1]), max(xs[:, 1], 50)),
-#                numpy.linspace(min(xs[:, 2]), max(xs[:, 2], 50)),
-#                numpy.linspace(min(xs[:, 3]), max(xs[:, 3], 50)))
-#
-#            regressionY[tt][control] = clf.predict(
-#                numpy.array([tempGrid[0].flatten(),
-#                             tempGrid[1].flatten(),
-#                             tempGrid[2].flatten(),
-#                             tempGrid[3].flatten()]).transpose())
-#
-#            regressionX[tt][control] = numpy.array([
-#                numpy.linspace(min(xs[0]), max(xs[0], 50)),
-#                numpy.linspace(min(xs[1]), max(xs[1], 50)),
-#                numpy.linspace(min(xs[2]), max(xs[2], 50)),
-#                numpy.linspace(min(xs[3]), max(xs[3], 50))])
-#
-#            """ Push the regressions back onto the GPU for reuse in the forward
-#            path recomputations """
-#            d_regressionX[tt][control] = cuda.to_device(
-#                    regressionX[tt][control])
-#            d_regressionY[tt][control] = cuda.to_device(
-#                    regressionY[tt][control])
-#
-#        simulateMC(
-#                paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
-#                d_patchLocations, d_baseLocations, d_resourceTypes,
-#                d_resourceSpeeds, d_maxHours, d_configurations, d_configsE,
-#                d_configsP, d_thresholds, d_ffdiRanges, d_rocA2PHMeans,
-#                d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
-#                d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
-#                d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
-#                totalSteps, lookahead, stepSize, accumulatedDamages,
-#                accumulatedHours, fires, fireSizes, fireLocations, firePatches,
-#                aircraftLocations, aircraftAssignments, controls,
-#                d_regressionX, d_regressionY, states, costs2Go, method,
-#                noControls, tt, optimal=True)
+    """ BACKWARD INDUCTION """
+    """ Regressions and Forward Path Re-Computations"""
+    for tt in range(totalSteps - 1, -1, -1):
+        """ Regressions """
+        for control in range(noControls):
+            """ Compute the regression using the relevant states and
+            costs2Go """
+            xs = states[:][tt][1:6]
+            ys = costs2Go[:][tt]
+
+#            reg = smooth.NonParamRegression(
+#                xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
+#            reg.fit()
+            clf = KernelRidge(kernel='rbf', gamma=0.1, alpha=0.1)
+            clf.fit(xs, ys)
+
+            tempGrid = numpy.meshgrid(
+                numpy.linspace(min(xs[:, 0]), max(xs[:, 0], 50)),
+                numpy.linspace(min(xs[:, 1]), max(xs[:, 1], 50)),
+                numpy.linspace(min(xs[:, 2]), max(xs[:, 2], 50)),
+                numpy.linspace(min(xs[:, 3]), max(xs[:, 3], 50)),
+                numpy.linspace(min(xs[:, 3]), max(xs[:, 4], 50)),
+                numpy.linspace(min(xs[:, 3]), max(xs[:, 5], 50)))
+
+            regressionY[tt][control] = clf.predict(
+                numpy.array([tempGrid[0].flatten(),
+                             tempGrid[1].flatten(),
+                             tempGrid[2].flatten(),
+                             tempGrid[3].flatten()]).transpose())
+
+            regressionX[tt][control] = numpy.array([
+                numpy.linspace(min(xs[0]), max(xs[0], 50)),
+                numpy.linspace(min(xs[1]), max(xs[1], 50)),
+                numpy.linspace(min(xs[2]), max(xs[2], 50)),
+                numpy.linspace(min(xs[3]), max(xs[3], 50)),
+                numpy.linspace(min(xs[4]), max(xs[4], 50)),
+                numpy.linspace(min(xs[5]), max(xs[5], 50))])
+
+            """ Push the regressions back onto the GPU for reuse in the forward
+            path recomputations """
+            d_regressionX[tt][control] = cuda.to_device(
+                    regressionX[tt][control])
+            d_regressionY[tt][control] = cuda.to_device(
+                    regressionY[tt][control])
+
+        simulateMC(
+                paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
+                d_patchLocations, d_baseLocations, d_resourceTypes,
+                d_resourceSpeeds, d_maxHours, d_configurations, d_configsE,
+                d_configsP, d_thresholds, d_ffdiRanges, d_rocA2PHMeans,
+                d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
+                d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
+                d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
+                totalSteps, lookahead, stepSize, accumulatedDamages,
+                accumulatedHours, fires, fireSizes, fireLocations, firePatches,
+                aircraftLocations, aircraftAssignments, controls,
+                d_regressionX, d_regressionY, states, costs2Go, method,
+                noControls, tt, optimal=True)
 
     """ Pull the final states and costs 2 go from the GPU and save to an output
     file. For analysis purposes, we need to print our paths to output csv files
