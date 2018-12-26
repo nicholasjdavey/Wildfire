@@ -7,8 +7,8 @@ Created on Sun Dec 10 23:33:16 2017
 
 import numpy
 import random
+import math
 from pyproj import Proj
-from numba import jitclass
 from shapely.affinity import affine_transform
 from shapely.geometry import Point, Polygon
 from shapely.ops import triangulate
@@ -115,7 +115,7 @@ class Patch():
 
         for f in range(newFires):
             success = True if initS > numpy.random.rand() else False
-            size = max(0, numpy.random.normal(sizeMean, sizeSD))
+            size = math.exp(sizeMean + numpy.random.rand() * sizeSD)
             fire = Fire()
             fire.setLocation(self.randomPatchPoint())
             fire.setSize(size)

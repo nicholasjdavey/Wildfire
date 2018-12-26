@@ -7,7 +7,6 @@ Created on Sun Dec 10 23:34:56 2017
 
 import numpy
 import math
-from numba import jitclass
 from datetime import datetime
 
 class Fire():
@@ -95,7 +94,12 @@ class Fire():
                               vegetation.getFFDIRange(),
                               vegetation.getROCA2PerHourMean()[configID])
 
+        success = numpy.interp(ffdi,
+                               vegetation.getFFDIRange(),
+                               vegetation.getExtendedSuccess())
+
         radCurr = (math.sqrt(self.size*10000/math.pi))
+        randNo = numpy.random.rand()
 
         if random:
             grSD = max(0,
@@ -103,10 +107,9 @@ class Fire():
                                 vegetation.getFFDIRange(),
                                 vegetation.getROCA2PerHourSD()[configID]))
 
-            radNew = radCurr + max(0, numpy.random.normal(grMean, grSD))
+            radNew = radCurr + math.exp(grMean + grSD * numpy.random.rand())
         else:
-            grSD = 0.0
-            radNew = radCurr + max(0, grMean)
+            radNew = radCurr + math.exp(grMean + grSD ** 2 / 2)
 
         # The fire is simply a growing circle. The front progresses from the
         # circumference radially. The growth rate pulled from the vegetation
@@ -114,3 +117,5 @@ class Fire():
         # current size. Therefore, the current size's radius must be found
         # first.
         self.size = (math.pi * radNew**2)/10000
+
+        return (True if randNo <= success else False)

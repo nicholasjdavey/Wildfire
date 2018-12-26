@@ -68,34 +68,35 @@ Vegetation 5              : Experiments/Input_Data/Regions/Region_Provinces/Prob
 # 0 <= lambda_2 <= 1 is a trade-off between the two
 # Therefore, our control options are coordinate pairs of (lambda_1,lambda_2)
 # that lie in the unit square ([0,1]^2):
-Number of Control Options : 5
-#                 lambda_1 (potential vs. existing)   lambda_2 (or B_2 threshold)
+Number of Control Options : 6
+#                 lambda_1 (E vs. P / Max Fire)   lambda_2 (Max Base)
 Control 1       :              0.9                     0.1
 Control 2       :              0.9                     0.9
 Control 3       :              0.1                     0.1
 Control 4       :              0.9                     0.1
 Control 5       :              0.5                     0.5
+Control 6       :              0.5                     0.5
 
 ## EXPERIMENTAL CONTROLS (MULTIPLIERS AND PARAMETERS)
 # Separate different multipliers by comma (',')
-Aircraft Speed                              : 1
-Occurrence Probability                      : 1
-Damage Intensity                            : 1
-Weather Uncertainty                         : 1
-Time Steps                                  : 15
-Step Size (Hours)                           : 1
-Daylight Hours Per Day                      : 15
-ROV Paths                                   : 10000
-Relocation LP Method                        : 3
-Lookahead                                   : 5
-Cover Time (minutes)                        : 20
-Monte Carlo Paths                           : 10000
-Time discount factor                        : 0.7
-Algorithm (1=MPC, 2=ROV, 3=Static)          : 2
-Used Configurations (Exist)                 : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
-Used Configurations (Poten)                 : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
-Use Sample Paths                            : 1
-Runs                                        : 5
-Fire Threshold Distance (hrs)               : 1
-Base Relocation Threshold Distance (hrs)    : 0.33
-Control Method (1=Lambdas, 2=Fixed)         : 2
+Aircraft Speed                                      : 1
+Occurrence Probability                              : 1
+Damage Intensity                                    : 1
+Weather Uncertainty                                 : 1
+Time Steps                                          : 15
+Step Size (Hours)                                   : 1
+Daylight Hours Per Day                              : 15
+ROV Paths                                           : 10000
+Relocation LP Method                                : 3
+Lookahead                                           : 5
+Cover Time (minutes)                                : 20
+Monte Carlo Paths                                   : 10000
+Time discount factor                                : 0.7
+Algorithm (1=MPC, 2=ROV, 3=Static, 4=DynMPC)        : 2
+Used Configurations (Exist)                         : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+Used Configurations (Poten)                         : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+Use Sample Paths                                    : 1
+Runs                                                : 5
+Fire Threshold Distance (for close)                 : 0.33
+Max Fire Threshold Distance (for far)               : 8
+Control Method (1=Thresholds, 2=Weight+Threshold)   : 2

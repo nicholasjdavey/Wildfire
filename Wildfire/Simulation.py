@@ -52,6 +52,8 @@ class Simulation():
         self.regressionsX = None
         self.regressionsY = None
         self.rSquared = None
+        self.tStatistic = None
+        self.pVal = None
         Simulation.simulations += 1
 
     def getModel(self):
@@ -174,6 +176,18 @@ class Simulation():
     def setRSquared(self, r):
         self.rSquared = r
 
+    def getTStatistic(self):
+        return self.tStatistic
+
+    def setTStatistic(self, t):
+        self.tStatistic = t
+
+    def getPVal(self):
+        return self.pVal
+
+    def setPVal(self, p):
+        self.pVal
+
     def simulate(self):
 
         switch = {
@@ -261,14 +275,6 @@ class Simulation():
         cplxMod.thresholds = [
                 self.model.getBaseThreshold(), self.model.getFireThreshold()]
 
-        cplxMod.nus = {
-                1: [0, 0, 0],
-                2: [1, 0, 0],
-                3: [0, 1, 0],
-                4: [1, 1, 0],
-                5: [0, 0, 1],
-                6: [1, 0, 1]}
-
         """ Cumulative flying hours """
         cplxMod.G_R = {
                 r: 0
@@ -315,8 +321,10 @@ class Simulation():
         cplxMod.d3_BCN = {
                 (b, c, n):
                 (1
-                    if (((c == 1 or c == 3) and cplxMod.d3_BN[b, n] <= 1/3)
-                        or (c == 2 or c == 4 and cplxMod.d3_BN[b, n] > 1/3))
+                    if (((c == 1 or c == 3) and cplxMod.d3_BN[b, n] <=
+                            cplxMod.thresholds[0])
+                        or (c == 2 or c == 4 and cplxMod.d3_BN[b, n] >
+                            cplxMod.thresholds[0]))
                     else 0)
                 for b in cplxMod.B
                 for c in cplxMod.C
@@ -1005,15 +1013,7 @@ class Simulation():
         sampleFFDIs = self.model.getSamplePaths()
         method = self.model.getControlMethod()
 
-        lambdas = numpy.array([[
-                self.model.getControls()[ii].getLambda1(),
-                self.model.getControls()[ii].getLambda2()]
-            for ii in range(len(self.model.getControls()))])
-
-        if method == 1:
-            noControls = len(lambdas)
-        elif  method == 2:
-            noControls = 6
+        noControls = len(self.model.getControls())
 
         """ Initial assignment of aircraft to bases (Col 1) and fires (Col 2)
         A value of zero indicates no assignment (only applicable for fires) """
@@ -1107,7 +1107,7 @@ class Simulation():
                             self.assignAircraft(
                                     assignmentsPath, expDamageExist,
                                     expDamagePoten, activeFires, resourcesPath,
-                                    expectedFFDI, 0, 1, static))
+                                    expectedFFDI, 0, 1, method, static))
 
                     self.fixBaseAssignments(assignmentsPath[0])
 
@@ -1199,7 +1199,7 @@ class Simulation():
                                         assignmentsPath, expDamageExist,
                                         expDamagePoten, activeFires,
                                         resourcesPath, expectedFFDI, tt + 1,
-                                        c))
+                                        c, method))
 
                             [s1, s2, s3] = self.computeState(
                                 expDamageExist, expDamagePoten,
@@ -1219,13 +1219,13 @@ class Simulation():
                     else:
                         bestControl = 0
 
-                    if bestControl < len(self.relocationModel.nus) - 1:
+                    if bestControl < len(self.relocationModel.lambdas) - 1:
                         [patchConfigs, fireConfigs] = (
                                 self.assignAircraft(
                                         assignmentsPath, expDamageExist,
                                         expDamagePoten, activeFires,
                                         resourcesPath, expectedFFDI, tt + 1,
-                                        bestControl))
+                                        bestControl, method))
 
                     # Save the active fires to the path history
                     self.realisedFires[ii][run][tt + 1] = copy.copy(
@@ -1283,7 +1283,7 @@ class Simulation():
 
     def assignAircraft(self, assignmentsPath, expDamageExist,
                        expDamagePoten, activeFires, resourcesPath, ffdiPath,
-                       timeStep, control=0, static=False):
+                       timeStep, control=0, method=1, static=False):
 
         """First compute the parts common to all relocation programs"""
         """ First copy the relocation model """
@@ -1342,11 +1342,11 @@ class Simulation():
         prog = switch.get(lpModel)
         return prog(assignmentsPath, expDamageExist, expDamagePoten,
                     activeFires, resourcesPath, ffdiPath, timeStep, control,
-                    static, tempModel)
+                    static, tempModel, method)
 
     def assignMaxCover(self, assignmentsPath, expDamageExist, expDamagePoten,
                        activeFires, resourcesPath, ffdiPath, timeStep, control,
-                       static, tempModel):
+                       static, tempModel, method):
 
         """ First copy the relocation model """
         bases = self.model.getRegion().getStations()[0]
@@ -1360,6 +1360,18 @@ class Simulation():
         lenR = len(tempModel.R)
         lenB = len(tempModel.B)
         lenM = len(tempModel.M)
+
+        """ Thresholds """
+        if method == 1:
+            maxB = tempModel.lambdas[control][1]
+            maxF = tempModel.lambdas[control][0]
+            fw = 1
+            bw = 1
+        elif method == 2:
+            fw = tempModel.lambdas[control][0]
+            bw = 1 - tempModel.lambdas[control][1]
+            maxB = tempModel.lambdas[control][1]
+            maxF = math.inf
 
         """ Aircraft-fire assignments and fire configuration covers """
         """
@@ -1421,7 +1433,7 @@ class Simulation():
         resource R for the designated control """
         tempModel.d1_RB_B2 = {
                 (r, b):
-                (1 if (tempModel.d1_RB[r, b]) <= tempModel.lambdas[0][0]
+                (1 if (tempModel.d1_RB[r, b]) <= maxB
                     else 0)
                 for r in tempModel.R
                 for b in tempModel.B}
@@ -1430,7 +1442,7 @@ class Simulation():
         resources R for the designated control """
         tempModel.d2_MR_B1 = {
                 (m, r):
-                (1 if (tempModel.d2_MR[m, r]) <= tempModel.lambdas[0][1]
+                (1 if (tempModel.d2_MR[m, r]) <= maxF
                     else 0)
                 for m in tempModel.M
                 for r in tempModel.R}
@@ -1448,14 +1460,16 @@ class Simulation():
         """ Expected number of fires visible by base B for aircraft type C """
         tempModel.no_CB = {
                 (c, b):
-                sum([tempModel.d4_BNC[b, n, c]*tempModel.no_N[n]
+                sum([tempModel.no_N[n]
                      if (((c == 1 or c == 3)
-                          and tempModel.d4_BNC[b, n, c] <= 1/3)
+                          and tempModel.d4_BNC[b, n, c] <=
+                              tempModel.thresholds[0])
                          or (c == 2 or c == 4
-                             and tempModel.d4_BNC[b, n, c] > 1/3))
+                             and tempModel.d4_BNC[b, n, c] >
+                             tempModel.thresholds[0]))
                      else 0
                      for n in tempModel.N])
-                for c in [1, 2]
+                for c in [1, 2, 3, 4]
                 for b in tempModel.B}
 
         """////////////////////////////////////////////////////////////////////
@@ -1470,13 +1484,13 @@ class Simulation():
             tempModel.objective.set_linear(list(zip(
                     [startZM + m*(lenR + 1) + lenR
                      for m in tempModel.M],
-                    [tempModel.D1_M[m]
+                    [fw * tempModel.D1_M[m]
                      for m in tempModel.M])))
 
         tempModel.objective.set_linear(list(zip(
                 [startZN + n
                  for n in tempModel.N],
-                [tempModel.D2_N[n]
+                [bw * tempModel.D2_N[n]
                  for n in tempModel.N])))
 
         """////////////////////////////////////////////////////////////////////
@@ -1509,7 +1523,7 @@ class Simulation():
                         for m in tempModel.M
                         for r in tempModel.R],
                 senses = ["L"]*len(varIdxs),
-                rhs=[tempModel.nus[control][0] + tempModel.d2_MR_B1[m, r]
+                rhs=[tempModel.d2_MR_B1[m, r]
                         for m in tempModel.M
                         for r in tempModel.R])
 
@@ -1565,9 +1579,7 @@ class Simulation():
         """ CONSTRAINT 11 """
         startC11 = tempModel.constraintIdxStarts["C_11"]
         tempModel.linear_constraints.set_rhs([
-                (startC11 + r*lenB + b,
-                 tempModel.nus[control][1]*tempModel.d1_RB_B2[r, b] +
-                 tempModel.nus[control][2])
+                (startC11 + r*lenB + b, tempModel.d1_RB_B2[r, b])
                 for r in tempModel.R
                 for b in tempModel.B])
 
@@ -1634,7 +1646,7 @@ class Simulation():
 
     def assignPMedian(self, assignmentsPath, expDamageExist, expDamagePoten,
                       activeFires, resourcesPath, ffdiPath, timeStep, control,
-                      static, tempModel):
+                      static, tempModel, method):
 
         """////////////////////////////////////////////////////////////////////
         /////////////////////////// DECISION VARIABLES ////////////////////////
@@ -1644,6 +1656,18 @@ class Simulation():
         lenR = len(tempModel.R)
         lenB = len(tempModel.B)
         lenM = len(tempModel.M)
+
+        """ Thresholds """
+        if method == 1:
+            maxB = tempModel.lambdas[control][1]
+            maxF = tempModel.lambdas[control][0]
+            fw = 1
+            bw = 1
+        elif method == 2:
+            fw = tempModel.lambdas[control][0]
+            bw = 1 - tempModel.lambdas[control][1]
+            maxB = tempModel.lambdas[control][1]
+            maxF = math.inf
 
         """ Set the fire details for the sets and decision variables """
         tempModel.M = [ii for ii in range(len(activeFires))]
@@ -1670,7 +1694,7 @@ class Simulation():
         resource R for the designated control """
         tempModel.d1_RB_B2 = {
                 (r, b):
-                (1 if (tempModel.d1_RB[r, b]) <= tempModel.lambdas[0][0]
+                (1 if (tempModel.d1_RB[r, b]) <= maxB
                     else 0)
                 for r in tempModel.R
                 for b in tempModel.B}
@@ -1679,25 +1703,7 @@ class Simulation():
         resources R for the designated control """
         tempModel.d2_MR_B1 = {
                 (m, r):
-                (1 if (tempModel.d2_MR[m, r]) <= tempModel.lambdas[0][1]
-                    else 0)
-                for m in tempModel.M
-                for r in tempModel.R}
-
-        """ Whether base B satisfies the maximum relocation distance for
-        resource R for the designated control """
-        tempModel.d1_RB_B2 = {
-                (r, b):
-                (1 if (tempModel.d1_RB[r, b]) <= tempModel.lambdas[0][0]
-                    else 0)
-                for r in tempModel.R
-                for b in tempModel.B}
-
-        """ Whether fire M satisfies the maximum relocation distance for
-        resources R for the designated control """
-        tempModel.d2_MR_B1 = {
-                (m, r):
-                (1 if (tempModel.d2_MR[m, r]) <= tempModel.lambdas[0][1]
+                (1 if (tempModel.d2_MR[m, r]) <= maxF
                     else 0)
                 for m in tempModel.M
                 for r in tempModel.R}
@@ -1714,7 +1720,7 @@ class Simulation():
                     [startYMR + m*lenR + r
                      for m in tempModel.M
                      for r in tempModel.R],
-                    [tempModel.D1_M[m]*tempModel.d2_RM[r, m]
+                    [fw * tempModel.D1_M[m]*tempModel.d2_RM[r, m]
                      for m in tempModel.M
                      for r in tempModel.R])))
 
@@ -1723,7 +1729,7 @@ class Simulation():
                  for r in tempModel.R
                  for b in tempModel.B
                  for n in tempModel.N],
-                [tempModel.D2_N[n]*tempModel.d1_RB[r, b]
+                [bw * tempModel.D2_N[n]*tempModel.d1_RB[r, b]
                  for r in tempModel.R
                  for b in tempModel.B
                  for n in tempModel.N])))
@@ -1758,7 +1764,7 @@ class Simulation():
                         for m in tempModel.M
                         for r in tempModel.R],
                 senses = ["L"]*len(varIdxs),
-                rhs=[tempModel.nus[control][0] + tempModel.d2_MR_B1[m, r]
+                rhs=[tempModel.d2_MR_B1[m, r]
                         for m in tempModel.M
                         for r in tempModel.R])
 
@@ -1814,9 +1820,7 @@ class Simulation():
         """ CONSTRAINT 11 """
         startC11 = tempModel.constraintIdxStarts["C_11"]
         tempModel.linear_constraints.set_rhs([
-                (startC11 + r*lenB + b,
-                 tempModel.nus[control][1]*tempModel.d1_RB_B2[r, b] +
-                 tempModel.nus[control][2])
+                (startC11 + r*lenB + b, tempModel.d1_RB_B2[r, b])
                 for r in tempModel.R
                 for b in tempModel.B])
 
@@ -1883,7 +1887,7 @@ class Simulation():
 
     def assignAssignment1(self, assignmentsPath, expDamageExist,
                           expDamagePoten, activeFires, resourcesPath, ffdiPath,
-                          timeStep, control, static, tempModel):
+                          timeStep, control, static, tempModel, method):
 
         """ First copy the relocation model """
         bases = self.model.getRegion().getStations()[0]
@@ -1978,8 +1982,10 @@ class Simulation():
         tempModel.d2_RCM = {
                 (r, c, m):
                 (1
-                    if (((c == 1 or c == 3) and tempModel.d2_RM[r, m] <= 1/3)
-                        or (c == 2 or c == 4 and tempModel.d2_RM[r, m] > 1/3))
+                    if (((c == 1 or c == 3) and tempModel.d2_RM[r, m] <=
+                            tempModel.thresholds[0])
+                        or (c == 2 or c == 4 and tempModel.d2_RM[r, m] >
+                            tempModel.thresholds[0]))
                     else 0)
                 for r in tempModel.R
                 for c in tempModel.C
@@ -1989,8 +1995,10 @@ class Simulation():
         tempModel.d3_BCN = {
                 (b, c, n):
                 (1
-                    if (((c == 1 or c == 3) and tempModel.d3_BN[b, n] <= 1/3)
-                        or (c == 2 or c == 4 and tempModel.d3_BN[b, n] > 1/3))
+                    if (((c == 1 or c == 3) and tempModel.d3_BN[b, n] <=
+                            tempModel.thresholds[0])
+                        or (c == 2 or c == 4 and tempModel.d3_BN[b, n] >
+                            tempModel.thresholds[0]))
                     else 0)
                 for b in tempModel.B
                 for c in tempModel.C
@@ -2001,9 +2009,11 @@ class Simulation():
                 (c, b):
                 sum([tempModel.no_N[n]
                      if (((c == 1 or c == 3)
-                          and tempModel.d4_BNC[b, n, c] <= 1/3)
+                          and tempModel.d4_BNC[b, n, c] <=
+                              tempModel.thresholds[0])
                          or (c == 2 or c == 4
-                             and tempModel.d4_BNC[b, n, c] > 1/3))
+                             and tempModel.d4_BNC[b, n, c] >
+                                 tempModel.thresholds[0]))
                      else 0
                      for n in tempModel.N])
                 for c in tempModel.C
@@ -2016,7 +2026,6 @@ class Simulation():
         startYMR = tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
         startXRB = tempModel.decisionVarsIdxStarts["X_RB"]
         startDeltaNK = tempModel.decisionVarsIdxStarts["Delta_NK"]
-
         lambdaVals = tempModel.lambdas[control]
 
         if len(tempModel.M) > 0:
@@ -2225,7 +2234,7 @@ class Simulation():
 
     def assignAssignment2(self, assignmentsPath, expDamageExist,
                           expDamagePoten, activeFires, resourcesPath, ffdiPath,
-                          timeStep, control, static, tempModel):
+                          timeStep, control, static, tempModel, method):
 
         """ First copy the relocation model """
         bases = self.model.getRegion().getStations()[0]
@@ -2242,6 +2251,18 @@ class Simulation():
         lenKP = len(tempModel.KP)
         lenKE = len(tempModel.KE)
         lenC = len(tempModel.C)
+
+        """ Thresholds """
+        if method == 1:
+            maxB = tempModel.lambdas[control][1]
+            maxF = tempModel.lambdas[control][0]
+            fw = 1
+            bw = 1
+        elif method == 2:
+            fw = tempModel.lambdas[control][0]
+            bw = 1 - tempModel.lambdas[control][1]
+            maxB = tempModel.lambdas[control][1]
+            maxF = math.inf
 
         """ Set the fire details for the sets and decision variables """
         tempModel.M = [ii for ii in range(len(activeFires))]
@@ -2320,8 +2341,10 @@ class Simulation():
         tempModel.d2_RCM = {
                 (r, c, m):
                 (1
-                    if (((c == 1 or c == 3) and tempModel.d2_RM[r, m] <= 1/3)
-                        or (c == 2 or c == 4 and tempModel.d2_RM[r, m] > 1/3))
+                    if (((c == 1 or c == 3) and tempModel.d2_RM[r, m] <=
+                            tempModel.thresholds[0])
+                        or (c == 2 or c == 4 and tempModel.d2_RM[r, m] >
+                            tempModel.thresholds[0]))
                     else 0)
                 for r in tempModel.R
                 for c in tempModel.C
@@ -2330,29 +2353,27 @@ class Simulation():
         """ Whether base B satisfies the maximum relocation distance for
         resource R for the designated control """
         tempModel.d1_RB_B2 = {
-                (r, b):
-                (1 if (tempModel.d1_RB[r, b]) <= tempModel.thresholds[0]
-                    else 0)
+                (r, b): (1 if (tempModel.d1_RB[r, b]) <= maxB else 0)
                 for r in tempModel.R
                 for b in tempModel.B}
 
         """ Whether fire M satisfies the maximum relocation distance for
         resources R for the designated control """
         tempModel.d2_MR_B1 = {
-                (m, r):
-                (1 if (tempModel.d2_MR[m, r]) <= tempModel.thresholds[1]
-                    else 0)
+                (m, r): (1 if (tempModel.d2_MR[m, r]) <= maxF else 0)
                 for m in tempModel.M
                 for r in tempModel.R}
 
         """ Expected number of fires visible by base B for component C """
         tempModel.no_CB = {
                 (c, b):
-                sum([tempModel.d4_BNC[b, n, c]*tempModel.no_N[n]
+                sum([tempModel.no_N[n]
                      if (((c == 1 or c == 3)
-                          and tempModel.d4_BNC[b, n, c] <= 1/3)
+                          and tempModel.d4_BNC[b, n, c] <=
+                              tempModel.thresholds[0])
                          or (c == 2 or c == 4
-                             and tempModel.d4_BNC[b, n, c] > 1/3))
+                             and tempModel.d4_BNC[b, n, c] >
+                                 tempModel.thresholds[0]))
                      else 0
                      for n in tempModel.N])
                 for c in tempModel.C
@@ -2371,7 +2392,7 @@ class Simulation():
                     [startYMR + m*(lenR + lenKE) + lenR + k
                      for m in tempModel.M
                      for k in tempModel.KE],
-                    [tempModel.D1_MK[m, k]
+                    [fw * tempModel.D1_MK[m, k]
                      for m in tempModel.M
                      for k in tempModel.KE])))
 
@@ -2379,7 +2400,7 @@ class Simulation():
                 [startDeltaNK + n*lenKE + k
                  for n in tempModel.N
                  for k in tempModel.KP],
-                [tempModel.D2_NK[n, k]
+                [bw * tempModel.D2_NK[n, k]
                  for n in tempModel.N
                  for k in tempModel.KP])))
 
@@ -2476,7 +2497,7 @@ class Simulation():
                         for m in tempModel.M
                         for r in tempModel.R],
                 senses = ["L"]*len(varIdxs),
-                rhs=[tempModel.nus[control][0] + tempModel.d2_MR_B1[m, r]
+                rhs=[tempModel.d2_MR_B1[m, r]
                         for m in tempModel.M
                         for r in tempModel.R])
 
@@ -2548,9 +2569,7 @@ class Simulation():
         """ CONSTRAINT 11 """
         startC11 = tempModel.constraintIdxStarts["C_11"]
         tempModel.linear_constraints.set_rhs([
-                (startC11 + r*lenB + b,
-                 tempModel.nus[control][1]*tempModel.d1_RB_B2[r, b] +
-                 tempModel.nus[control][2])
+                (startC11 + r*lenB + b, tempModel.d1_RB_B2[r, b])
                 for r in tempModel.R
                 for b in tempModel.B])
 
@@ -2640,10 +2659,11 @@ class Simulation():
         period"""
         accumulatedDamage[tt + 1, :] = accumulatedDamage[tt, :]
 
+        """ Fight existing fires """
         for fire in range(len(activeFires)):
             sizeOld = activeFires[fire - 1].getSize()
 
-            activeFires[fire - 1].growFire(
+            extinguished = activeFires[fire - 1].growFire(
                     self.model,
                     ffdi[activeFires[fire - 1].getPatchID()],
                     fireConfigs[fire] + 1,
@@ -2651,16 +2671,14 @@ class Simulation():
 
             sizeCurr = max(activeFires[fire - 1].getSize(), sizeOld)
 
-            if sizeCurr - sizeOld <= 1e-6:
+            if extinguished:
                 # Extinguish fire and remove from list of active fires
                 inactiveFires.append(fire)
-
-            else:
-                damage += sizeCurr - sizeOld
 
             """ Update damage map for area burned for existing fires """
             accumulatedDamage[tt + 1, activeFires[fire - 1].getPatchID()] += (
                     sizeCurr - sizeOld)
+            damage += sizeCurr - sizeOld
 
         """ Remove fires that are now contained """
         newFires = []
@@ -2680,11 +2698,13 @@ class Simulation():
                                               ffdi[patch],
                                               tt,
                                               patchConfigs[patch])
-            activeFires.extend(nfPatch)
 
             for fire in nfPatch:
                 damage += fire.getSize()
                 accumulatedDamage[tt + 1, patch] += fire.getSize()
+
+                if not(fire.getInitialSuccess()):
+                    activeFires.append(fire)
 
         """ Return incremental damage for region """
         return damage
@@ -2709,7 +2729,6 @@ class Simulation():
         tempModel.constraintIdxStarts = copy.copy(
                 copyModel.constraintIdxStarts)
         tempModel.constraintNames = copy.copy(copyModel.constraintNames)
-        tempModel.nus = copyModel.nus
         tempModel.d3_BN = copyModel.d3_BN
         tempModel.d3_BCN = copyModel.d3_BCN
 
@@ -2727,12 +2746,22 @@ class Simulation():
         damage = 0
         fireTemp = copy.copy(fire)
         patch = fire.getPatchID()
+        vegetation = patch.getVegetation()
+        size = fireTemp.getSize()
 
         for tt in range(look):
             ffdi = ffdiPath[patch, tt]
-            originalSize = fireTemp.getSize()
+
+            success = numpy.interp(ffdi,
+                                   vegetation.getFFDIRange(),
+                                   vegetation.getExtendedSuccess()[configID])
+
+            sizeOld = size
             fireTemp.growFire(self.model, ffdi, configID)
-            damage += (fireTemp.getSize() - originalSize)
+            size = fireTemp.getSize()
+            growth = size - sizeOld
+
+            damage += growth * (1 - success) ** (tt)
 
         return damage
 
@@ -2750,31 +2779,49 @@ class Simulation():
                                vegetation.getFFDIRange(),
                                vegetation.getOccurrence()[time + tt + 1])
 
-            size = numpy.interp(ffdi,
-                                vegetation.getFFDIRange(),
-                                vegetation.getInitialSizeMean()[configID])
+            sizeM = numpy.interp(ffdi,
+                                 vegetation.getFFDIRange(),
+                                 vegetation.getInitialSizeMean()[configID])
+
+            sizeSD = numpy.interp(ffdi,
+                                  vegetation.getFFDIRange(),
+                                  vegetation.getInitialSizeSD()[configID])
 
             success = numpy.interp(ffdi,
                                    vegetation.getFFDIRange(),
                                    vegetation.getInitialSuccess()[configID])
 
-            sizeInitial = size
+            size = math.exp(sizeM + sizeSD ** 2 / 2)
+
+            damage += occ * size
 
             for t2 in range(tt, look):
                 ffdi = ffdiPath[patchID, t2]
+                success2 = numpy.interp(ffdi,
+                                        vegetation.getFFDIRange(),
+                                        vegetation.getExtendedSuccess()[
+                                            configID])
 
                 grMean = numpy.interp(
                         ffdi,
                         vegetation.getFFDIRange(),
                         vegetation.getROCA2PerHourMean()[configID])
 
+                grSD = numpy.interp(
+                        ffdi,
+                        vegetation.getFFDIRange(),
+                        vegetation.getROCA2PerHourSD()[configID])
+
                 radCurr = (math.sqrt(size*10000/math.pi))
-                radNew = radCurr + max(0, grMean)
+                radNew = radCurr + math.exp(grMean + grSD ** 2 / 2)
+                sizeOld = size
                 size = (math.pi * radNew**2)/10000
+                growth = size - sizeOld
 
-            damage += occ*size*(1 - success) + occ*sizeInitial*success
+                damage += ((occ * growth * (1 - success2) ** (t2 - tt)) *
+                           (1 - success))
 
-            return damage*patch.getArea()
+            return damage * patch.getArea()
 
     """////////////////////////////////////////////////////////////////////////
     ////////////////////////// ROV Routines for later /////////////////////////
@@ -2799,15 +2846,14 @@ class Simulation():
 
         method = self.model.getControlMethod()
 
+        # Thresholds/parameters for each control
         lambdas = numpy.array([[
                 self.model.getControls()[ii].getLambda1(),
                 self.model.getControls()[ii].getLambda2()]
-            for ii in range(len(self.model.getControls()))])
+            for ii in range(len(self.model.getControls()))],
+            dtype=numpy.float32)
 
-        if method == 1:
-            noControls = len(lambdas)
-        elif  method == 2:
-            noControls = 6
+        noControls = len(lambdas)
 
         samplePaths = (
                 len(sampleFFDIs)
@@ -2881,6 +2927,7 @@ class Simulation():
                                    self.model.configurations.items()]
                                   for vegetation in vegetations],
                                  dtype=numpy.float32)
+        # This is for the configurations components
         thresholds = numpy.array([self.model.fireThreshold,
                                   self.model.baseThreshold],
                                  dtype=numpy.float32)
@@ -2890,6 +2937,9 @@ class Simulation():
         self.costs2Go = [None]*samplePaths
         self.accumulatedDamages = [None]*samplePaths
         self.controls = [None]*samplePaths
+        self.rSquared = [None]*samplePaths
+        self.tStatistic = [None]*samplePaths
+        self.pVal = [None]*samplePaths
 
         for ii in range(samplePaths):
             randCont = numpy.random.randint(6, size=[mcPaths, totalSteps])
@@ -2897,6 +2947,9 @@ class Simulation():
                                       dtype=numpy.float32)
             regressionY = numpy.zeros([totalSteps, noControls, 50, 50, 50],
                                       dtype=numpy.float32)
+            rSquareds = numpy.zeros([totalSteps, noControls])
+            tStatistics = numpy.zeros([totalSteps, noControls, 3])
+            pVals = numpy.zeros([totalSteps, noControls, 3])
             states = numpy.zeros([mcPaths, totalSteps + 1, 10],
                                  dtype=numpy.float32)
             costs2go = numpy.zeros([mcPaths, totalSteps], dtype=numpy.float32)
@@ -2953,12 +3006,12 @@ class Simulation():
 
             # Whether bases are within 20 minutes for each aircraft type
             tankerCovers = numpy.array(
-                [[True if tankerDists[patch, base] <= 1/3 else False
+                [[True if tankerDists[patch, base] <= thresholds[0] else False
                   for base in range(noBases)]
                  for patch in range(noPatches)])
 
             heliCovers = numpy.array(
-                [[True if heliDists[patch, base] <= 1/3 else False
+                [[True if heliDists[patch, base] <= thresholds[0] else False
                   for base in range(noBases)]
                  for patch in range(noPatches)])
 
@@ -3023,7 +3076,8 @@ class Simulation():
                     accumulatedDamages, accumulatedHours, noFires, fireSizes,
                     fireLocations, firePatches, aircraftLocations,
                     aircraftAssignments, randCont, regressionX, regressionY,
-                    states, costs2go, lambdas, method, noControls)
+                    rSquareds, tStatistics, pVals, states, costs2go, lambdas,
+                    method, noControls)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
 
@@ -3034,7 +3088,11 @@ class Simulation():
             self.accumulatedDamages[ii] = accumulatedDamages
             self.costs2Go[ii] = costs2go
             self.controls[ii] = randCont
+            self.rSquared[ii] = rSquareds
+            self.tStatistic[ii] = tStatistics
+            self.pVal[ii] = pVals
             self.writeOutROV(ii)
+            self.writeOutStatistics(ii)
 
         """////////////////////// MODEL VALIDATION /////////////////////"""
         """ Just run MPC code but with the ROV regressions as input """
@@ -3867,11 +3925,37 @@ class Simulation():
 
                 writer.writerow(row)
 
-#        """ ROV Regressions """
-#        outputfile = outfolder + "/ROVRegressions.csv"
-#
-#        with open(outputfile, 'w', newline='') as csvfile:
-#            writer = csv.writer(csvfile, delimiter=',')
+        """ ROV Regressions """
+        outputfile = outfolder + "/ROVRegressions.csv"
+
+        with open(outputfile, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile, delimiter=',')
+
+            rowLists = ([[
+                    ['T' + str(tt+1) + '_C' + str(cc+1) + '_S' + str(ss+1)
+                     for ss in range(3)]
+                    + ['T' + str(tt) + '_C' + str(cc) + '_C2G']
+                    for cc in range(len(self.model.getControls()))]
+                for tt in range(self.model.getTotalSteps())])
+
+            row = (rowListsL2[jj]
+                for rowListsL1 in rowLists
+                for rowListsL2 in rowListsL1
+                for jj in range(len(rowListsL2)))
+
+            iterator = 0
+            # Three predictors
+            for r1 in range(len(self.regressionsX[0][0][0])):
+                for r2 in range(len(self.regressionsX[0][0][1])):
+                    for r3 in range(len(self.regressionsX[0][0][2])):
+                        row = []
+
+                        for tt in range(self.model.getTotalSteps()):
+                            for cc in range(len(self.model.getControls())):
+                                for ss in range(3):
+                                    row.append(self.regressionsX[tt][cc][ss])
+
+                                row.append(self.regressionsY[tt][cc][iterator])
 
         """ Controls """
         outputfile = outfolder + "/Controls.csv"
@@ -3894,11 +3978,7 @@ class Simulation():
                 writer.writerow(row)
 
         """ Regression Data Points, Grouped by Control """
-        method = self.model.getControlMethod()
-        if method == 1:
-            noControls = len(self.model.getControls())
-        elif  method == 2:
-            noControls = 6
+        noControls = len(self.model.getControls())
 
         for c in range(noControls):
             outputfile = outfolder + "/Regression_Raw_data_" + str(c) + ".csv"
@@ -3929,6 +4009,45 @@ class Simulation():
                             row.append(self.accumulatedDamages[sample][ii][tt])
 
                         writer.writerow(row)
+
+    def writeOutStatistics(self, sample):
+        root = ("../Experiments/Experiments/" +
+                self.model.getInputFile().split(
+                        "../Experiments/Experiments/")[1].split("/")[0])
+
+        """ Output folder """
+        outfolder = (root + "/Outputs/Scenario_" + str(self.id) + "/Sample_" +
+                     str(sample) + "/")
+
+        if not os.path.exists(os.path.dirname(outfolder)):
+            try:
+                os.makedirs(os.path.dirname(outfolder))
+            except OSError as exc:  # Guard against race condition
+                if exc.errno != errno.EEXIST:
+                    raise
+
+        """ Statistics """
+        outputfile = outfolder + "/Statistics.csv"
+
+        noControls = len(self.model.getControls())
+
+        with open(outputfile, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile, delimiter=',')
+
+            row = ([
+                    ['TIME']
+                    + ['Control_' + str(cc) + '_RSquared'
+                       for cc in range(noControls)]])
+
+            writer.writerow(row)
+
+            for tt in range(self.model.getTotalSteps()):
+                row = [str(tt + 1)]
+
+                for cc in range(noControls):
+                    row.append(self.rSquared[sample][tt][cc])
+
+            writer.writerow(row)
 
     def currPos2Fire(self, currLocs, fires):
         # Computes the distance between each aircraft and each fire

@@ -93,10 +93,9 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                     extSuccess, configsP, tt - start, lookahead, expectedP,
                     rng_states, path, False)
 
-
-            if path == 0:
-                for patch in range(16):
-                    expectedTemp[0, tt, patch] = tt + 1
+#            if path == 0:
+#                for patch in range(16):
+#                    expectedTemp[0, tt, patch] = tt + 1
 
             saveState(aircraftAssignments, resourceTypes,
                       resourceSpeeds, maxHours, aircraftLocations,
@@ -106,9 +105,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                       tt - start, lookahead, path)
 
             if optimal:
-                # Compute the optimal control using regressions. Need to
-                # compute the expected damage for fires and patches under
-                # each control. This could be time-consuming.
+                # Compute the optimal control using regressions.
                 bestControl = 0
                 bestC2G = math.inf
 
@@ -117,17 +114,6 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                     control in order to determine the best one to pick. This
                     requires computing the state for each control using the
                     assignment heuristic and then the regressions. """
-
-#                    assignAircraft(aircraftAssignments, resourceSpeeds,
-#                                   resourceTypes, maxHours, aircraftLocations,
-#                                   accumulatedHours, baseLocations,
-#                                   tankerDists, heliDists, fires, fireSizes,
-#                                   fireLocations, ffdiRanges, configurations,
-#                                   configsE, configsP, baseConfigsMax,
-#                                   fireConfigsMax, thresholds, expFiresComp,
-#                                   expectedE, expectedP, selectedE, weightsP,
-#                                   tt - start, stepSize, lookahead, path,
-#                                   control, lambdas, method, expectedTemp)
 
                     """ Get the expected cost 2 go for this control at this
                     time for the prevailing state """
@@ -176,13 +162,6 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                              accumulatedDamages, tt - start, stepSize,
                              rng_states, path)
 
-#            # Save the state
-#            saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
-#                      maxHours, aircraftLocations, accumulatedHours,
-#                      patchLocations, fires, fireSizes, fireLocations,
-#                      expectedE, expectedP, states, configurations, selectedE,
-#                      weightsP, tt - start, lookahead, path)
-
 
 #@jit(nopython=True, fastmath=True)
 @cuda.jit(device=True)
@@ -212,7 +191,7 @@ def expectedDamageExisting(ffdi_path, fire_patches, no_fires, fire_sizes,
                                   thread_id, random) - sizeTemp
 
                 sizeTemp += growth
-                size += growth * (1 - success) ** (tt + 1)
+                size += growth * (1 - success) ** (tt)
 
             expected[fire, c] = size - fire_sizes[fire]
 
@@ -252,11 +231,11 @@ def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
                                      initial_sd[config - 1])
                 success = interpolate1D(ffdi, ffdi_range,
                                         initial_success[config - 1])
-                sizeTemp = math.exp(sizeM + sizeSD ** 2 /2)
+                sizeTemp = math.exp(sizeM + sizeSD ** 2 / 2)
 
                 # Add the damage caused by fires formed this period but
                 # extinguished immediately
-                damage += occ * sizeTemp * success
+                damage += occ * sizeTemp
 
                 # Now add the damage caused by fires that escape initial
                 # attack success
@@ -270,7 +249,8 @@ def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
 
                     sizeTemp += growth
 
-                    damage += occ * growth * (1 - success2) ** (t2 - tt + 1)
+                    damage += (occ * growth * (1 - success2) ** (t2 - tt) *
+                               (1 - success))
 
             expected[patch, c] = damage * patch_areas[patch]
 
@@ -288,7 +268,7 @@ def growFire(ffdi, config, ffdi_range, roc_a2_ph_mean, roc_a2_ph_sd, size,
         rand_no = xoroshiro128p_normal_float32(rng_states, thread_id)
         rad_new = rad_curr + math.exp(gr_mean + rand_no * gr_sd)
     else:
-        rad_new = rad_curr + math.exp(gr_mean + gr_sd ** 2 /2)
+        rad_new = rad_curr + math.exp(gr_mean + gr_sd ** 2 / 2)
 
     return (math.pi * rad_new**2)/10000
 
@@ -661,41 +641,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
     """ Threshold distances """
     if method == 1:
-        # Fixed six possible controls
-        fw = 1
-        pw = 1
-
-        if control == 0:
-            maxFire = thresholds[0]
-            maxBase = 0
-        elif control == 1:
-            maxFire = math.inf
-            maxBase = 0
-        elif control == 2:
-            maxFire = thresholds[0]
-            maxBase = thresholds[1]
-        elif control == 3:
-            maxFire = math.inf
-            maxBase = thresholds[1]
-        elif control == 4:
-            maxFire = thresholds[0]
-            maxBase = math.inf
-        elif control == 5:
-            maxFire = math.inf
-            maxBase = math.inf
-    elif method == 2:
-        # Weight existing and potential
-        # All relocations possible
-        # Lambda 1 must be between 0 and 1
-        fw = lambdas[control][0]
-        pw = 1 - lambdas[control][0]
-        maxFire = math.inf
-        maxBase = math.inf
-    else:
-        # Custom thresholds
+        # Custom thresholds for relocation distances
         fw = 1
         pw = 1
         maxFire = lambdas[control][0]
+        maxBase = lambdas[control][1]
+    elif method == 2:
+        # Weighting between Fires and Potential and relocation
+        fw = lambdas[control][0]
+        pw = 1 - lambdas[control][0]
+        maxFire = lambdas[control][1]
         maxBase = lambdas[control][1]
 
     """ Whether patches are covered within threshold time for different
@@ -777,12 +732,12 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
             if canFire[resource, fire]:
                 if resourceTypes[resource] == 0:
-                    if travTime < 1/3:
+                    if travTime < thresholds[0]:
                         fireMaxTankersE[fire] += 1
                     else:
                         fireMaxTankersL[fire] += 1
                 elif resourceTypes[resource] == 1:
-                    if travTime < 1/3:
+                    if travTime < thresholds[0]:
                         fireMaxHelisE[fire] += 1
                     else:
                         fireMaxHelisL[fire] += 1
@@ -917,7 +872,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     baseDamageBaseline = 0.0
 
                     for patch in range(noPatches):
-                        if tankerCovers[patch, base] <= min(maxFire, 1/3):
+                        if tankerCovers[patch, base] <= min(maxFire,
+                                thresholds[0]):
                             # If the patch is close to the base
                             configNos[0] = 1
                             configNos[1] = 0
@@ -987,7 +943,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     baseDamageBaseline = 0.0
 
                     for patch in range(noPatches):
-                        if heliCovers[patch, base] <= min(maxFire, 1/3):
+                        if heliCovers[patch, base] <= min(maxFire,
+                                thresholds[0]):
                             configNos[0] = 0
                             configNos[1] = 1
                             configNos[2] = 0
@@ -1157,13 +1114,14 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     for patch in range(noPatches):
                         componentNos(configNos, tankerCovers, heliCovers,
                                      baseTankersE, baseHelisE, updateBases,
-                                     patch, maxFire, True)
+                                     patch, maxFire, thresholds, True)
 
                         if tankerCovers[patch, thisUpdateIdx] <= maxFire:
 
                             updatePatches[patch] = True
 
-                            if tankerCovers[patch, thisUpdateIdx] <= 1/3:
+                            if (tankerCovers[patch, thisUpdateIdx] <=
+                                    thresholds[0]):
                                 configNos[0] += 1
 
                             else:
@@ -1180,7 +1138,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 baseConfigsPossible, configurations,
                                 tankerCovers, heliCovers, baseTankersE,
                                 baseHelisE, expectedP, expFiresComp, weightsP,
-                                patch, time, lookahead, pw, maxFire)
+                                patch, time, lookahead, pw, maxFire,
+                                thresholds)
 
                         else:
                             expectedDamageBase += patchExpectedDamage[patch]
@@ -1202,13 +1161,14 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     for patch in range(noPatches):
                         componentNos(configNos, tankerCovers, heliCovers,
                                      baseTankersE, baseHelisE, updateBases,
-                                     patch, maxFire, True)
+                                     patch, maxFire, thresholds, True)
 
                         if heliCovers[patch, thisUpdateIdx] <= maxFire:
 
                             updatePatches[patch] = True
 
-                            if heliCovers[patch, thisUpdateIdx] <= 1/3:
+                            if (heliCovers[patch, thisUpdateIdx] <=
+                                    thresholds[0]):
                                 configNos[1] += 1
 
                             else:
@@ -1225,7 +1185,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 baseConfigsPossible, configurations,
                                 tankerCovers, heliCovers, baseTankersE,
                                 baseHelisE, expectedP, expFiresComp, weightsP,
-                                patch, time, lookahead, pw, maxFire)
+                                patch, time, lookahead, pw, maxFire,
+                                thresholds)
 
                         else:
                             expectedDamageBase += patchExpectedDamage[patch]
@@ -1254,11 +1215,12 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 componentNos(
                                         configNos, tankerCovers, heliCovers,
                                         baseTankersE, baseHelisE, updateBases,
-                                        patch, maxFire, False)
+                                        patch, maxFire, thresholds, False)
 
                                 if tankerCovers[patch, baseOther] <= maxFire:
 
-                                    if tankerCovers[patch, baseOther] <= 1/3:
+                                    if (tankerCovers[patch, baseOther] <=
+                                            thresholds[0]):
                                         configNos[0] += 1
                                     else:
                                         configNos[2] += 1
@@ -1276,7 +1238,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                             heliCovers, baseTankersE,
                                             baseHelisE, expectedP,
                                             expFiresComp, weightsP, patch,
-                                            time, lookahead, pw, maxFire)
+                                            time, lookahead, pw, maxFire,
+                                            thresholds)
 
                                 else:
                                     expectedDamageBase += (
@@ -1300,11 +1263,12 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 componentNos(
                                         configNos, tankerCovers, heliCovers,
                                         baseTankersE, baseHelisE, updateBases,
-                                        patch, maxFire, False)
+                                        patch, maxFire, thresholds, False)
 
                                 if heliCovers[patch, baseOther] <= maxFire:
 
-                                    if heliCovers[patch, baseOther] <= 1/3:
+                                    if (heliCovers[patch, baseOther] <=
+                                            thresholds[0]):
                                         configNos[1] += 1
                                     else:
                                         configNos[3] += 1
@@ -1322,7 +1286,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                             heliCovers, baseTankersE,
                                             baseHelisE, expectedP,
                                             expFiresComp, weightsP, patch,
-                                            time, lookahead, pw, maxFire)
+                                            time, lookahead, pw, maxFire,
+                                            thresholds)
 
                                 else:
                                     expectedDamageBase += (
@@ -1410,7 +1375,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     componentNos(
                             configNos, tankerCovers, heliCovers,
                             baseTankersE, baseHelisE, updateBases,
-                            patch, maxFire, False)
+                            patch, maxFire, thresholds, False)
 
                     # Get all possible configs and sort them by benefit to this
                     # patch
@@ -1422,7 +1387,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             baseConfigsPossible, configurations, tankerCovers,
                             heliCovers, baseTankersE, baseHelisE, expectedP,
                             expFiresComp, weightsP, patch, time, lookahead,
-                            pw, maxFire)
+                            pw, maxFire, thresholds)
 
         #######################################################################
         # For given assignment, pick best A/C #################################
@@ -1446,7 +1411,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 fireLocations[thread_id][time][thisUpdateIdx])
                             travTime = dist / resourceSpeeds[resource]
 
-                            if travTime <= 1/3:
+                            if travTime <= thresholds[0]:
                                 # This resource is a candidate
 
                                 # Check potential benefit to other fires
@@ -1463,7 +1428,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                         travTime = (dist /
                                                     resourceSpeeds[resource])
 
-                                        if travTime <= 1/3:
+                                        if travTime <= thresholds[0]:
                                             if (fireImproveTankerE[fire] >
                                                 nextBest):
 
@@ -1500,7 +1465,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 fireLocations[thread_id][time][thisUpdateIdx])
                             travTime = dist / resourceSpeeds[resource]
 
-                            if travTime <= 1/3:
+                            if travTime <= thresholds[0]:
                                 # This resource is a candidate
 
                                 # Check potential benefit to other fires
@@ -1517,7 +1482,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                         travTime = (dist /
                                                     resourceSpeeds[resource])
 
-                                        if travTime < 1/3:
+                                        if travTime < thresholds[0]:
                                             if (fireImproveHeliE[fire] >
                                                 nextBest):
 
@@ -1555,7 +1520,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 fireLocations[thread_id][time][thisUpdateIdx])
                             travTime = dist / resourceSpeeds[resource]
 
-                            if travTime > 1/3:
+                            if travTime > thresholds[0]:
                                 # This resource is a candidate
 
                                 # Check potential benefit to other fires
@@ -1572,7 +1537,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                         travTime = (dist /
                                                     resourceSpeeds[resource])
 
-                                        if travTime < 1/3:
+                                        if travTime < thresholds[0]:
                                             if (fireImproveTankerE[fire] >
                                                 nextBest):
 
@@ -1611,7 +1576,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                             travTime = dist / resourceSpeeds[resource]
 
-                            if travTime > 1/3:
+                            if travTime > thresholds[0]:
                                 # This resource is a candidate
 
                                 # Check potential benefit to other fires
@@ -1628,7 +1593,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                         travTime = (dist /
                                                     resourceSpeeds[resource])
 
-                                        if travTime < 1/3:
+                                        if travTime < thresholds[0]:
                                             if (fireImproveHeliE[fire] >
                                                 nextBest):
 
@@ -1676,7 +1641,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                                     travTime = dist / resourceSpeeds[resource]
 
-                                    if travTime <= 1/3:
+                                    if travTime <= thresholds[0]:
                                         if fireImproveTankerE[fire] > nextBest:
 
                                             nextBest = fireImproveTankerE[fire]
@@ -1716,7 +1681,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                                     travTime = dist / resourceSpeeds[resource]
 
-                                    if travTime < 1/3:
+                                    if travTime < thresholds[0]:
                                         if fireImproveHeliE[fire] > nextBest:
 
                                             nextBest = fireImproveHeliE[fire]
@@ -1781,7 +1746,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                 travTime = dist / resourceSpeeds[nextAC]
 
                 if thisUpdateACType == 1 or thisUpdateACType == 3:
-                    if (travTime <= 1/3):
+                    if (travTime <= thresholds[0]):
                         fireMaxTankersE[fire] -= 1
 
                         if fireMaxTankersE[fire] == fireTankersE[fire]:
@@ -1794,7 +1759,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             fireImproveTankerL[fire] = 0
 
                 elif thisUpdateACType == 2 or thisUpdateACType == 4:
-                    if (travTime <= 1/3):
+                    if (travTime <= thresholds[0]):
                         fireMaxHelisE[fire] -= 1
 
                         if fireMaxHelisE[fire] == fireHelisE[fire]:
@@ -1838,7 +1803,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
     for patch in range(noPatches):
         componentNos(configNos, tankerCovers, heliCovers, baseTankersE,
-                     baseHelisE, updateBases, patch, maxFire, False)
+                     baseHelisE, updateBases, patch, maxFire, thresholds,
+                     False)
 
         getAllConfigsSorted(configurations, configsP, baseConfigsPossible,
                             expectedP[patch], configNos)
@@ -1846,7 +1812,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
         patchExpectedDamage[patch] = expectedDamage(
                 baseConfigsPossible, configurations, tankerCovers, heliCovers,
                 baseTankersE, baseHelisE, expectedP, expFiresComp, weightsP,
-                patch, time, lookahead, pw, maxFire)
+                patch, time, lookahead, pw, maxFire, thresholds)
 
     if thread_id == 865 and time == 10:
         for patch in range(17):
@@ -1934,7 +1900,7 @@ def travTime(X1, X2, speed):
 def expectedDamage(baseConfigsPossible, configurations, tankerCovers,
                    heliCovers, baseTankersE, baseHelisE, expectedP,
                    expFiresComp, weightsP, patch, time, lookahead, pw,
-                   maxFire):
+                   maxFire, thresholds):
 
     for config in range(len(baseConfigsPossible)):
         weightsP[patch, config] = 0.0
@@ -1950,7 +1916,7 @@ def expectedDamage(baseConfigsPossible, configurations, tankerCovers,
         weight_c = potentialWeight(
                 configurations, tankerCovers, heliCovers, baseTankersE,
                 baseHelisE, expFiresComp, patch, config, time, lookahead,
-                maxFire)
+                maxFire, thresholds)
 
         weight_c = min(weight_c, 1 - weight_total)
         weightsP[patch, config] = weight_c
@@ -1965,7 +1931,7 @@ def expectedDamage(baseConfigsPossible, configurations, tankerCovers,
 
 @cuda.jit(device=True)
 def componentNos(configNos, tankerCovers, heliCovers, baseTankersE, baseHelisE,
-                 updateBases, patch, maxFire, initial):
+                 updateBases, patch, maxFire, thresholds, initial):
 
     for c in range(4):
         configNos[c] = 0
@@ -1973,7 +1939,7 @@ def componentNos(configNos, tankerCovers, heliCovers, baseTankersE, baseHelisE,
     # Get best possible config
     for base in range(noBases):
         if tankerCovers[patch, base] <= min(
-            maxFire, 1/3):
+            maxFire, thresholds[0]):
 
             if initial:
                 updateBases[base] = True
@@ -1988,7 +1954,7 @@ def componentNos(configNos, tankerCovers, heliCovers, baseTankersE, baseHelisE,
             configNos[2] += baseTankersE[base]
 
         if heliCovers[patch, base] <= min(
-            maxFire, 1/3):
+            maxFire, thresholds[0]):
 
             if initial:
                 updateBases[base] = True
@@ -2006,7 +1972,7 @@ def componentNos(configNos, tankerCovers, heliCovers, baseTankersE, baseHelisE,
 @cuda.jit(device=True)
 def potentialWeight(configurations, tankerCovers, heliCovers, baseTankersE,
                     baseHelisE, expFiresComp, patch, config, time, lookahead,
-                    maxFire):
+                    maxFire, thresholds):
 
     weight_c = 0.0
 
@@ -2022,7 +1988,7 @@ def potentialWeight(configurations, tankerCovers, heliCovers, baseTankersE,
         n_c = max(1, expFires)
 
         a_cb += ((baseTankersE[base]
-                  if tankerCovers[patch, base] <= min(1/3, maxFire)
+                  if tankerCovers[patch, base] <= min(thresholds[0], maxFire)
                   else 0) / n_c)
 
     if configurations[config, 0] > 0:
@@ -2043,7 +2009,7 @@ def potentialWeight(configurations, tankerCovers, heliCovers, baseTankersE,
         n_c = max(1, expFires)
 
         a_cb += ((baseHelisE[base]
-                  if heliCovers[patch, base] <= min(1/3, maxFire)
+                  if heliCovers[patch, base] <= min(thresholds[0], maxFire)
                   else 0) / n_c)
 
     if configurations[config, 1] > 0:
@@ -2063,7 +2029,7 @@ def potentialWeight(configurations, tankerCovers, heliCovers, baseTankersE,
 
         a_cb += ((baseTankersE[base]
                   if (tankerCovers[patch, base] <= maxFire and
-                      tankerCovers[patch, base] > 1/3)
+                      tankerCovers[patch, base] > thresholds[0])
                   else 0) / n_c)
 
     if configurations[config, 2] > 0:
@@ -2083,7 +2049,7 @@ def potentialWeight(configurations, tankerCovers, heliCovers, baseTankersE,
 
         a_cb += ((baseHelisE[base]
                   if (heliCovers[patch, base] <= maxFire and
-                      heliCovers[patch, base] > 1/3)
+                      heliCovers[patch, base] > thresholds[0])
                   else 0) / n_c)
 
     if configurations[config, 3] > 0:
@@ -2103,21 +2069,14 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
     global noPatches
     global noConfP
 
-#    """ Remaining hours: Simple """
-#    stateVal = 0
-#    for resource in range(noAircraft):
-#        stateVal += maxHours[resource] - accumulatedHours[thread_id, time,
-#                                                          resource]
-#
-#    states[thread_id, time, 0] = stateVal
-
-    """ STATES """
+    """ STATES - USED """
     """ 1. Expected potential damage (no relocation, no existing) """
     """ Or weighted cover without relocation """
     states[thread_id, time, 0] = potentialNoRelocation()
 
     """ 2. Expected existing damage (no suppression) """
-    states[thread_id, time, 1] = existingNoSuppression()
+    states[thread_id, time, 1] = existingNoSuppression(expectedE, fires[
+        thread_id, time])
 
     """ 3. Expected potential damage (relocate to existing, no existing) """
     """ Relocate as much to existing as needed. Remainder cover potential. """
@@ -2125,6 +2084,7 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
     """ Or weighted cover of potential with relocation to existing """
     states[thread_id, time, 2] = potentialRelocate2Existing()
 
+    """ STATES - UNUSED/INFORMATION """
     """ 4. Expected existing damage (relocate to existing) (NOT USED YET) """
     states[thread_id, time, 3] = existingRelocate2Existing()
 
@@ -2132,6 +2092,87 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
     """ Relocate as much to potential as needed. Remainder cover existing. """
     states[thread_id, time, 4] = potentialRelocate2Potential()
 
+    """ 6. Remaining hours: Simple """
+    stateVal = 0
+    for resource in range(noAircraft):
+        stateVal += maxHours[resource] - accumulatedHours[thread_id, time,
+                                                          resource]
+
+    states[thread_id, time, 5] = stateVal
+
+
+@cuda.jit(device=True)
+def potentialNoRelocation(configNos, tankerCovers, heliCovers, updateBases,
+                          configsP, baseConfigsPossible, expFiresComp, pw,
+                          time, lookahead, maxFire, expectedP, configurations,
+                          aircraftAssignments, resourceTypes, thread_id):
+
+    global noBases
+    global noPatches
+    global noAircraft
+
+    stateVal = 0
+
+    baseTankersE = cuda.local.array(noBases, dtype=int32)
+    baseHelisE = cuda.local.array(noBases, dtype=int32)
+    weightsP = cuda.local.array((noPatches, noConfP), dtype=float32)
+
+    for base in range(noBases):
+        baseTankersE[base] = 0
+        baseHelisE[base] = 0
+
+    for resource in range(noAircraft):
+        for base in range(noBases):
+            if aircraftAssignments[thread_id][time][resource][0] == base + 1:
+                if int(resourceTypes[resource]) == 0:
+                    baseTankersE[base] += 1
+                elif int(resourceTypes[resource]) == 1:
+                    baseHelisE[base] += 1
+
+    # We assume that aircraft can attend to any fire. If this doesn't work, we
+    # will consider a 20 minute max distance to see how well staying works vs
+    # relocating to patches.
+    for patch in range(noPatches):
+        componentNos(configNos, tankerCovers, heliCovers, baseTankersE,
+                     baseHelisE, updateBases, patch, math.inf, False)
+
+        getAllConfigsSorted(configurations, configsP, baseConfigsPossible,
+                            expectedP[patch], configNos)
+
+        stateVal += expectedDamage(
+                baseConfigsPossible, configurations, tankerCovers, heliCovers,
+                baseTankersE, baseHelisE, expectedP, expFiresComp, weightsP,
+                patch, time, lookahead, pw, maxFire)
+
+    return stateVal
+
+
+@cuda.jit(device=True)
+def existingNoSuppression(expectedE, noFires):
+    stateVal = 0
+
+    for fire in range(noFires):
+        stateVal += expectedE[fire, 0]
+
+    return stateVal
+
+
+@cuda.jit(device=True)
+def potentialRelocate2Existing():
+    pass
+
+
+@cuda.jit(device=True)
+def existingRelocate2Existing():
+    pass
+
+
+@cuda.jit(device=True)
+def potentialRelocate2Potential():
+    pass
+
+
+def unusedStates():
 #    """ Now save the expected damages for this assignment """
 #    stateVal = 0
 #    for fire in range(fires[thread_id][time]):
@@ -2240,7 +2281,8 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 lookahead, stepSize, accumulatedDamages, accumulatedHours,
                 fires, fireSizes, fireLocations, firePatches,
                 aircraftLocations, aircraftAssignments, controls, regressionX,
-                regressionY, states, costs2Go, lambdas, method, noCont):
+                regressionY, rSquared, tStatistic, pValue, states, costs2Go,
+                lambdas, method, noCont):
 
     """ Set global values """
     global noBases
@@ -2317,7 +2359,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
         for control in range(noControls):
             """ Compute the regression using the relevant states and
             costs2Go """
-            xs = states[:][tt][1:6]
+            xs = states[:][tt][0:3]
             ys = costs2Go[:][tt]
 
 #            reg = smooth.NonParamRegression(
@@ -2329,24 +2371,17 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             tempGrid = numpy.meshgrid(
                 numpy.linspace(min(xs[:, 0]), max(xs[:, 0], 50)),
                 numpy.linspace(min(xs[:, 1]), max(xs[:, 1], 50)),
-                numpy.linspace(min(xs[:, 2]), max(xs[:, 2], 50)),
-                numpy.linspace(min(xs[:, 3]), max(xs[:, 3], 50)),
-                numpy.linspace(min(xs[:, 3]), max(xs[:, 4], 50)),
-                numpy.linspace(min(xs[:, 3]), max(xs[:, 5], 50)))
+                numpy.linspace(min(xs[:, 2]), max(xs[:, 2], 50)))
 
             regressionY[tt][control] = clf.predict(
                 numpy.array([tempGrid[0].flatten(),
                              tempGrid[1].flatten(),
-                             tempGrid[2].flatten(),
-                             tempGrid[3].flatten()]).transpose())
+                             tempGrid[2].flatten()]).transpose())
 
             regressionX[tt][control] = numpy.array([
                 numpy.linspace(min(xs[0]), max(xs[0], 50)),
                 numpy.linspace(min(xs[1]), max(xs[1], 50)),
-                numpy.linspace(min(xs[2]), max(xs[2], 50)),
-                numpy.linspace(min(xs[3]), max(xs[3], 50)),
-                numpy.linspace(min(xs[4]), max(xs[4], 50)),
-                numpy.linspace(min(xs[5]), max(xs[5], 50))])
+                numpy.linspace(min(xs[2]), max(xs[2], 50))])
 
             """ Push the regressions back onto the GPU for reuse in the forward
             path recomputations """
