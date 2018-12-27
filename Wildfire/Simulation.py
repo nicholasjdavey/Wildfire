@@ -54,6 +54,7 @@ class Simulation():
         self.rSquared = None
         self.tStatistic = None
         self.pVal = None
+        self.regModel = None
         Simulation.simulations += 1
 
     def getModel(self):
@@ -187,6 +188,12 @@ class Simulation():
 
     def setPVal(self, p):
         self.pVal
+
+    def getRegModel(self):
+        return self.regModel
+
+    def setRegModel(self, r):
+        self.regModel = r
 
     def simulate(self):
 
@@ -997,7 +1004,7 @@ class Simulation():
                                for tt in range(self.model.getTotalSteps() + 1
                                                + self.model.getLookahead())])
 
-    def simulateMPC(self, static=False, rovX=None, rovY=None):
+    def simulateMPC(self, static=False, rov=False):
         # Computes a Model Predictive Control approach for reallocating
         # aerial resources for fighting fires. The input conditional
         # probabilities are provided as inputs to the program. We just run the
@@ -1208,9 +1215,8 @@ class Simulation():
 
                             # Use the current states to interpolate the
                             # data representing the expectations
-                            currC2G = self.interpolateC2G(
-                                    rovX, rovY, [s1, s2, s3],
-                                    c, tt)
+                            currC2G = self.regModel[ii][tt][c].predict(
+                                    numpy.array([s1, s2, s3]))
 
                             if currC2G < bestC2G:
                                 bestC2G = currC2G
@@ -2940,6 +2946,7 @@ class Simulation():
         self.rSquared = [None]*samplePaths
         self.tStatistic = [None]*samplePaths
         self.pVal = [None]*samplePaths
+        self.regModel = [None]*samplePaths
 
         for ii in range(samplePaths):
             randCont = numpy.random.randint(6, size=[mcPaths, totalSteps])
@@ -2947,6 +2954,7 @@ class Simulation():
                                       dtype=numpy.float32)
             regressionY = numpy.zeros([totalSteps, noControls, 50, 50, 50],
                                       dtype=numpy.float32)
+            regModels = [[None] * noControls] * totalSteps
             rSquareds = numpy.zeros([totalSteps, noControls])
             tStatistics = numpy.zeros([totalSteps, noControls, 3])
             pVals = numpy.zeros([totalSteps, noControls, 3])
@@ -3076,8 +3084,8 @@ class Simulation():
                     accumulatedDamages, accumulatedHours, noFires, fireSizes,
                     fireLocations, firePatches, aircraftLocations,
                     aircraftAssignments, randCont, regressionX, regressionY,
-                    rSquareds, tStatistics, pVals, states, costs2go, lambdas,
-                    method, noControls)
+                    regModels, rSquareds, tStatistics, pVals, states, costs2go,
+                    lambdas, method, noControls)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
 
@@ -3091,13 +3099,14 @@ class Simulation():
             self.rSquared[ii] = rSquareds
             self.tStatistic[ii] = tStatistics
             self.pVal[ii] = pVals
+            self.regModel[ii] = regModels
             self.writeOutROV(ii)
             self.writeOutStatistics(ii)
 
         """////////////////////// MODEL VALIDATION /////////////////////"""
         """ Just run MPC code but with the ROV regressions as input """
         sys.exit()
-        self.simulateMPC(static=False, rovX=regressionX, rovY=regressionY)
+        self.simulateMPC(static=False, rov=True)
 
         self.writeOutSummary()
 

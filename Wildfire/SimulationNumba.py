@@ -2281,8 +2281,8 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 lookahead, stepSize, accumulatedDamages, accumulatedHours,
                 fires, fireSizes, fireLocations, firePatches,
                 aircraftLocations, aircraftAssignments, controls, regressionX,
-                regressionY, rSquared, tStatistic, pValue, states, costs2Go,
-                lambdas, method, noCont):
+                regressionY, regModels, rSquared, tStatistic, pValue, states,
+                costs2Go, lambdas, method, noCont):
 
     """ Set global values """
     global noBases
@@ -2367,6 +2367,8 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
 #            reg.fit()
             clf = KernelRidge(kernel='rbf', gamma=0.1, alpha=0.1)
             clf.fit(xs, ys)
+            rSquared[tt, control] = clf.score(xs, ys)
+            regModels[tt, control] = clf
 
             tempGrid = numpy.meshgrid(
                 numpy.linspace(min(xs[:, 0]), max(xs[:, 0], 50)),
