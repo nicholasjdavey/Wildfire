@@ -97,12 +97,14 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
 #                for patch in range(16):
 #                    expectedTemp[0, tt, patch] = tt + 1
 
-            saveState(aircraftAssignments, resourceTypes,
-                      resourceSpeeds, maxHours, aircraftLocations,
-                      accumulatedHours, patchLocations, fires,
-                      fireSizes, fireLocations, expectedE, expectedP,
-                      states, configurations, selectedE, weightsP,
-                      tt - start, lookahead, path)
+            saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
+                      maxHours, tankerDists, heliDists, aircraftLocations,
+                      aircraftAssignments, accumulatedHours, patchLocations,
+                      baseLocations, ffdiRanges, fires, fireSizes,
+                      fireLocations, expectedE, expectedP, expFiresComp,
+                      configurations, configsE, configsP, baseConfigsMax,
+                      fireConfigsMax, selectedE, weightsP, states, lambdas,
+                      thresholds, method, stepSize, tt, lookahead, path)
 
             if optimal:
                 # Compute the optimal control using regressions.
@@ -148,7 +150,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                            fireConfigsMax, thresholds, expFiresComp, expectedE,
                            expectedP, selectedE, weightsP, tt - start,
                            stepSize, lookahead, path, bestControl, lambdas,
-                           method, expectedTemp)
+                           method, expectedTemp, 0)
 
             # SimulateNextStep
             simulateNextStep(aircraftAssignments, resourceTypes,
@@ -587,7 +589,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                    configsE, configsP, baseConfigsMax, fireConfigsMax,
                    thresholds, expFiresComp, expectedE, expectedP, selectedE,
                    weightsP, time, stepSize, lookahead, thread_id, control,
-                   lambdas, method, expectedTemp):
+                   lambdas, method, expectedTemp, dummy):
 
     """ This is a simple fast heuristic for approximately relocating the
     aircraft. An optimal algorithm would be too slow and may not be
@@ -640,18 +642,45 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
         aircraftAssignments[thread_id][time+1][resource][1] = 0
 
     """ Threshold distances """
-    if method == 1:
-        # Custom thresholds for relocation distances
-        fw = 1
-        pw = 1
-        maxFire = lambdas[control][0]
-        maxBase = lambdas[control][1]
-    elif method == 2:
-        # Weighting between Fires and Potential and relocation
-        fw = lambdas[control][0]
-        pw = 1 - lambdas[control][0]
-        maxFire = lambdas[control][1]
-        maxBase = lambdas[control][1]
+    if dummy == 0:
+        if method == 1:
+            # Custom thresholds for relocation distances
+            fw = 1
+            pw = 1
+            maxFire = lambdas[control][0]
+            maxBase = lambdas[control][1]
+        elif method == 2:
+            # Weighting between Fires and Potential and relocation
+            fw = lambdas[control][0]
+            pw = 1 - lambdas[control][0]
+            maxFire = lambdas[control][1]
+            maxBase = lambdas[control][1]
+
+    elif dummy == 1:
+        # Assign only to cover existing fires
+        if method == 1:
+            fw = max(lambdas[:][0])
+            fw = max(fw, 0.9)
+            pw = 1 - fw
+        else:
+            fw = 0.9
+            pw = 0.1
+
+        maxFire = math.inf
+        maxBase = math.inf
+
+    elif dummy == 2:
+        # Assign only to cover potential fires
+        if method == 1:
+            fw = min(lambdas[:][0])
+            fw = min(fw, 0.1)
+            pw = 1 - fw
+        else:
+            fw = 0.9
+            pw = 0.1
+
+        maxFire = math.inf
+        maxBase = math.inf
 
     """ Whether patches are covered within threshold time for different
     aircraft types """
@@ -2061,18 +2090,29 @@ def potentialWeight(configurations, tankerCovers, heliCovers, baseTankersE,
 
 @cuda.jit(device=True)
 def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
-              aircraftLocations, accumulatedHours, patchLocations, fires,
-              fireSizes, fireLocations, expectedE, expectedP, states,
-              configurations, selectedE, weightsP, time, lookahead, thread_id):
+              tankerCovers, heliCovers, aircraftLocations, aircraftAssignments,
+              accumulatedHours, patchLocations, baseLocations, ffdiRanges,
+              fires, fireSizes, fireLocations, expectedE, expectedP,
+              expFiresComp, configurations, configsE, configsP, baseConfigsMax,
+              fireConfigsMax, selectedE, weightsP, states, lambdas, thresholds,
+              method, stepSize, time, lookahead, thread_id):
 
     global noAircraft
     global noPatches
     global noConfP
+    statesTemp = cuda.local.array(4)
+    updateBases = cuda.local.array(noBases, dtype=b1)
+    baseConfigsPossible = cuda.local.array(noConfigs, dtype=int32)
+    configNos = cuda.local.array(4, dtype=int32)
 
     """ STATES - USED """
     """ 1. Expected potential damage (no relocation, no existing) """
     """ Or weighted cover without relocation """
-    states[thread_id, time, 0] = potentialNoRelocation()
+    states[thread_id, time, 0] = potentialNoRelocation(
+            configNos, tankerCovers, heliCovers, resourceTypes, updateBases,
+            configurations, configsP, baseConfigsPossible, expFiresComp,
+            expectedP, aircraftAssignments, math.inf, time, lookahead,
+            thread_id)
 
     """ 2. Expected existing damage (no suppression) """
     states[thread_id, time, 1] = existingNoSuppression(expectedE, fires[
@@ -2082,30 +2122,50 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
     """ Relocate as much to existing as needed. Remainder cover potential. """
     """ Or weighted cover with relocation to existing """
     """ Or weighted cover of potential with relocation to existing """
-    states[thread_id, time, 2] = potentialRelocate2Existing()
+    statesRelocate(
+        resourceAssignments, resourceSpeeds, resourceTypes, maxHours,
+        aircraftLocations, accumulatedHours, baseLocations, tankerCovers,
+        heliCovers, fires, fireSizes, fireLocations, ffdiRanges, configNos,
+        configurations, configsE, configsP, baseConfigsMax, fireConfigsMax,
+        thresholds, expFiresComp, expectedE, expectedP, updateBases,
+        baseConfigsPossible, selectedE, weightsP, time, stepSize, lookahead,
+        thread_id, lambdas, method, 0, math.inf, statesTemp)
+
+    states[thread_id, time, 2] = statesTemp[0]
 
     """ STATES - UNUSED/INFORMATION """
     """ 4. Expected existing damage (relocate to existing) (NOT USED YET) """
-    states[thread_id, time, 3] = existingRelocate2Existing()
+    states[thread_id, time, 3] = statesTemp[1]
 
-    """ 5. Expected potential damage (relocate to potential) (NOT USED YET) """
-    """ Relocate as much to potential as needed. Remainder cover existing. """
-    states[thread_id, time, 4] = potentialRelocate2Potential()
-
-    """ 6. Remaining hours: Simple """
-    stateVal = 0
-    for resource in range(noAircraft):
-        stateVal += maxHours[resource] - accumulatedHours[thread_id, time,
-                                                          resource]
-
-    states[thread_id, time, 5] = stateVal
+#    """ 5. Expected potential damage (relocate to potential) (NOT USED YET) """
+#    """ Relocate as much to potential as needed. Remainder cover existing. """
+#    statesRelocate(
+#        resourceAssignments, resourceSpeeds, resourceTypes, maxHours,
+#        aircraftLocations, accumulatedHours, baseLocations, tankerCovers,
+#        heliCovers, fires, fireSizes, fireLocations, ffdiRanges, configNos,
+#        configurations, configsE, configsP, baseConfigsMax, fireConfigsMax,
+#        thresholds, expFiresComp, expectedE, expectedP, updateBases,
+#        baseConfigsPossible, selectedE, weightsP, time, stepSize, lookahead,
+#        thread_id, lambdas, method, expectedTemp, 1, 1, math.inf,
+#        statesTemp)
+#
+#    states[thread_id, time, 4] = statesTemp[2]
+#
+#    """ 6. Remaining hours: Simple """
+#    stateVal = 0
+#    for resource in range(noAircraft):
+#        stateVal += maxHours[resource] - accumulatedHours[thread_id, time,
+#                                                          resource]
+#
+#    states[thread_id, time, 5] = stateVal
 
 
 @cuda.jit(device=True)
-def potentialNoRelocation(configNos, tankerCovers, heliCovers, updateBases,
-                          configsP, baseConfigsPossible, expFiresComp, pw,
-                          time, lookahead, maxFire, expectedP, configurations,
-                          aircraftAssignments, resourceTypes, thread_id):
+def potentialNoRelocation(configNos, tankerCovers, heliCovers, resourceTypes,
+                          updateBases, configurations, configsP,
+                          baseConfigsPossible, expFiresComp, expectedP,
+                          aircraftAssignments, maxFire, time, lookahead,
+                          thread_id):
 
     global noBases
     global noPatches
@@ -2142,7 +2202,7 @@ def potentialNoRelocation(configNos, tankerCovers, heliCovers, updateBases,
         stateVal += expectedDamage(
                 baseConfigsPossible, configurations, tankerCovers, heliCovers,
                 baseTankersE, baseHelisE, expectedP, expFiresComp, weightsP,
-                patch, time, lookahead, pw, maxFire)
+                patch, time, lookahead, 1.0, maxFire)
 
     return stateVal
 
@@ -2158,18 +2218,75 @@ def existingNoSuppression(expectedE, noFires):
 
 
 @cuda.jit(device=True)
-def potentialRelocate2Existing():
-    pass
+def statesRelocate(aircraftAssignments, resourceSpeeds, resourceTypes,
+                   maxHours, aircraftLocations, accumulatedHours,
+                   baseLocations, tankerCovers, heliCovers, fires, fireSizes,
+                   fireLocations, ffdiRanges, configNos, configurations,
+                   configsE, configsP, baseConfigsMax, fireConfigsMax,
+                   thresholds, expFiresComp, expectedE, expectedP, updateBases,
+                   baseConfigsPossible, selectedE, weightsP, time, stepSize,
+                   lookahead, thread_id, lambdas, method, expectedTemp, dummy,
+                   maxFire, returnedStates):
 
+    # Perform a dummy assignment for the next period, ignoring potential fires
+    assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
+                   maxHours, aircraftLocations, accumulatedHours,
+                   baseLocations, tankerCovers, heliCovers, fires, fireSizes,
+                   fireLocations, ffdiRanges, configurations, configsE,
+                   configsP, baseConfigsMax, fireConfigsMax, thresholds,
+                   expFiresComp, expectedE, expectedP, selectedE, weightsP,
+                   time, stepSize, lookahead, thread_id, 0, lambdas,
+                   method, expectedTemp, dummy)
 
-@cuda.jit(device=True)
-def existingRelocate2Existing():
-    pass
+    # Find out what potential cover will be with these locations
+    global noBases
+    global noPatches
+    global noAircraft
 
+    stateVal = 0
 
-@cuda.jit(device=True)
-def potentialRelocate2Potential():
-    pass
+    baseTankersE = cuda.local.array(noBases, dtype=int32)
+    baseHelisE = cuda.local.array(noBases, dtype=int32)
+    weightsP = cuda.local.array((noPatches, noConfP), dtype=float32)
+
+    for base in range(noBases):
+        baseTankersE[base] = 0
+        baseHelisE[base] = 0
+
+    for resource in range(noAircraft):
+        for base in range(noBases):
+            if aircraftAssignments[thread_id][time+1][resource][0] == base + 1:
+                if int(resourceTypes[resource]) == 0:
+                    baseTankersE[base] += 1
+                elif int(resourceTypes[resource]) == 1:
+                    baseHelisE[base] += 1
+
+    # POTENTIAL FIRE COMPONENT
+    # We assume that aircraft can attend to any fire. If this doesn't work, we
+    # will consider a 20 minute max distance to see how well staying works vs
+    # relocating to patches.
+    for patch in range(noPatches):
+        componentNos(configNos, tankerCovers, heliCovers, baseTankersE,
+                     baseHelisE, updateBases, patch, math.inf, False)
+
+        getAllConfigsSorted(configurations, configsP, baseConfigsPossible,
+                            expectedP[patch], configNos)
+
+        stateVal += expectedDamage(
+                baseConfigsPossible, configurations, tankerCovers, heliCovers,
+                baseTankersE, baseHelisE, expectedP, expFiresComp, weightsP,
+                patch, time, lookahead, 1.0, maxFire)
+
+    returnedStates[0] = stateVal
+
+    # EXISTING FIRE COMPONENT
+    stateVal = 0
+
+    for fire in range(int(fires[thread_id][time])):
+        config = int(selectedE[fire])
+        stateVal += expectedE[fire][0] - expectedE[fire][config]
+
+    returnedStates[1] = stateVal
 
 
 def unusedStates():
