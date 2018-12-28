@@ -1194,33 +1194,37 @@ class Simulation():
                     # Assign aircraft using LP
                     # If this is for the static case, only fire assignments are
                     # considered
-                    if self.model.getAlgo() == 2:
+                    if self.model.getAlgo() in [2, 3]:
                         # This is the ROV case so we need to use the
                         # regressions provided earlier
                         bestControl = 0
                         bestC2G = math.inf
 
-                        for c in range(noControls):
-                            [patchConfigs, fireConfigs] = (
-                                self.assignAircraft(
-                                        assignmentsPath, expDamageExist,
-                                        expDamagePoten, activeFires,
-                                        resourcesPath, expectedFFDI, tt + 1,
-                                        c, method))
+                        [s1, s2, s3] = self.computeState(
+                            assignmentsPath, resourcesPath, expDamageExist,
+                            expDamagePoten, activeFires, patchConfigs,
+                            fireConfigs, expectedFFDI, accumulatedHours,
+                            method, tt + 1)
 
-                            [s1, s2, s3] = self.computeState(
-                                expDamageExist, expDamagePoten,
-                                patchConfigs, fireConfigs,
-                                accumulatedHours, tt + 1)
+                        if self.model.getAlgo() == 2:
+                            for c in range(noControls):
+                                # Use the current states to interpolate the
+                                # data representing the expectations
+                                currC2G = self.regModel[ii][tt][c].predict(
+                                        numpy.array([s1, s2, s3]))
 
-                            # Use the current states to interpolate the
-                            # data representing the expectations
-                            currC2G = self.regModel[ii][tt][c].predict(
-                                    numpy.array([s1, s2, s3]))
+                                if currC2G < bestC2G:
+                                    bestC2G = currC2G
+                                    bestControl = c
+                        else:
+                            # Dynamic MPC
+                            pass
 
-                            if currC2G < bestC2G:
-                                bestC2G = currC2G
-                                bestControl = c
+                    elif self.model.getAlgo() == 3:
+                        # This is the dynamic MPC approach where the potential
+                        # damage for each control at each time step is computed
+                        # using the Monte Carlo simulations on the GPU
+                        pass
 
                     else:
                         bestControl = 0
@@ -1289,7 +1293,7 @@ class Simulation():
 
     def assignAircraft(self, assignmentsPath, expDamageExist,
                        expDamagePoten, activeFires, resourcesPath, ffdiPath,
-                       timeStep, control=0, method=1, static=False):
+                       timeStep, control=0, method=1, static=False, dummy=0):
 
         """First compute the parts common to all relocation programs"""
         """ First copy the relocation model """
@@ -1348,11 +1352,11 @@ class Simulation():
         prog = switch.get(lpModel)
         return prog(assignmentsPath, expDamageExist, expDamagePoten,
                     activeFires, resourcesPath, ffdiPath, timeStep, control,
-                    static, tempModel, method)
+                    static, tempModel, method, dummy)
 
     def assignMaxCover(self, assignmentsPath, expDamageExist, expDamagePoten,
                        activeFires, resourcesPath, ffdiPath, timeStep, control,
-                       static, tempModel, method):
+                       static, tempModel, method, dummy=0):
 
         """ First copy the relocation model """
         bases = self.model.getRegion().getStations()[0]
@@ -1652,7 +1656,7 @@ class Simulation():
 
     def assignPMedian(self, assignmentsPath, expDamageExist, expDamagePoten,
                       activeFires, resourcesPath, ffdiPath, timeStep, control,
-                      static, tempModel, method):
+                      static, tempModel, method, dummy=0):
 
         """////////////////////////////////////////////////////////////////////
         /////////////////////////// DECISION VARIABLES ////////////////////////
@@ -1893,7 +1897,8 @@ class Simulation():
 
     def assignAssignment1(self, assignmentsPath, expDamageExist,
                           expDamagePoten, activeFires, resourcesPath, ffdiPath,
-                          timeStep, control, static, tempModel, method):
+                          timeStep, control, static, tempModel, method,
+                          dummy=0):
 
         """ First copy the relocation model """
         bases = self.model.getRegion().getStations()[0]
@@ -2240,7 +2245,8 @@ class Simulation():
 
     def assignAssignment2(self, assignmentsPath, expDamageExist,
                           expDamagePoten, activeFires, resourcesPath, ffdiPath,
-                          timeStep, control, static, tempModel, method):
+                          timeStep, control, static, tempModel, method,
+                          dummy=0):
 
         """ First copy the relocation model """
         bases = self.model.getRegion().getStations()[0]
@@ -2259,16 +2265,69 @@ class Simulation():
         lenC = len(tempModel.C)
 
         """ Thresholds """
-        if method == 1:
-            maxB = tempModel.lambdas[control][1]
-            maxF = tempModel.lambdas[control][0]
-            fw = 1
-            bw = 1
-        elif method == 2:
-            fw = tempModel.lambdas[control][0]
-            bw = 1 - tempModel.lambdas[control][1]
-            maxB = tempModel.lambdas[control][1]
+        if dummy == 0:
+            # Chosen assignments
+            if method == 1:
+                maxB = tempModel.lambdas[control][1]
+                maxF = tempModel.lambdas[control][0]
+                fw = 1
+                bw = 1
+            elif method == 2:
+                fw = tempModel.lambdas[control][0]
+                bw = 1 - tempModel.lambdas[control][1]
+                maxB = tempModel.lambdas[control][1]
+                maxF = math.inf
+
+        elif dummy == 1:
+            # Assign only to cover existing fires (state vals 3 + 4)
+            if method == 1:
+                fw = max(tempModel.lambdas[:][0])
+                fw = max(fw, 0.9)
+            else:
+                fw = 0.9
+
+            bw = 1 - fw
             maxF = math.inf
+            maxB = math.inf
+
+        elif dummy == 2:
+            # Assign only to cover potential fires (state val 5)
+            fw = 0
+            bw = 1
+            maxF = math.inf
+            maxB = math.inf
+
+        elif dummy == 3:
+            # We leave the aircraft at their current base assignments and
+            # determine patch covers from there. This requires fixing
+            # base assignment variables to what they already are through the
+            # addition of a few more constraints
+            fw = 0
+            bw = 1
+            maxF = math.inf
+            maxB = math.inf
+
+            # Set assignments
+            lenB - len(tempModel.B)
+            start = tempModel.decisionVarsIdxStarts["X_RB"]
+
+            for r in range(len(tempModel.R)):
+                for b in range(len(tempModel.B)):
+                    tempModel.variables.set_lower_bounds(
+                        start + r*lenB + b, 0.0)
+                    tempModel.variables.set_upper_bounds(
+                        start + r*lenB + b, 0.0)
+
+                    if assignmentsPath[timeStep][r][0] == b:
+                        tempModel.variables.set_lower_bounds(
+                            start + r*lenB + b, 1.0)
+                        tempModel.variables.set_upper_bounds(
+                            start + r*lenB + b, 1.0)
+                    else:
+                        tempModel.variables.set_lower_bounds(
+                            start + r*lenB + b, 0.0)
+                        tempModel.variables.set_upper_bounds(
+                            start + r*lenB + b, 0.0)
 
         """ Set the fire details for the sets and decision variables """
         tempModel.M = [ii for ii in range(len(activeFires))]
@@ -4116,22 +4175,71 @@ class Simulation():
 
         return [ffdiAgg, severityAgg]
 
-    def computeState(self, expDamageExist, expDamagePoten, patchConfigs,
-                     aircraftHours, fireConfigs, time):
+    def computeState(self, assignmentsPath, resourcesPath, expDamageExist,
+                     expDamagePoten, activeFires, patchConfigs, fireConfigs,
+                     expectedFFDI, aircraftHours, method, time):
 
-        # Aircraft hours state
-        s1 = sum([self.relocationModel.maxHours[r] - aircraftHours[time, r]
-                  for r in self.relocationModel.R])
+        """ STATES - USED """
+        """ 1. Expected potential damage (no relocation, no existing) """
+        """ Or weighted cover without relocation """
+        [patchConfigs, fireConfigs] = self.assignAircraft(
+                assignmentsPath, expDamageExist, expDamagePoten, activeFires,
+                resourcesPath, expectedFFDI, time, 1, method, False, 1)
 
-        # Short term expected damage (Potential)
-        s2 = sum([sum([
-                patchConfigs[time][0][n, k] * expDamagePoten[n, k]
-                for k in self.relocationModel.KP])
-            for n in len(self.relocationModel.N)])
+        s1 = 0
 
-        # Short term expected damage (Existing)
-        s3 = sum([expDamageExist[m, fireConfigs[m]]
-                  for m in self.relocationModel.M])
+        for patch in range(len(self.model.getRegion().getPatches())):
+            for config in range(patchConfigs.shape[1]):
+                s1 += (patchConfigs[patch][config]
+                       * expDamagePoten[patch][config])
+
+        """ 2. Expected existing damage (no suppression) """
+        s2 = 0
+
+        for fire in range(len(activeFires)):
+            s2 += expDamageExist[fire][0]
+
+        """ 3. Expected potential  (relocate to existing, no existing) """
+        """ Relocate to existing. Remainder cover potential. """
+        """ Or weighted cover with relocation to existing """
+        """ Or weighted cover of potential with relocation to existing """
+        [patchConfigs, fireConfigs] = self.assignAircraft(
+                assignmentsPath, expDamageExist, expDamagePoten, activeFires,
+                resourcesPath, expectedFFDI, time, 1, method, False, 2)
+
+        """ STATES - UNUSED/INFORMATION """
+        """ 4. Expected existing (relocate to existing) (NOT USED YET) """
+        s4 = 0
+
+        for fire in range(len(activeFires)):
+            s4 += expDamageExist[fire][fireConfigs[fire]]
+
+        # Now check the expected damage from potential fires if expected fires
+        # are ignored.
+        [patchConfigs, fireConfigs] = self.assignAircraft(
+                assignmentsPath, expDamageExist, expDamagePoten, activeFires,
+                resourcesPath, expectedFFDI, time+1, 1, method, False, 3)
+
+        s3 = 0
+
+        for patch in range(len(self.model.getRegion().getPatches())):
+            for config in range(patchConfigs.shape[1]):
+                s3 += (patchConfigs[patch][config]
+                       * expDamagePoten[patch][config])
+
+#        # Aircraft hours state
+#        s1 = sum([self.relocationModel.maxHours[r] - aircraftHours[time, r]
+#                  for r in self.relocationModel.R])
+#
+#        # Short term expected damage (Potential)
+#        s2 = sum([sum([
+#                patchConfigs[time][0][n, k] * expDamagePoten[n, k]
+#                for k in self.relocationModel.KP])
+#            for n in len(self.relocationModel.N)])
+#
+#        # Short term expected damage (Existing)
+#        s3 = sum([expDamageExist[m, fireConfigs[m]]
+#                  for m in self.relocationModel.M])
 
         return [s1, s2, s3]
 

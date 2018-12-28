@@ -661,24 +661,17 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
         if method == 1:
             fw = max(lambdas[:][0])
             fw = max(fw, 0.9)
-            pw = 1 - fw
         else:
             fw = 0.9
-            pw = 0.1
 
+        pw = 1 - fw
         maxFire = math.inf
         maxBase = math.inf
 
     elif dummy == 2:
         # Assign only to cover potential fires
-        if method == 1:
-            fw = min(lambdas[:][0])
-            fw = min(fw, 0.1)
-            pw = 1 - fw
-        else:
-            fw = 0.9
-            pw = 0.1
-
+        fw= 0
+        pw = 1 - fw
         maxFire = math.inf
         maxBase = math.inf
 
@@ -2118,10 +2111,6 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
     states[thread_id, time, 1] = existingNoSuppression(expectedE, fires[
         thread_id, time])
 
-    """ 3. Expected potential damage (relocate to existing, no existing) """
-    """ Relocate as much to existing as needed. Remainder cover potential. """
-    """ Or weighted cover with relocation to existing """
-    """ Or weighted cover of potential with relocation to existing """
     statesRelocate(
         resourceAssignments, resourceSpeeds, resourceTypes, maxHours,
         aircraftLocations, accumulatedHours, baseLocations, tankerCovers,
@@ -2129,8 +2118,12 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
         configurations, configsE, configsP, baseConfigsMax, fireConfigsMax,
         thresholds, expFiresComp, expectedE, expectedP, updateBases,
         baseConfigsPossible, selectedE, weightsP, time, stepSize, lookahead,
-        thread_id, lambdas, method, 0, math.inf, statesTemp)
+        thread_id, lambdas, method, 1, math.inf, statesTemp)
 
+    """ 3. Expected potential damage (relocate to existing, no existing) """
+    """ Relocate as much to existing as needed. Remainder cover potential. """
+    """ Or weighted cover with relocation to existing """
+    """ Or weighted cover of potential with relocation to existing """
     states[thread_id, time, 2] = statesTemp[0]
 
     """ STATES - UNUSED/INFORMATION """
@@ -2146,10 +2139,9 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
 #        configurations, configsE, configsP, baseConfigsMax, fireConfigsMax,
 #        thresholds, expFiresComp, expectedE, expectedP, updateBases,
 #        baseConfigsPossible, selectedE, weightsP, time, stepSize, lookahead,
-#        thread_id, lambdas, method, expectedTemp, 1, 1, math.inf,
-#        statesTemp)
+#        thread_id, lambdas, method, 2, math.inf, statesTemp)
 #
-#    states[thread_id, time, 4] = statesTemp[2]
+#    states[thread_id, time, 4] = statesTemp[0]
 #
 #    """ 6. Remaining hours: Simple """
 #    stateVal = 0
