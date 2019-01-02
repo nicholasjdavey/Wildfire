@@ -5,7 +5,6 @@ Created on Sun Dec 10 23:35:25 2017
 @author: davey
 """
 
-import numpy
 from Station import Station
 
 

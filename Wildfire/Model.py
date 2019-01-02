@@ -9,6 +9,7 @@ import numpy
 import math
 import csv
 import copy
+import sys
 import geopandas as gp
 
 from Control import Control
@@ -486,6 +487,11 @@ class Model():
                                           + noVegetations + noControls]
                                  .split(":")[1].strip())
 
+        plotVal = int(contents[88 + noAircraft + noLandcraft
+                               + noVegetations + noControls]
+                               .split(":")[1].strip())
+        self.plot = True if plotVal == 1 else False
+
         self.variableParameters = varParams
 
         # Initialise the simulations
@@ -575,7 +581,7 @@ class Model():
             iterator = 2
             configCount = 1
             while iterator < len(rows):
-                config = [float(rows[iterator][ii]) for ii in range(1, 5)]
+                config = [int(rows[iterator][ii]) for ii in range(1, 5)]
                 self.configurations[configCount] = config
                 configCount += 1
 

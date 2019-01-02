@@ -55,6 +55,7 @@ class Simulation():
         self.tStatistic = None
         self.pVal = None
         self.regModel = None
+        self.dynamicC2G = None
         Simulation.simulations += 1
 
     def getModel(self):
@@ -195,18 +196,26 @@ class Simulation():
     def setRegModel(self, r):
         self.regModel = r
 
+    def getDynamicC2G(self):
+        return self.dynamicC2G
+
+    def setDynamicC2G(self, c):
+        self.dynamicC2G = c
+
     def simulate(self):
 
         switch = {
             0: self.samplePaths,
             1: self.simulateMPC,
             2: self.simulateROV,
-            3: self.simulateMPC
+            3: self.simulateMPC,
+            4: self.simulateMPC,
+            5: self.simulateMPC
             }
 
         algo = self.model.getAlgo()
 
-        if algo == 1 or algo == 3:
+        if not(algo == 0):
             self.buildLPModel()
 
         prog = switch.get(algo)
@@ -320,7 +329,7 @@ class Simulation():
         """ Distances between base B and patch N"""
         cplxMod.d3_BN = {
                 (b, n): self.geoDist(patches[n].getCentroid(),
-                                     bases[b].getCentroid())
+                                     bases[b].getLocation())
                 for b in cplxMod.B
                 for n in cplxMod.N}
 
@@ -1012,15 +1021,128 @@ class Simulation():
         # given input conditions and what the variance around this is.
         region = self.model.getRegion()
         timeSteps = self.model.getTotalSteps()
+        lookahead = self.model.getLookahead()
+        stepSize = self.model.getStepSize()
         patches = len(region.getPatches())
+        bases = len(region.getStations()[0])
+        vegetations = self.model.getRegion().getVegetations()
         resources = region.getResources()
         fires = region.getFires()
+        noControls = len(self.model.getControls())
         configsE = self.model.getUsefulConfigurationsExisting()
         configsP = self.model.getUsefulConfigurationsPotential()
         sampleFFDIs = self.model.getSamplePaths()
         method = self.model.getControlMethod()
 
-        noControls = len(self.model.getControls())
+        # Thresholds/parameters for each control
+        lambdas = numpy.array([[
+                self.model.getControls()[ii].getLambda1(),
+                self.model.getControls()[ii].getLambda2()]
+            for ii in range(len(self.model.getControls()))],
+            dtype=numpy.float32)
+
+        # We need to set up a number of input arrays if we are using GPU-based
+        # methods
+        if self.model.getAlgo() in [4, 5]:
+            mcPaths = self.model.getMCPaths()
+            patchVegetations = region.getVegetation().astype(numpy.int32)
+
+            patchAreas = numpy.array(
+                [patch.getArea() for patch in patches], dtype=numpy.float32)
+
+            patchCentroids = numpy.array(
+                [patch.getCentroid() for patch in patches],
+                dtype=numpy.float32)
+
+            baseLocations = numpy.array(
+                [base.getLocation() for base in range(bases)],
+                dtype=numpy.float32)
+
+            resourceTypes = numpy.array(
+                [0 if type(resource).__name__ == 'Tanker'
+                 else (1 if type(resource).__name__ == 'Heli'
+                 else 2 if type(resource).__name__ == 'Land'
+                 else -1)
+                 for resource in resources],
+                 dtype=numpy.int32)
+
+            resourceSpeeds = numpy.array(
+                [resource.getSpeed() for resource in resources],
+                dtype=numpy.float32)
+
+            maxHours = numpy.array([resource.getMaxDailyHours()
+                                    for resource in resources],
+                                   dtype=numpy.float32)
+
+            configurations = numpy.array(
+                [self.model.configurations[config]
+                 for config in self.model.configurations],
+                 dtype=numpy.int32)
+
+            ffdiRanges = numpy.array(
+                [vegetation.getFFDIRange() for vegetation in vegetations],
+                dtype=numpy.float32)
+
+            rocA2PHMeans = numpy.array(
+                [[vegetation.getROCA2PerHourMean()[config]
+                  for config, _ in self.model.configurations.items()]
+                 for vegetation in vegetations],
+                dtype=numpy.float32)
+
+            rocA2PHSDs = numpy.array(
+                [[vegetation.getROCA2PerHourSD()[config]
+                  for config, _ in self.model.configurations.items()]
+                 for vegetation in vegetations],
+                dtype=numpy.float32)
+
+            occurrence = numpy.array(
+                [[vegetation.getOccurrence()[time]
+                  for time in range(timeSteps + lookahead + 1)]
+                 for vegetation in vegetations],
+                dtype=numpy.float32)
+
+            initSizeM = numpy.array(
+                [[vegetation.getInitialSizeMean()[config]
+                  for config, _ in self.model.configurations.items()]
+                 for vegetation in vegetations],
+                dtype=numpy.float32)
+
+            initSizeSD = numpy.array(
+                [[vegetation.getInitialSizeSD()[config]
+                  for config, _ in self.model.configurations.items()]
+                 for vegetation in vegetations],
+                dtype=numpy.float32)
+
+            initSuccess = numpy.array(
+                [[vegetation.getInitialSuccess()[config]
+                  for config, _ in self.model.configurations.items()]
+                 for vegetation in vegetations],
+                dtype=numpy.float32)
+
+            extSuccess = numpy.array(
+                [[vegetation.getExtendedSuccess()[config]
+                  for config, _ in self.model.configurations.items()]
+                 for vegetation in vegetations],
+                dtype=numpy.float32)
+
+            # This is for the configurations components
+            thresholds = numpy.array([self.model.fireThreshold,
+                                      self.model.baseThreshold],
+                                     dtype=numpy.float32)
+
+            tankerDists = numpy.array(
+                [[self.geoDist(patchCentroids[patch], baseLocations[base])
+                  / resourceSpeeds[0]
+                  for base in range(bases)]
+                 for patch in range(patches)],
+                dtype=numpy.float32)
+
+            heliDists = numpy.array(
+                [[self.geoDist(patchCentroids[patch], baseLocations[base])
+                  / resourceSpeeds[1]
+                  for base in range(bases)]
+                 for patch in range(patches)],
+                dtype=numpy.float32)
 
         """ Initial assignment of aircraft to bases (Col 1) and fires (Col 2)
         A value of zero indicates no assignment (only applicable for fires) """
@@ -1042,6 +1164,9 @@ class Simulation():
         self.realisedFFDIs = [None]*samplePaths
         self.aircraftHours = [None]*samplePaths
 
+        if self.model.getAlgo() in [4, 5]:
+            self.dynamicC2G = [None]*samplePaths
+
         wg = region.getWeatherGenerator()
 
         for ii in range(samplePaths):
@@ -1052,7 +1177,107 @@ class Simulation():
             self.realisedFFDIs[ii] = [None]*runs
             self.aircraftHours[ii] = [None]*runs
 
+            if self.model.getAlgo() in [4, 5]:
+                self.dynamicC2G[ii] = [None]*runs
+
+                # Whether bases are within 20 minutes for each aircraft type
+                tankerCovers = numpy.array(
+                    [[True if tankerDists[patch, base] <= thresholds[0]
+                        else False
+                      for base in range(bases)]
+                     for patch in range(patches)])
+
+                heliCovers = numpy.array(
+                    [[True if heliDists[patch, base] <= thresholds[0]
+                        else False
+                      for base in range(bases)]
+                     for patch in range(patches)])
+
+                # Min no. of aircraft needed for each component of each config
+                baseConfigsMax = numpy.array([0, 0, 0, 0], dtype=numpy.int32)
+                fireConfigsMax = numpy.array([0, 0, 0, 0], dtype=numpy.int32)
+
+                # Maximum number in each component based on allowed configs
+                for c in range(len(configurations)):
+                    if c+1 in configsP:
+                        if configurations[int(c)][0] > baseConfigsMax[0]:
+                            baseConfigsMax[0] += 1
+                        if configurations[int(c)][1] > baseConfigsMax[1]:
+                            baseConfigsMax[1] += 1
+                        if configurations[int(c)][2] > baseConfigsMax[2]:
+                            baseConfigsMax[2] += 1
+                        if configurations[int(c)][3] > baseConfigsMax[3]:
+                            baseConfigsMax[3] += 1
+
+                    if c+1 in configsE:
+                        if configurations[int(c)][0] > fireConfigsMax[0]:
+                            fireConfigsMax[0] += 1
+                        if configurations[int(c)][1] > fireConfigsMax[1]:
+                            fireConfigsMax[1] += 1
+                        if configurations[int(c)][2] > fireConfigsMax[2]:
+                            fireConfigsMax[2] += 1
+                        if configurations[int(c)][3] > fireConfigsMax[3]:
+                            fireConfigsMax[3] += 1
+
+                # Expected fires for each patch at each time step
+                expectedFires = numpy.array([[
+                        numpy.interp(
+                            sampleFFDIs[ii][patch][t],
+                            ffdiRanges[int(patchVegetations[patch])],
+                            occurrence[int(patchVegetations[patch])][t]) *
+                            patchAreas[patch]
+                        for patch in range(patches)]
+                       for t in range(timeSteps + lookahead)])
+
+                # Expected visible fires for each component for each patch at each
+                # time step. As FFDI is assumed deterministic, this array is used
+                # for all paths
+                expFiresComp = numpy.array([[
+                        numpy.matmul(expectedFires[t], tankerCovers),
+                        numpy.matmul(expectedFires[t],
+                                     numpy.logical_not(tankerCovers)),
+                        numpy.matmul(expectedFires[t], heliCovers),
+                        numpy.matmul(expectedFires[t],
+                                     numpy.logical_not(heliCovers))]
+                    for t in range(timeSteps + lookahead)])
+
             for run in range(self.model.getRuns()):
+                if self.model.getAlgo() in [4, 5]:
+                    self.dynamicC2G[ii][run] = numpy.zeros([
+                        self.model.getTotalSteps(), noControls, samplePaths2])
+
+                    aircraftLocations = numpy.zeros([mcPaths, timeSteps + 1,
+                                             len(resources), 2],
+                                             dtype=numpy.float32)
+                    aircraftLocations[:, 0, :] = ([[
+                            aircraft.getLocation()
+                            for aircraft in resources]]
+                            *mcPaths)
+
+                    aircraftAssignments = numpy.zeros([mcPaths, time + 1,
+                                                       len(resources), 2],
+                                                       dtype=numpy.int32)
+                    aircraftAssignments[:, 0, :] = [[
+                            [resource.getBase() + 1, 0]
+                            for resource in resources
+                        ]]*mcPaths
+
+                    fireSizes = numpy.zeros([mcPaths, timeSteps + 1, 500],
+                                    dtype=numpy.float32)
+
+                    fireSizes[:, 0, 0:len(fires)] = [[
+                            fire.getSize() for fire in fires]]*mcPaths
+
+                    fireLocations = numpy.zeros([mcPaths, timeSteps, 500, 2],
+                                        dtype=numpy.float32)
+                    fireLocations[:, 0, 0:len(fires), :] = [[
+                            fire.getLocation() for fire in fires]]
+
+                    firePatches = numpy.zeros([mcPaths, timeSteps, 500],
+                                              dtype=numpy.int32)
+                    firePatches[:, 0, 0:len(fires)] = [[
+                            fire.getPatchID() for fire in fires]]
+
                 damage = 0
                 assignmentsPath = [None]*(timeSteps + 1)
                 assignmentsPath[0] = copy.copy(assignments)
@@ -1194,19 +1419,20 @@ class Simulation():
                     # Assign aircraft using LP
                     # If this is for the static case, only fire assignments are
                     # considered
-                    if self.model.getAlgo() in [2, 3]:
+                    if self.model.getAlgo() in [2, 4, 5]:
                         # This is the ROV case so we need to use the
                         # regressions provided earlier
                         bestControl = 0
                         bestC2G = math.inf
 
-                        [s1, s2, s3] = self.computeState(
-                            assignmentsPath, resourcesPath, expDamageExist,
-                            expDamagePoten, activeFires, patchConfigs,
-                            fireConfigs, expectedFFDI, accumulatedHours,
-                            method, tt + 1)
-
                         if self.model.getAlgo() == 2:
+                            # ROV
+                            [s1, s2, s3] = self.computeState(
+                                assignmentsPath, resourcesPath, expDamageExist,
+                                expDamagePoten, activeFires, patchConfigs,
+                                fireConfigs, expectedFFDI, accumulatedHours,
+                                method, tt + 1)
+
                             for c in range(noControls):
                                 # Use the current states to interpolate the
                                 # data representing the expectations
@@ -1216,15 +1442,69 @@ class Simulation():
                                 if currC2G < bestC2G:
                                     bestC2G = currC2G
                                     bestControl = c
-                        else:
-                            # Dynamic MPC
-                            pass
 
-                    elif self.model.getAlgo() == 3:
-                        # This is the dynamic MPC approach where the potential
-                        # damage for each control at each time step is computed
-                        # using the Monte Carlo simulations on the GPU
-                        pass
+                        elif self.model.getAlgo() in [4, 5]:
+                            # Dynamic MPC approaches
+
+                            if self.model.getAlgo() == 4:
+                                # Dynamic MPC (fixed control)
+                                for c in range(noControls):
+                                    # Use the current states to interpolate the
+                                    # data representing the expectations
+                                    SimulationNumba.simulateMPCDyn(
+                                        mcPaths, sampleFFDIs[ii],
+                                        patchVegetations, patchAreas,
+                                        patchCentroids, baseLocations,
+                                        resourceTypes, resourceSpeeds,
+                                        maxHours, configurations, configsE,
+                                        configsP, thresholds, ffdiRanges,
+                                        rocA2PHMeans, rocA2PHSDs, occurrence,
+                                        initSizeM, initSizeSD, initSuccess,
+                                        extSuccess, tankerDists, heliDists,
+                                        fireConfigsMax, baseConfigsMax,
+                                        expFiresComp, timeSteps, lookahead,
+                                        stepSize, accumulatedDamage,
+                                        accumulatedHours, fires, fireSizes,
+                                        fireLocations, firePatches,
+                                        aircraftLocations, aircraftAssignments,
+                                        noControls, self.dynamicC2G[ii][run],
+                                        lambdas, method, noControls, False, c)
+
+                                    currC2G = self.dynamicC2G[ii][run][:, c].mean()
+
+                                    if currC2G < bestC2G:
+                                        bestC2G = currC2G
+                                        bestControl = c
+
+                            elif self.model.getAlgo() == 5:
+                                # Dynamic MPC (random control)
+                                for c in range(noControls):
+                                    # Use the current states to interpolate the
+                                    # data representing the expectations
+                                    SimulationNumba.simulateMPCDyn(
+                                        mcPaths, sampleFFDIs[ii],
+                                        patchVegetations, patchAreas,
+                                        patchCentroids, baseLocations,
+                                        resourceTypes, resourceSpeeds,
+                                        maxHours, configurations, configsE,
+                                        configsP, thresholds, ffdiRanges,
+                                        rocA2PHMeans, rocA2PHSDs, occurrence,
+                                        initSizeM, initSizeSD, initSuccess,
+                                        extSuccess, tankerDists, heliDists,
+                                        fireConfigsMax, baseConfigsMax,
+                                        expFiresComp, timeSteps, lookahead,
+                                        stepSize, accumulatedDamage,
+                                        accumulatedHours, fires, fireSizes,
+                                        fireLocations, firePatches,
+                                        aircraftLocations, aircraftAssignments,
+                                        noControls, self.dynamicC2G[ii][run],
+                                        lambdas, method, noControls, True, c)
+
+                                    currC2G = self.dynamicC2G[ii][run][:, c].mean()
+
+                                    if currC2G < bestC2G:
+                                        bestC2G = currC2G
+                                        bestControl = c
 
                     else:
                         bestControl = 0
@@ -1344,8 +1624,8 @@ class Simulation():
         switch = {
             1: self.assignMaxCover,
             2: self.assignPMedian,
-            3: self.assignAssignment1,
-            4: self.assignAssignment2
+            3: self.assignAssignment2,
+            4: self.assignAssignment1
         }
 
         lpModel = self.model.getNestedOptMethod()
@@ -2910,7 +3190,6 @@ class Simulation():
                                   dtype=numpy.float32)
 
         method = self.model.getControlMethod()
-
         # Thresholds/parameters for each control
         lambdas = numpy.array([[
                 self.model.getControls()[ii].getLambda1(),
@@ -3775,6 +4054,26 @@ class Simulation():
 
                     writer.writerow(['']*5)
 
+            if self.model.getAlgo() in [4, 5]:
+                """ Monte Carlo path values for dynamic MPC """
+                outputfile = subOutfolder + "DynamicMPCC2G.csv"
+
+                with open(outputfile, 'w', newline='') as csvfile:
+                    writer = csv.writer(csvfile, delimiter=',')
+
+                    writer.writerow(
+                        ['PATH']
+                        + ['T' + str(tt) + '_C' + str(cc+1)
+                           for tt in range(self.model.getTotalSteps())
+                           for cc in range(len(self.model.getControls()))])
+
+                    for pp in range(self.model.getMCPaths()):
+                        writer.writerow(
+                            [str(pp+1)]
+                            + [self.dynamicC2G[sample][run][pp][tt][cc]
+                               for tt in range(self.model.getTotalSteps())
+                               for cc in range(len(self.model.getControls()))])
+
             if plot:
                 """ Accumulated Damage Maps with Active Fires """
                 outputGraphs = pdf.PdfPages(subOutfolder + "Damage_Map.pdf")
@@ -3971,7 +4270,7 @@ class Simulation():
             writer = csv.writer(csvfile, delimiter=',')
 
             rowLists = ([
-                    ['T_' + str(tt) + '_S_' + str(ss) for ss in range(10)]
+                    ['T_' + str(tt) + '_S_' + str(ss+1) for ss in range(10)]
                     + ['T_' + str(tt) + '_C2G'] + ['T_' + str(tt) + '_AD']
                 for tt in range(self.model.getTotalSteps())])
 
