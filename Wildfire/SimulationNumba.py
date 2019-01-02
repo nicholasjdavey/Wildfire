@@ -523,85 +523,85 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
         size = fireSizes[thread_id][time][fire]
         sizeTemp = size
         ffdi = ffdis[patch, time]
-        config = int(selectedE[fire])
+        config = fireConfigs[selectedE[fire]]
         success = interpolate1D(ffdi, ffdi_range, exist_success[config - 1])
 
-        size = growFire(ffdi, config, ffdi_range, roc_a2_ph_mean, roc_a2_ph_sd,
-                        fireSizes[thread_id][time][fire], rng_states,
-                        thread_id, True)
+        size = growFire(ffdi, config - 1, ffdi_range, roc_a2_ph_mean,
+                        roc_a2_ph_sd, fireSizes[thread_id][time][fire],
+                        rng_states, thread_id, True)
 
-#        accumulatedDamage[thread_id][time+1][patch] += size - sizeTemp
+        accumulatedDamage[thread_id][time+1][patch] += size - sizeTemp
 
-#        rand_no = xoroshiro128p_uniform_float32(rng_states, thread_id)
-#
-#        if rand_no > success:
-#            fireSizes[thread_id][time+1][count] = size
-#            fireLocations[thread_id][time + 1][count][0] = (
-#                    fireLocations[thread_id][time][fire][0])
-#            fireLocations[thread_id][time + 1][count][0] = (
-#                    fireLocations[thread_id][time][fire][1])
-#            firePatches[thread_id][time + 1][count] = firePatches[
-#                    thread_id][time][fire]
-#            count += 1
+        rand_no = xoroshiro128p_uniform_float32(rng_states, thread_id)
 
-#    """ New fires in each patch """
-#    for patch in range(len(patchLocations)):
-#        vegetation = int(patchVegetations[patch])
-#        ffdi_range = ffdiRanges[vegetation]
-#        ffdi = ffdis[patch, 0]
-#        initial_size_M = initM[vegetation]
-#        initial_size_SD = initSD[vegetation]
-#        initial_success = init_succ[vegetation]
-#
-#        rand = xoroshiro128p_uniform_float32(rng_states, thread_id)
-#        scale = interpolate1D(ffdi, ffdi_range, occurrence[vegetation][time])
-#        # Bottom up summation for Poisson distribution
-#        cumPr = math.exp(-scale) * scale
-#        factor = 1
-#        newFires = 0
-#
-#        while cumPr < rand:
-#            newFires += 1
-#            cumPr += math.exp(-scale) * scale ** (-(newFires + 1)) / (
-#                    factor * (factor + 1))
-#
-#        if newFires > 0:
-#            sizeMean = 0.0
-#            sizeSD = 0.0
-#            initS = 0.0
-#
-#            for config in range(len(patchConfigs)):
-#                weight = configWeights[patch, config]
-#
-#                if weight > 0.0:
-#                    sizeMean += weight * interpolate1D(
-#                            ffdi, ffdi_range,
-#                            initial_size_M[patchConfigs[config]])
-#                    sizeSD += weight * interpolate1D(
-#                            ffdi, ffdi_range, initial_size_SD[
-#                                    patchConfigs[config]])
-#                    initS += weight * interpolate1D(
-#                            ffdi, ffdi_range, initial_success[
-#                                    patchConfigs[config]])
-#
-#            for fire in range(newFires):
-#                success = True if initS > xoroshiro128p_uniform_float32(
-#                        rng_states, thread_id) else False
-#                randVal = xoroshiro128p_normal_float32(rng_states, thread_id)
-#                size = math.exp(sizeMean + randVal * sizeSD)
-#
-#                accumulatedDamage[thread_id][time+1][patch] += size
-#
-#                if not success:
-#                    fireSizes[thread_id][time+1][count] = size
-#                    fireLocations[thread_id][time + 1][count][0] = (
-#                            patchLocations[patch][0])
-#                    fireLocations[thread_id][time + 1][count][1] = (
-#                            patchLocations[patch][1])
-#                    firePatches[thread_id][time + 1][count] = patch
-#                    count += 1
+        if rand_no > success:
+            fireSizes[thread_id][time+1][count] = size
+            fireLocations[thread_id][time + 1][count][0] = (
+                    fireLocations[thread_id][time][fire][0])
+            fireLocations[thread_id][time + 1][count][0] = (
+                    fireLocations[thread_id][time][fire][1])
+            firePatches[thread_id][time + 1][count] = firePatches[
+                    thread_id][time][fire]
+            count += 1
 
-#    noFires[thread_id][time + 1] = count
+    """ New fires in each patch """
+    for patch in range(len(patchLocations)):
+        vegetation = int(patchVegetations[patch])
+        ffdi_range = ffdiRanges[vegetation]
+        ffdi = ffdis[patch, 0]
+        initial_size_M = initM[vegetation]
+        initial_size_SD = initSD[vegetation]
+        initial_success = init_succ[vegetation]
+
+        rand = xoroshiro128p_uniform_float32(rng_states, thread_id)
+        scale = interpolate1D(ffdi, ffdi_range, occurrence[vegetation][time])
+        # Bottom up summation for Poisson distribution
+        cumPr = math.exp(-scale) * scale
+        factor = 1
+        newFires = 0
+
+        while cumPr < rand:
+            newFires += 1
+            cumPr += math.exp(-scale) * scale ** (-(newFires + 1)) / (
+                    factor * (factor + 1))
+
+        if newFires > 0:
+            sizeMean = 0.0
+            sizeSD = 0.0
+            initS = 0.0
+
+            for config in range(len(patchConfigs)):
+                weight = configWeights[patch, config]
+
+                if weight > 0.0:
+                    sizeMean += weight * interpolate1D(
+                            ffdi, ffdi_range,
+                            initial_size_M[patchConfigs[config] - 1])
+                    sizeSD += weight * interpolate1D(
+                            ffdi, ffdi_range, initial_size_SD[
+                                    patchConfigs[config] -1])
+                    initS += weight * interpolate1D(
+                            ffdi, ffdi_range, initial_success[
+                                    patchConfigs[config] - 1])
+
+            for fire in range(newFires):
+                success = True if initS > xoroshiro128p_uniform_float32(
+                        rng_states, thread_id) else False
+                randVal = xoroshiro128p_normal_float32(rng_states, thread_id)
+                size = math.exp(sizeMean + randVal * sizeSD)
+
+                accumulatedDamage[thread_id][time+1][patch] += size
+
+                if not success:
+                    fireSizes[thread_id][time+1][count] = size
+                    fireLocations[thread_id][time + 1][count][0] = (
+                            patchLocations[patch][0])
+                    fireLocations[thread_id][time + 1][count][1] = (
+                            patchLocations[patch][1])
+                    firePatches[thread_id][time + 1][count] = patch
+                    count += 1
+
+    noFires[thread_id][time + 1] = count
 
 
 @cuda.jit(device=True)
@@ -1883,8 +1883,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
         getAllConfigsSorted(configurations, configsE, baseConfigsPossible,
                             expectedE[fire], configNos)
-        best = baseConfigsPossible[0]
-        selectedE[fire] = best
+        selectedE[fire] = baseConfigsPossible[0]
 
 #    for fire in range(noFires[thread_id][time]):
 #        if thread_id == 0 and time == 0:
@@ -1960,7 +1959,7 @@ def expectedDamage(baseConfigsPossible, configurations, configsP, tankerCovers,
 
     global noConfP
 
-    for config in range(len(baseConfigsPossible)):
+    for config in range(noConfP):
         weightsP[patch, config] = 0.0
 
     expectedDamageBase = 0.0
@@ -1977,7 +1976,7 @@ def expectedDamage(baseConfigsPossible, configurations, configsP, tankerCovers,
                 maxFire, thresholds)
 
         weight_c = min(weight_c, 1 - weight_total)
-        weightsP[patch, config - 1] = weight_c
+        weightsP[patch, baseConfigsPossible[configIdx]] = weight_c
 
         expectedDamageBase += pw * (expectedP[patch,
                                               baseConfigsPossible[configIdx]]
