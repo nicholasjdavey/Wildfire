@@ -75,7 +75,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
         expectedE = cuda.local.array((noFiresMax, noConfE), dtype=float32)
         expectedP = cuda.local.array((noPatches, noConfP), dtype=float32)
         weightsP = cuda.local.array((noPatches, noConfP), dtype=float32)
-        selectedE = cuda.local.array((noFiresMax), dtype=int32)
+        selectedE = cuda.local.array(noFiresMax, dtype=int32)
 
         for tt in range(start, totalSteps):
             expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
@@ -92,11 +92,11 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                     + lookahead + 1), :], initSizeM, initSizeSD, initSuccess,
                     extSuccess, configsP, tt - start, lookahead, expectedP,
                     rng_states, path, False)
-
-#            if path == 0:
-#                for patch in range(16):
-#                    for c in range(len(configsP)):
-#                        expectedTemp[patch, configsP[c]-1] = expectedP[patch, c]
+#
+#            if path == 0 and tt == 0:
+#                for fire in range(7):
+#                    for config in range(noConfE):
+#                        expectedTemp[fire, config] = expectedE[fire, config]
 
 #            if static < 0:
 #                saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
@@ -167,6 +167,11 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                            expectedP, selectedE, weightsP, tt - start,
                            stepSize, lookahead, path, bestControl, lambdas,
                            method, expectedTemp, 0)
+
+
+            if path == 0 and tt == 0:
+                for fire in range(16):
+                    expectedTemp[fire, 0] = selectedE[fire]
 
             # SimulateNextStep
             simulateNextStep(aircraftAssignments, resourceTypes,
@@ -422,8 +427,6 @@ def getAllConfigsSorted(configurations, configs, baseConfigsPossible,
         baseConfigsPossible[i] = tempSortList[iMin]
         tempSortList[iMin] = tempSortList[i]
 
-    baseConfigsPossible[found] = 100
-
 
 @cuda.jit(device=True)
 def maxComponentNo():
@@ -523,14 +526,12 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
         config = int(selectedE[fire])
         success = interpolate1D(ffdi, ffdi_range, exist_success[config - 1])
 
-#        size = growFire(ffdi, config, ffdi_range, roc_a2_ph_mean, roc_a2_ph_sd,
-#                        fireSizes[thread_id][time][fire], rng_states,
-#                        thread_id, True)
-
-        accumulatedDamage[thread_id][time+1][patch] = config
+        size = growFire(ffdi, config, ffdi_range, roc_a2_ph_mean, roc_a2_ph_sd,
+                        fireSizes[thread_id][time][fire], rng_states,
+                        thread_id, True)
 
 #        accumulatedDamage[thread_id][time+1][patch] += size - sizeTemp
-#
+
 #        rand_no = xoroshiro128p_uniform_float32(rng_states, thread_id)
 #
 #        if rand_no > success:
@@ -1858,18 +1859,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
             aircraftAssignments[thread_id][time+1][resource][0] = bestBase + 1
 
-    # Compute resulting fire configurations and patch configuration weights
-    # given these assignments
-    for fire in range(noFires[thread_id][time]):
-        configNos[0] = fireTankersE[fire]
-        configNos[1] = fireHelisE[fire]
-        configNos[2] = fireTankersL[fire]
-        configNos[3] = fireHelisL[fire]
-
-        getAllConfigsSorted(configurations, configsE, baseConfigsPossible,
-                            expectedE[fire], configNos)
-        selectedE[fire] = baseConfigsPossible[0]
-
+    # Compute the resulting patch config weights
     for patch in range(noPatches):
         componentNos(configNos, tankerCovers, heliCovers, baseTankersE,
                      baseHelisE, updateBases, patch, maxFire, thresholds,
@@ -1883,9 +1873,28 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                 heliCovers, baseTankersE, baseHelisE, expectedP, expFiresComp,
                 weightsP, patch, time, lookahead, pw, maxFire, thresholds)
 
-        if thread_id == 0:
-            for config in range(len(baseConfigsPossible)):
-                expectedTemp[patch, config] = weightsP[patch, ]
+    # Compute resulting fire configurations and patch configuration weights
+    # given these assignments
+    for fire in range(noFires[thread_id][time]):
+        configNos[0] = fireTankersE[fire]
+        configNos[1] = fireHelisE[fire]
+        configNos[2] = fireTankersL[fire]
+        configNos[3] = fireHelisL[fire]
+
+        getAllConfigsSorted(configurations, configsE, baseConfigsPossible,
+                            expectedE[fire], configNos)
+        best = baseConfigsPossible[0]
+        selectedE[fire] = best
+
+#    for fire in range(noFires[thread_id][time]):
+#        if thread_id == 0 and time == 0:
+#            for config in range(len(configsE)):
+#                expectedTemp[fire, config] = selectedE[fire]
+
+    for patch in range(noPatches):
+        if thread_id == 0 and time == 0:
+            for config in range(len(configsP)):
+                expectedTemp[patch, config] = weightsP[patch, config]
 
 #    if thread_id == 865 and time == 10:
 #        for patch in range(17):
@@ -1970,7 +1979,9 @@ def expectedDamage(baseConfigsPossible, configurations, configsP, tankerCovers,
         weight_c = min(weight_c, 1 - weight_total)
         weightsP[patch, config - 1] = weight_c
 
-        expectedDamageBase += pw * (expectedP[patch, config] * weight_c)
+        expectedDamageBase += pw * (expectedP[patch,
+                                              baseConfigsPossible[configIdx]]
+                                    * weight_c)
 
         weight_total += weight_c
         configIdx += 1
@@ -2759,7 +2770,8 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
                                          start:(totalSteps+1)])
 
     d_expectedTemp.copy_to_host(expectedTemp)
-    print(expectedTemp[0:6, :])
+    print(expectedTemp[0:7, :])
+#    print(accumulatedDamages[0, :, :])
 #    print(fires[865])
 #    print(expectedTemp[0, :, :])
 #    print(expectedTemp[1, :, :])
