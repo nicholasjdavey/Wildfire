@@ -43,6 +43,8 @@ class Simulation():
         self.relocationModel = None
         self.realisedAssignments = []
         self.realisedFires = []
+        self.realisedStarts = []
+        self.initialExtinguished = []
         self.realisedFFDIs = []
         self.aircraftHours = []
         self.id = Simulation.simulations
@@ -135,6 +137,18 @@ class Simulation():
 
     def setRealisedFires(self, rf):
         self.realisedFires = rf
+
+    def getRealisedStarts(self):
+        return self.realisedStarts
+
+    def setRealisedStarts(self, s):
+        self.realisedStarts = s
+
+    def getInitialExtinguished(self):
+        return self.initialExtinguished
+
+    def setInitialExtinguished(self, i):
+        self.initialExtinguished = i
 
     def getRealisedFFDIs(self):
         return self.realisedFFDIs
@@ -816,9 +830,9 @@ class Simulation():
 
         for m in self.relocationModel.M:
             self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(
-                    component1[m-1])
+                    component1[m])
             self.relocationModel.decisionVars["Y_MR_Delta_MK"].extend(
-                    component2[m-1])
+                    component2[m])
 
         self.relocationModel.decisionVarsIdxStarts["Y_MR_Delta_MK"] = totalVars
         totalVars = totalVars + len(
@@ -1163,6 +1177,8 @@ class Simulation():
         self.realisedFires = [None]*samplePaths
         self.realisedFFDIs = [None]*samplePaths
         self.aircraftHours = [None]*samplePaths
+        self.realisedStarts = [None]*samplePaths
+        self.initialExtinguished = [None]*samplePaths
 
         if self.model.getAlgo() in [4, 5]:
             self.dynamicC2G = [None]*samplePaths
@@ -1176,6 +1192,8 @@ class Simulation():
             self.realisedFires[ii] = [None]*runs
             self.realisedFFDIs[ii] = [None]*runs
             self.aircraftHours[ii] = [None]*runs
+            self.realisedStarts[ii] = [None]*runs
+            self.initialExtinguished[ii] = [None]*runs
 
             if self.model.getAlgo() in [4, 5]:
                 self.dynamicC2G[ii] = [None]*runs
@@ -1286,6 +1304,10 @@ class Simulation():
                 activeFires = [fire for fire in firesPath]
                 self.realisedFires[ii][run] = [None]*(timeSteps + 1)
                 self.realisedFires[ii][run][0] = copy.copy(activeFires)
+                self.realisedStarts[ii][run] = [None]*(timeSteps + 1)
+                self.realisedStarts[ii][run][0] = copy.copy(activeFires)
+                self.initialExtinguished[ii][run] = [None]*(timeSteps + 1)
+                self.initialExtinguished[ii][run][0] = copy.copy(activeFires)
                 self.finalDamageMaps[ii][run] = numpy.empty([timeSteps + 1,
                                                              patches])
                 self.finalDamageMaps[ii][run][0] = numpy.zeros([patches])
@@ -2528,6 +2550,8 @@ class Simulation():
                           timeStep, control, static, tempModel, method,
                           dummy=0):
 
+        """ Main assignment method with thresholds or thresholds and weight """
+
         """ First copy the relocation model """
         bases = self.model.getRegion().getStations()[0]
         patches = self.model.getRegion().getPatches()
@@ -3006,22 +3030,22 @@ class Simulation():
 
         """ Fight existing fires """
         for fire in range(len(activeFires)):
-            sizeOld = activeFires[fire - 1].getSize()
+            sizeOld = activeFires[fire].getSize()
 
-            extinguished = activeFires[fire - 1].growFire(
+            extinguished = activeFires[fire].growFire(
                     self.model,
-                    ffdi[activeFires[fire - 1].getPatchID()],
+                    ffdi[activeFires[fire].getPatchID()],
                     fireConfigs[fire] + 1,
                     random=True)
 
-            sizeCurr = max(activeFires[fire - 1].getSize(), sizeOld)
+            sizeCurr = max(activeFires[fire].getSize(), sizeOld)
 
             if extinguished:
                 # Extinguish fire and remove from list of active fires
                 inactiveFires.append(fire)
 
             """ Update damage map for area burned for existing fires """
-            accumulatedDamage[tt + 1, activeFires[fire - 1].getPatchID()] += (
+            accumulatedDamage[tt + 1, activeFires[fire].getPatchID()] += (
                     sizeCurr - sizeOld)
             damage += sizeCurr - sizeOld
 
@@ -3029,7 +3053,7 @@ class Simulation():
         newFires = []
         for fire in range(len(activeFires)):
             if fire not in inactiveFires:
-                newFires.append(activeFires[fire - 1])
+                newFires.append(activeFires[fire])
 
         """ Update existing fires """
         activeFires.clear()
@@ -3173,6 +3197,7 @@ class Simulation():
     ////////////////////////////////////////////////////////////////////////"""
 
     def simulateROV(self):
+        res = self.model.getROVResolution()
         region = self.model.getRegion()
         totalSteps = self.model.getTotalSteps()
         lookahead = self.model.getLookahead()
@@ -3278,6 +3303,8 @@ class Simulation():
 
         """ MC Path Outputs (Policy Maps)"""
         self.statePaths = [None]*samplePaths
+        self.regressionsX = [None]*samplePaths
+        self.regressionsY = [None]*samplePaths
         self.costs2Go = [None]*samplePaths
         self.accumulatedDamages = [None]*samplePaths
         self.controls = [None]*samplePaths
@@ -3288,9 +3315,9 @@ class Simulation():
 
         for ii in range(samplePaths):
             randCont = numpy.random.randint(6, size=[mcPaths, totalSteps])
-            regressionX = numpy.zeros([totalSteps, noControls, 50, 3],
+            regressionX = numpy.zeros([totalSteps, noControls, res, 3],
                                       dtype=numpy.float32)
-            regressionY = numpy.zeros([totalSteps, noControls, 50, 50, 50],
+            regressionY = numpy.zeros([totalSteps, noControls, res, res, res],
                                       dtype=numpy.float32)
             regModels = [[None] * noControls] * totalSteps
             rSquareds = numpy.zeros([totalSteps, noControls])
@@ -3319,22 +3346,27 @@ class Simulation():
                     [resource.getBase() + 1, 0]
                     for resource in self.model.getRegion().getResources()
                 ]]*mcPaths
+            initialExtinguished = numpy.zeros([mcPaths, totalSteps + 1],
+                                  dtype=numpy.int32)
+            fireStarts = numpy.zeros([mcPaths, totalSteps + 1],
+                                  dtype=numpy.int32)
             noFires = numpy.zeros([mcPaths, totalSteps + 1],
                                   dtype=numpy.int32)
-            noFires[:, 0] = numpy.array([len(fires)]*mcPaths)
             fireSizes = numpy.zeros([mcPaths, totalSteps + 1, 500],
                                     dtype=numpy.float32)
-            fireSizes[:, 0, 0:len(fires)] = [[
-                    fire.getSize() for fire in fires]]*mcPaths
-
             fireLocations = numpy.zeros([mcPaths, totalSteps, 500, 2],
                                         dtype=numpy.float32)
-            fireLocations[:, 0, 0:len(fires), :] = [[
-                    fire.getLocation() for fire in fires]]
             firePatches = numpy.zeros([mcPaths, totalSteps, 500],
                                       dtype=numpy.int32)
-            firePatches[:, 0, 0:len(fires)] = [[
-                    fire.getPatchID() for fire in fires]]
+
+            if len(fires) > 0:
+                noFires[:, 0] = numpy.array([len(fires)]*mcPaths)
+                fireSizes[:, 0, 0:len(fires)] = [[
+                        fire.getSize() for fire in fires]]*mcPaths
+                fireLocations[:, 0, 0:len(fires), :] = [[
+                        fire.getLocation() for fire in fires]]
+                firePatches[:, 0, 0:len(fires)] = [[
+                        fire.getPatchID() for fire in fires]]
 
             tankerDists = numpy.array(
                 [[self.geoDist(patchCentroids[patch], baseLocations[base])
@@ -3419,17 +3451,19 @@ class Simulation():
                     occurrence, initSizeM, initSizeSD, initSuccess, extSuccess,
                     tankerDists, heliDists, fireConfigsMax, baseConfigsMax,
                     expFiresComp, totalSteps, lookahead, stepSize,
-                    accumulatedDamages, accumulatedHours, noFires, fireSizes,
-                    fireLocations, firePatches, aircraftLocations,
-                    aircraftAssignments, randCont, regressionX, regressionY,
-                    regModels, rSquareds, tStatistics, pVals, states, costs2go,
-                    lambdas, method, noControls)
+                    accumulatedDamages, accumulatedHours, noFires,
+                    initialExtinguished, fireStarts, fireSizes, fireLocations,
+                    firePatches, aircraftLocations, aircraftAssignments,
+                    randCont, regressionX, regressionY, regModels, rSquareds,
+                    tStatistics, pVals, states, costs2go, lambdas, method,
+                    noControls)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
 
             """ Aggregate accumulated damages """
             accumulatedDamages = accumulatedDamages.sum(2)
-
+            self.regressionsX[ii] = regressionX
+            self.regressionsY[ii] = regressionY
             self.statePaths[ii] = states
             self.accumulatedDamages[ii] = accumulatedDamages
             self.costs2Go[ii] = costs2go
@@ -3443,7 +3477,6 @@ class Simulation():
 
         """////////////////////// MODEL VALIDATION /////////////////////"""
         """ Just run MPC code but with the ROV regressions as input """
-        sys.exit()
         self.simulateMPC(static=False, rov=True)
 
         self.writeOutSummary()
@@ -3458,141 +3491,6 @@ class Simulation():
             paths[pathNo] = self.initialForwardPath()
 
         return paths
-
-    """ NOT USED """
-#    def simulateROVNew(self, exogenousPaths, randCont, endogenousPaths):
-#        # Computes the policy map for the problem that is used by the simulator
-#        # to make decisions. The decisions are made by determining the state of
-#        # they system before plugging into the policy map.
-#        region = self.model.getRegion()
-#        timeSteps = self.model.getTotalSteps()
-#        patches = len(region.getPatches())
-#        resources = region.getResources()
-#        fires = region.getFires()
-#        configsE = self.model.getUsefulConfigurationsExisting()
-#        configsP = self.model.getUsefulConfigurationsPotential()
-#        sampleFFDIs = self.model.getSamplePaths()
-#
-#        """ Initial assignment of aircraft to bases (Col 1) and fires (Col 2)
-#        A value of zero indicates no assignment (only applicable for fires) """
-#        assignments = self.model.getRegion().getAssignments()
-#
-#        regionSize = region.getX().size
-#        samplePaths = (
-#                len(sampleFFDIs)
-#                if len(sampleFFDIs) > 0
-#                else self.model.getRuns())
-#        samplePaths2 = self.model.getMCPaths()
-#        lookahead = self.model.getLookahead()
-#        runs = self.model.getRuns()
-#
-#        self.finalDamageMaps = [None]*samplePaths
-#        self.expectedDamages = [None]*samplePaths
-#        self.realisedAssignments = [None]*samplePaths
-#        self.realisedFires = [None]*samplePaths
-#        self.realisedFFDIs = [None]*samplePaths
-#        self.aircraftHours = [None]*samplePaths
-#
-#        wg = region.getWeatherGenerator()
-#
-#        for ii in range(samplePaths):
-#            self.finalDamageMaps[ii] = [None]*runs
-#            self.expectedDamages[ii] = [None]*runs
-#            self.realisedAssignments[ii] = [None]*runs
-#            self.realisedFires[ii] = [None]*runs
-#            self.realisedFFDIs[ii] = [None]*runs
-#            self.aircraftHours[ii] = [None]*runs
-#
-#            for run in range(self.model.getRuns()):
-#                damage = 0
-#                assignmentsPath = [None]*(timeSteps + 1)
-#                assignmentsPath[0] = copy.copy(assignments)
-#                firesPath = copy.copy(fires)
-#                resourcesPath = copy.copy(resources)
-#                activeFires = [fire for fire in firesPath]
-#                self.realisedFires[ii][run] = [None]*(timeSteps + 1)
-#                self.realisedFires[ii][run][0] = copy.copy(activeFires)
-#                self.finalDamageMaps[ii][run] = numpy.empty([timeSteps + 1,
-#                                                             patches])
-#                self.finalDamageMaps[ii][run][0] = numpy.zeros([patches])
-#                self.aircraftHours[ii][run] = numpy.zeros([timeSteps + 1,
-#                                                           len(resources)])
-#
-#                rain = numpy.zeros([timeSteps+1+lookahead, regionSize])
-#                rain[0] = region.getRain()
-#                precipitation = numpy.zeros([timeSteps+1+lookahead,
-#                                             regionSize])
-#                precipitation[0] = region.getHumidity()
-#                temperatureMin = numpy.zeros([timeSteps+1+lookahead,
-#                                              regionSize])
-#                temperatureMin[0] = region.getTemperatureMin()
-#                temperatureMax = numpy.zeros([timeSteps+1+lookahead,
-#                                              regionSize])
-#                temperatureMax[0] = region.getTemperatureMax()
-#                windNS = numpy.zeros([timeSteps+1+lookahead, regionSize])
-#                windNS[0] = region.getWindN()
-#                windEW = numpy.zeros([timeSteps+1+lookahead, regionSize])
-#                windEW[0] = region.getWindE()
-#                FFDI = numpy.zeros([timeSteps+1+lookahead, regionSize])
-#                FFDI[0] = region.getDangerIndex()
-#                windRegimes = numpy.zeros([timeSteps+1+lookahead])
-#                windRegimes[0] = region.getWindRegime()
-#                accumulatedDamage = numpy.zeros([timeSteps+1, patches])
-#                accumulatedHours = numpy.zeros([timeSteps+1, len(resources)])
-#
-#                for tt in range(timeSteps):
-#                    if len(sampleFFDIs) == 0:
-#                        pass
-#                    else:
-#                        expectedFFDI = sampleFFDIs[ii][:, tt:(tt + lookahea
-#                                                              + 1)]
-#
-#                    """ Use the policy maps/regressions to make assignment
-#                    decisions """
-#                    """ States """
-#
-#
-#                    """ Determine Control Based on ROV Analysis """
-#
-#
-#                    """ New Assignments """
-#
-#
-#                    """ Simulate to Update """
-#                    # Simulate the fire growth, firefighting success and the
-#                    # new positions of each resources
-#                    damage += self.simulateSinglePeriod(
-#                            assignmentsPath, resourcesPath, firesPath,
-#                            activeFires, accumulatedDamage, accumulatedHours,
-#                            patchConfigs, fireConfigs, FFDI[tt], tt)
-#
-#                    self.aircraftHours[ii][run][tt + 1] = numpy.array([
-#                            resourcesPath[r].getFlyingHours()
-#                            for r in range(len(
-#                                    self.model.getRegion().getResources()))])
-#
-#                    # Simulate the realised weather for the next time step
-#                    if len(sampleFFDIs) == 0:
-#                        wg.computeWeather(
-#                                rain, precipitation, temperatureMin,
-#                                temperatureMax, windRegimes, windNS, windEW,
-#                                FFDI, tt)
-#                    else:
-#                        FFDI[tt + 1] = sampleFFDIs[ii][:, tt + 1]
-#
-#                # Store the output results
-#                self.finalDamageMaps[ii][run] = accumulatedDamage
-#                self.expectedDamages[ii][run] = damage
-#                self.realisedAssignments[ii][run] = assignmentsPath
-#                self.realisedFFDIs[ii][run] = FFDI
-#                self.aircraftHours[ii][run] = accumulatedHours
-#
-#        for ii in range(samplePaths):
-#            for run in range(self.model.getRuns()):
-#                """Save the results for this sample"""
-#                self.writeOutResults(ii, run)
-#
-#        self.writeOutSummary()
 
     def randomControls(self):
         randControls = (numpy.random.choice(
@@ -4248,6 +4146,7 @@ class Simulation():
                             self.model.getSamplePaths()))])
 
     def writeOutROV(self, sample):
+        res = self.model.getROVResolution()
         root = ("../Experiments/Experiments/" +
                 self.model.getInputFile().split(
                         "../Experiments/Experiments/")[1].split("/")[0])
@@ -4310,19 +4209,18 @@ class Simulation():
                 for rowListsL2 in rowListsL1
                 for jj in range(len(rowListsL2)))
 
-            iterator = 0
             # Three predictors
-            for r1 in range(len(self.regressionsX[0][0][0])):
-                for r2 in range(len(self.regressionsX[0][0][1])):
-                    for r3 in range(len(self.regressionsX[0][0][2])):
+            for r1 in range(res):
+                for r2 in range(res):
+                    for r3 in range(res):
                         row = []
 
                         for tt in range(self.model.getTotalSteps()):
                             for cc in range(len(self.model.getControls())):
                                 for ss in range(3):
-                                    row.append(self.regressionsX[tt][cc][ss])
+                                    row.append(self.regressionsX[sample][tt][cc][ss])
 
-                                row.append(self.regressionsY[tt][cc][iterator])
+                                row.append(self.regressionsY[sample][tt][cc][r1][r2][r3])
 
         """ Controls """
         outputfile = outfolder + "/Controls.csv"

@@ -74,12 +74,25 @@ class Model():
         self.controlMethod = 0
         self.shape = None
         self.plot = False
+        self.resolution = 1
 
     def getShape(self):
         return self.shape
 
     def setShape(self, s):
         self.shape = s
+
+    def getPlot(self):
+        return self.plot
+
+    def setPlot(self, p):
+        self.plot = p
+
+    def getROVResolution(self):
+        return self.resolution
+
+    def setROVResolution(self, r):
+        self.resolution = r
 
     def getROVPaths(self):
         return self.rovPaths
@@ -491,6 +504,9 @@ class Model():
                                + noVegetations + noControls]
                                .split(":")[1].strip())
         self.plot = True if plotVal == 1 else False
+        self.resolution = int(contents[89 + noAircraft + noLandcraft
+                                       + noVegetations + noControls]
+                                       .split(":")[1].strip())
 
         self.variableParameters = varParams
 
@@ -609,7 +625,11 @@ class Model():
 
                     iterator = iterator + 2
                     occurrence = {}
-                    for jj in range(self.totalSteps + self.lookahead + 1):
+                    while True:
+#                    for jj in range(self.totalSteps + self.lookahead + 1):
+                        if rows[iterator][0] != "":
+                            break
+
                         occurrence[int(rows[iterator][1])] = (
                                 [float(col)
                                  for col in
