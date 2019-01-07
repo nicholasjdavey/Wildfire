@@ -3314,7 +3314,7 @@ class Simulation():
         self.regModel = [None]*samplePaths
 
         for ii in range(samplePaths):
-            randCont = numpy.random.randint(6, size=[mcPaths, totalSteps])
+            randCont = numpy.random.randint(6, size=[mcPaths, totalSteps + 1])
             regressionX = numpy.zeros([totalSteps, noControls, res, 3],
                                       dtype=numpy.float32)
             regressionY = numpy.zeros([totalSteps, noControls, res, res, res],
@@ -3354,9 +3354,9 @@ class Simulation():
                                   dtype=numpy.int32)
             fireSizes = numpy.zeros([mcPaths, totalSteps + 1, 500],
                                     dtype=numpy.float32)
-            fireLocations = numpy.zeros([mcPaths, totalSteps, 500, 2],
+            fireLocations = numpy.zeros([mcPaths, totalSteps + 1, 500, 2],
                                         dtype=numpy.float32)
-            firePatches = numpy.zeros([mcPaths, totalSteps, 500],
+            firePatches = numpy.zeros([mcPaths, totalSteps + 1, 500],
                                       dtype=numpy.int32)
 
             if len(fires) > 0:
@@ -3442,6 +3442,11 @@ class Simulation():
 
             """ Call the ROV code to produce the maps """
             print("MC Paths")
+#            print(sampleFFDIs[ii])
+#            print(initSizeM)
+#            print()
+#
+#            sys.exit()
             t0 = time.clock()
             SimulationNumba.simulateROV(
                     mcPaths, sampleFFDIs[ii], patchVegetations, patchAreas,

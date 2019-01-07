@@ -1,0 +1,104 @@
+###############################################################################
+###################### INPUT DATA FOR WILDFIRE OPTIMISER ######################
+###############################################################################
+# Beta v.0.0.1
+# Do not change add or remove any lines from this file! Only modify the values\
+# after the colons (:) on each line
+# All file locations should be relative to the root directory of the program.
+###############################################################################
+
+###############################################################################
+## REGION DATA
+###############################################################################
+## SPATIAL DATA
+Region Shape File         : Experiments/Input_Data/Regions/Region_Provinces/CHL_adm2/CHL_adm2.shp
+Terrain X Data File       : Experiments/Input_Data/Regions/Region_Provinces/XData
+Terrain Y Data File       : Experiments/Input_Data/Regions/Region_Provinces/YData
+Terrain Z Data File       : Experiments/Input_Data/Regions/Region_Provinces/ZData
+Vegetation Data File      : Experiments/Input_Data/Regions/Region_Provinces/Vegetation
+Value Data File           : Experiments/Input_Data/Regions/Region_Provinces/Values
+
+## WEATHER STATION WEATHER DATA ROOT FILE
+Raw Weather Data File     : Experiments/Input_Data/Regions/Region_1/WeatherData
+
+###############################################################################
+## BASE DATA
+###############################################################################
+Aircraft Bases Data File  : Experiments/Input_Data/Regions/Region_1/Bases
+
+###############################################################################
+## AIRCRAFT DATA
+###############################################################################
+# Add as many lines as needed for each aircraft type. Provide the source file.
+Configurations DataFile   : Experiments/Input_Data/Aircraft/Configurations2.csv
+Number of Aircraft Used   : 2
+Aircraft 1                : Experiments/Input_Data/Aircraft/Tanker
+Aircraft 2                : Experiments/Input_Data/Aircraft/Helicopter
+
+###############################################################################
+## FIRETRUCK DATA
+###############################################################################
+# Add as many lines as needed for each firetruck type. Provide the source file.
+Number of Landcraft Used  : 1
+Firetruck 1               : Experiments/Input_Data/Land/Truck
+
+###############################################################################
+## PROBABILITIES
+###############################################################################
+## VEGETATION AND WEATHER JOINT FIRE PROBABILITIES
+VEGETATIONS               : 5
+Vegetation 1              : Experiments/Input_Data/Regions/Region_Provinces/Probabilities/Vegetation1.csv
+Vegetation 2              : Experiments/Input_Data/Regions/Region_Provinces/Probabilities/Vegetation2.csv
+Vegetation 3              : Experiments/Input_Data/Regions/Region_Provinces/Probabilities/Vegetation3.csv
+Vegetation 4              : Experiments/Input_Data/Regions/Region_Provinces/Probabilities/Vegetation4.csv
+Vegetation 5              : Experiments/Input_Data/Regions/Region_Provinces/Probabilities/Vegetation5.csv
+
+###############################################################################
+## CONFIGURATION DATA
+###############################################################################
+## CONTROLS
+# Our two control parameters are lambda_1 and lambda_2 where
+# lambda_1 : 0 <= lambda_1 <= 1/infinity (Assignment 4 OR Method 2/Other Assignments OR Method 1)
+# lambda_1 : 0 <= lambda_2 <= 1/infinity (Assignment 4/Other Methods)
+# lambda_1 = 0 forces the program to relocate to existing fires
+# lambda_1 = 1 forces the program to relocate to cover in case of future fires
+# 0 <= lambda_1 <= 1 is a trade-off between the two
+# lambda_2 = 0 forces the program to keep aircraft where they are/max relocation
+# lambda_2 = 1 forces the program to ignore relocation costs/max relocation
+# 0 <= lambda_2 <= 1/infinity is (a trade-off between the two/max relocation)
+# Therefore, our control options are coordinate pairs of (lambda_1,lambda_2)
+# that lie in: 1. the unit square ([0,1]^2) OR 2. ([0,1]*[0,infinity]):
+Number of Control Options : 6
+#                 lambda_1 (E vs. P / Max Fire)   lambda_2 (Max Reloc / Max Base)
+Control 1       :              0.9                     0.0
+Control 2       :              0.1                     0.0
+Control 3       :              0.9                     1.00
+Control 4       :              0.1                     1.00
+Control 5       :              0.9                     8.00
+Control 6       :              0.1                     8.00
+
+## EXPERIMENTAL CONTROLS (MULTIPLIERS AND PARAMETERS)
+# Separate different multipliers by comma (',')
+Aircraft Speed (Keep at 1. No need to vary)                     : 1
+Occurrence Probability (Sensitivity 1)                          : 1
+Damage Intensity (Keep at 1. No need to vary)                   : 1
+Weather Uncertainty                                             : 1
+Time Steps                                                      : 15
+Step Size (Hours)                                               : 1
+Daylight Hours Per Day                                          : 15
+ROV Paths                                                       : 10000
+Relocation LP Method (1=MaxCover, 2=PMedian, 3=Assignment)      : 3
+Lookahead                                                       : 5
+Cover Time (minutes)                                            : 20
+Monte Carlo Paths                                               : 10000
+Time discount factor                                            : 0.7
+Algorithm (1=MPC, 2=ROV, 3=Static, 4=DynMPCFix, 5=DynMPCRand)   : 2
+Used Configurations (Exist)                                     : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27
+Used Configurations (Poten)                                     : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45
+Use Sample Paths                                                : 1
+Runs                                                            : 5
+Fire Threshold Distance (for close)                             : 0.33
+Max Fire Threshold Distance (for far)                           : 1
+Control Method, Assignment (1=Thresholds, 2=Weight+Threshold)   : 2
+Plot Maps                                                       : 0
+ROV Resolution                                                  : 50

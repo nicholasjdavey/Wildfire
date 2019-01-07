@@ -8,6 +8,7 @@ Created on Mon Oct 29 14:35:12 2018
 import sys
 import numpy
 import math
+import cmath
 from numba import cuda, float32, float64, int32
 from numba.types import b1
 #from pyculib import rand
@@ -94,11 +95,6 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                     extSuccess, configsP, tt - start, lookahead, expectedP,
                     rng_states, path, False)
 
-#            if path == 8 and tt == 2:
-#                for fire in range(7):
-#                    for config in range(noConfE):
-#                        expectedTemp[fire, config] = expectedE[fire, config]
-
             if static < 0:
                 saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
                           maxHours, tankerDists, heliDists, aircraftLocations,
@@ -168,6 +164,12 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                            expectedP, selectedE, weightsP, tt - start,
                            stepSize, lookahead, path, bestControl, lambdas,
                            method, expectedTemp, 0)
+
+            if path == 2 and tt == 10:
+                for fire in range(16):
+                    for config in range(36):
+#                    expectedTemp[fire, tt] = fireSizes[path][tt - start][fire]
+                        expectedTemp[fire, config] = weightsP[fire, config]
 
             # SimulateNextStep
             simulateNextStep(aircraftAssignments, resourceTypes,
@@ -289,6 +291,9 @@ def growFire(ffdi, config, ffdi_range, roc_a2_ph_mean, roc_a2_ph_sd, size,
         rand_no = xoroshiro128p_normal_float32(rng_states, thread_id)
         rad_new = rad_curr + math.exp(gr_mean + rand_no * gr_sd)
     else:
+        rad_new = rad_curr + math.exp(gr_mean + gr_sd ** 2 / 2)
+
+    if not cmath.isfinite(rad_new):
         rad_new = rad_curr + math.exp(gr_mean + gr_sd ** 2 / 2)
 
     return (math.pi * rad_new**2)/10000
@@ -593,6 +598,9 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                 randVal = xoroshiro128p_normal_float32(rng_states, thread_id)
                 size = math.exp(sizeMean + randVal * sizeSD)
 
+                if not cmath.isfinite(size):
+                    size = math.exp(sizeMean + sizeSD ** 2 / 2)
+
                 accumulatedDamage[thread_id][time+1][patch] += size
 
                 if not success:
@@ -603,7 +611,7 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                             patchLocations[patch][1])
                     firePatches[thread_id][time + 1][count] = patch
                     count += 1
-                    count1 += 1
+                    count2 += 1
                 else:
                     count1 += 1
                     count2 += 1
@@ -1794,12 +1802,12 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 #                    expectedTemp[5, base, noAircraft - remaining] = baseImproveHeliE[base]
 
 
-        if thread_id == 6:
-            for fire in range(7):
-                expectedTemp[0, noAircraft - remaining, fire] = fireMaxTankersE[fire]
-                expectedTemp[1, noAircraft - remaining, fire] = fireMaxHelisE[fire]
-                expectedTemp[2, noAircraft - remaining, fire] = fireMaxTankersL[fire]
-                expectedTemp[3, noAircraft - remaining, fire] = fireMaxHelisL[fire]
+#        if thread_id == 6:
+#            for fire in range(7):
+#                expectedTemp[0, noAircraft - remaining, fire] = fireMaxTankersE[fire]
+#                expectedTemp[1, noAircraft - remaining, fire] = fireMaxHelisE[fire]
+#                expectedTemp[2, noAircraft - remaining, fire] = fireMaxTankersL[fire]
+#                expectedTemp[3, noAircraft - remaining, fire] = fireMaxHelisL[fire]
 
         #######################################################################
         # Reduce max component capacities (and possibly incremental
@@ -2701,8 +2709,8 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
     batchAmounts = [10000 for batch in range(batches - 1)]
     batchAmounts.append(paths - sum(batchAmounts))
 
-#    expectedTemp = numpy.zeros([6, 16, noAircraft])
-    expectedTemp = numpy.zeros([4, 16, 7])
+    expectedTemp = numpy.zeros([16, 81])
+#    expectedTemp = numpy.zeros([4, 16, 7])
     d_expectedTemp = cuda.to_device(expectedTemp)
 
     # Run this in chunks (i.e. multiple paths at a time)
@@ -2795,7 +2803,7 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
                                          start:(totalSteps+1)])
 
     d_expectedTemp.copy_to_host(expectedTemp)
-    print(expectedTemp)
+    numpy.set_printoptions(threshold=numpy.nan)
 #    print(expectedTemp[0, :, :])
 #    print(expectedTemp[1, :, :])
 #    print(expectedTemp[2, :, :])
@@ -2803,8 +2811,10 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
 #    print(expectedTemp[4, :, :])
 #    print(expectedTemp[5, :, :])
     print(sum(sum(accumulatedDamages[:,-1,:])/accumulatedDamages.shape[0]))
-    print(initialExtinguished[0:10])
-    print(fires[0:10])
+    print(fireStarts[0:10])
+    print(firePatches[1, :, 0:16])
+    print(fireSizes[1, :, 0:16])
+    print(fires[1])
 #    print(aircraftAssignments[6, :, :])
 def analyseMCPaths():
     pass
