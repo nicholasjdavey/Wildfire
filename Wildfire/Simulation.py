@@ -3214,6 +3214,8 @@ class Simulation():
                                        self.model.getSamplePaths()))],
                                   dtype=numpy.float32)
 
+
+
         method = self.model.getControlMethod()
         # Thresholds/parameters for each control
         lambdas = numpy.array([[
@@ -3442,9 +3444,9 @@ class Simulation():
 
             """ Call the ROV code to produce the maps """
             print("MC Paths")
+#            numpy.set_printoptions(threshold=numpy.nan)
 #            print(sampleFFDIs[ii])
-#            print(initSizeM)
-#            print()
+#            print(sampleFFDIs[ii][:, 0:(totalSteps + lookahead + 1)])
 #
 #            sys.exit()
             t0 = time.clock()

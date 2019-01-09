@@ -79,6 +79,14 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
         weightsP = cuda.local.array((noPatches, noConfP), dtype=float32)
         selectedE = cuda.local.array(noFiresMax, dtype=int32)
 
+        for ii in range(noFiresMax):
+            for jj in range(noConfE):
+                expectedE[ii, jj] = 0.0
+
+        for ii in range(noPatches):
+            for jj in range(noConfP):
+                expectedP[ii, jj] = 0.0
+
         for tt in range(start, totalSteps):
             expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
 
@@ -87,6 +95,32 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                     - start], fireSizes[path][tt - start], patchVegetations,
                     ffdiRanges, rocA2PHMeans, rocA2PHSDs, extSuccess, configsE,
                     lookahead, expectedE, rng_states, path, False)
+
+            if path == 2 and tt == 11:
+                for fire in range(fires[path][tt]):
+                    for config in range(noConfE):
+                        expectedTemp[0, fire, config] = expectedE[fire, config]
+
+                    expectedTemp[0, fire, 0] = firePatches[path][tt - start][fire]
+                    expectedTemp[0, fire, 1] = fire + 1
+                    expectedTemp[0, fire, 2] = fireSizes[path][tt - start][fire]
+                    expectedTemp[0, fire, 3] = expectedFFDI[firePatches[path][tt - start][fire], tt]
+#                for patch in range(noPatches):
+#                    expectedTemp[0, patch, 0] = expectedFFDI[patch, 0]
+#                    expectedTemp[0, patch, 1] = sampleFFDIs[patch, tt]
+
+            if path == 2 and tt == 12:
+                for fire in range(fires[path][tt]):
+                    for config in range(noConfE):
+                        expectedTemp[1, fire, config] = expectedE[fire, config]
+
+                    expectedTemp[1, fire, 0] = firePatches[path][tt - start][fire]
+                    expectedTemp[1, fire, 1] = fire + 1
+                    expectedTemp[1, fire, 2] = fireSizes[path][tt - start][fire]
+                    expectedTemp[1, fire, 3] = expectedFFDI[firePatches[path][tt - start][fire], tt]
+#                for patch in range(noPatches):
+#                    expectedTemp[1, patch, 0] = expectedFFDI[patch, 0]
+#                    expectedTemp[1, patch, 1] = sampleFFDIs[patch, tt]
 
             expectedDamagePotential(
                     expectedFFDI, patchVegetations, patchAreas, ffdiRanges,
@@ -165,11 +199,11 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                            stepSize, lookahead, path, bestControl, lambdas,
                            method, expectedTemp, 0)
 
-            if path == 2 and tt == 10:
-                for fire in range(16):
-                    for config in range(36):
-#                    expectedTemp[fire, tt] = fireSizes[path][tt - start][fire]
-                        expectedTemp[fire, config] = weightsP[fire, config]
+#            if path == 2 and tt == 10:
+#                for fire in range(16):
+#                    for config in range(36):
+##                    expectedTemp[fire, tt] = fireSizes[path][tt - start][fire]
+#                        expectedTemp[fire, config] = weightsP[fire, config]
 
             # SimulateNextStep
             simulateNextStep(aircraftAssignments, resourceTypes,
@@ -180,7 +214,8 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                              fireLocations, firePatches, expectedFFDI,
                              rocA2PHMeans, rocA2PHSDs, fireSizes, configsE,
                              configsP, selectedE, weightsP, initSizeM,
-                             initSizeSD, initSuccess, extSuccess, occurrence,
+                             initSizeSD, initSuccess, extSuccess, occurrence[:,
+                             start:(totalSteps + lookahead + 1), :],
                              accumulatedDamages, tt - start, stepSize,
                              rng_states, path)
 
@@ -451,6 +486,8 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                      ext_succ, occurrence, accumulatedDamage, time, stepSize,
                      rng_states, thread_id):
 
+    global noPatches
+
     """ Update aircraft locations """
     for resource in range(len(aircraftSpeeds)):
         baseAssignment = int(aircraftAssignments[thread_id][time+1][resource][
@@ -508,7 +545,7 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                         accumulatedHours[thread_id][time][resource] + stepSize)
 
     """ Carry over the accumulated damage from the previous period """
-    for patch in range(len(patchLocations)):
+    for patch in range(noPatches):
         accumulatedDamage[thread_id][time+1][patch] = (
                 accumulatedDamage[thread_id][time][patch])
 
@@ -527,7 +564,7 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
 
         size = fireSizes[thread_id][time][fire]
         sizeTemp = size
-        ffdi = ffdis[patch, time]
+        ffdi = ffdis[patch, 0]
         config = fireConfigs[selectedE[fire]]
         success = interpolate1D(ffdi, ffdi_range, exist_success[config - 1])
 
@@ -550,10 +587,10 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
             count += 1
 
     """ New fires in each patch """
-    for patch in range(len(patchLocations)):
+    for patch in range(noPatches):
         vegetation = int(patchVegetations[patch])
         ffdi_range = ffdiRanges[vegetation]
-        ffdi = ffdis[patch, time]
+        ffdi = ffdis[patch, 0]
         initial_size_M = initM[vegetation]
         initial_size_SD = initSD[vegetation]
         initial_success = init_succ[vegetation]
@@ -2709,7 +2746,7 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
     batchAmounts = [10000 for batch in range(batches - 1)]
     batchAmounts.append(paths - sum(batchAmounts))
 
-    expectedTemp = numpy.zeros([16, 81])
+    expectedTemp = numpy.zeros([2, 50, 27])
 #    expectedTemp = numpy.zeros([4, 16, 7])
     d_expectedTemp = cuda.to_device(expectedTemp)
 
@@ -2804,6 +2841,7 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
 
     d_expectedTemp.copy_to_host(expectedTemp)
     numpy.set_printoptions(threshold=numpy.nan)
+    print(expectedTemp)
 #    print(expectedTemp[0, :, :])
 #    print(expectedTemp[1, :, :])
 #    print(expectedTemp[2, :, :])
@@ -2813,7 +2851,7 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
     print(sum(sum(accumulatedDamages[:,-1,:])/accumulatedDamages.shape[0]))
     print(fireStarts[0:10])
     print(firePatches[1, :, 0:16])
-    print(fireSizes[1, :, 0:16])
+#    print(fireSizes[1, :, 0:16])
     print(fires[1])
 #    print(aircraftAssignments[6, :, :])
 def analyseMCPaths():
