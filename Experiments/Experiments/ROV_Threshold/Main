@@ -83,7 +83,7 @@ Aircraft Speed (Keep at 1. No need to vary)                     : 1
 Occurrence Probability (Sensitivity 1)                          : 1
 Damage Intensity (Keep at 1. No need to vary)                   : 1
 Weather Uncertainty                                             : 1
-Time Steps                                                      : 15
+Time Steps                                                      : 5
 Step Size (Hours)                                               : 1
 Daylight Hours Per Day                                          : 15
 ROV Paths                                                       : 10000
@@ -101,4 +101,4 @@ Fire Threshold Distance (for close)                             : 0.33
 Max Fire Threshold Distance (for far)                           : 1
 Control Method, Assignment (1=Thresholds, 2=Weight+Threshold)   : 1
 Plot Maps                                                       : 0
-ROV Resolution                                                  : 50
+ROV Resolution (1 -> Polynomial Reg.  >1 -> Kernel Reg)         : 1

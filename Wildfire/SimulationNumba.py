@@ -15,9 +15,9 @@ from numba.types import b1
 from numba.cuda.random import create_xoroshiro128p_states
 from numba.cuda.random import xoroshiro128p_normal_float32
 from numba.cuda.random import xoroshiro128p_uniform_float32
-#import pyqt_fit.nonparam_regression as smooth
-#from pyqt_fit import npr_methods
-#from sklearn.kernel_ridge import KernelRidge
+import pyqt_fit.nonparam_regression as smooth
+from pyqt_fit import npr_methods
+from sklearn.kernel_ridge import KernelRidge
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn import linear_model
 
@@ -153,19 +153,20 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                     for control in range(noControls):
 
                         if tt == totalSteps:
-                            """ Determine termination cost at the start of the last
-                            period (no future flexibility, just use point estimate
-                            for C2G by computing MIP) """
+                            """ Determine termination cost at the start of the
+                            last period (no future flexibility, just use point
+                            estimate for C2G by computing MIP) """
                             assignAircraft(
-                                aircraftAssignments, resourceSpeeds, resourceTypes,
-                                maxHours, aircraftLocations, accumulatedHours,
-                                baseLocations, tankerDists, heliDists, fires,
-                                fireSizes, fireLocations, ffdiRanges,
-                                configurations, configsE, configsP, baseConfigsMax,
-                                fireConfigsMax, thresholds, expFiresComp, expectedE,
-                                expectedP, selectedE, weightsP, tt - start,
-                                stepSize, lookahead, path, bestControl, lambdas,
-                                method, expectedTemp, 0)
+                                aircraftAssignments, resourceSpeeds,
+                                resourceTypes, maxHours, aircraftLocations,
+                                accumulatedHours, baseLocations, tankerDists,
+                                heliDists, fires, fireSizes, fireLocations,
+                                ffdiRanges, configurations, configsE, configsP,
+                                baseConfigsMax, fireConfigsMax, thresholds,
+                                expFiresComp, expectedE, expectedP, selectedE,
+                                weightsP, tt - start, stepSize, lookahead,
+                                path, bestControl, lambdas, method,
+                                expectedTemp, 0)
 
                             currC2G = 0.0
 
@@ -174,24 +175,27 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
 
                             for patch in range(noPatches):
                                 for config in range(noConfP):
-                                    currC2G += weightsP[patch, config] * expectedP[
-                                            patch, config]
+                                    currC2G += (weightsP[patch, config]
+                                                * expectedP[patch, config])
 
                         else:
-                            """ Need to determine the expected cost to go for each
-                            control in order to determine the best one to pick. This
-                            requires computing the state for each control using the
-                            assignment heuristic and then the regressions. """
+                            """ Need to determine the expected cost to go for
+                            each control in order to determine the best one to
+                            pick. This requires computing the state for each
+                            control using the assignment heuristic and then the
+                            regressions. """
 
-                            """ Get the expected cost 2 go for this control at this
-                            time for the prevailing state """
-    #                        currC2G = interpolateCost2Go(states, regressionX,
-    #                                                     regressionY, tt - start,
-    #                                                     path, control)
+                            """ Get the expected cost 2 go for this control at
+                            this time for the prevailing state """
+                            if len(regressionX.shape) == 4:
+                                currC2G = interpolateCost2Go(
+                                        states, regressionX, regressionY,
+                                        tt - start, path, control)
 
-                            currC2G = calculateCost2Go(
-                                    states, regressionX, tt - start, path,
-                                    control)
+                            else:
+                                currC2G = calculateCost2Go(
+                                        states, regressionX, tt - start, path,
+                                        control)
 
                         if currC2G < bestC2G:
                             bestC2G = currC2G
@@ -409,19 +413,22 @@ def interpolate1D(xval, xrange, yrange):
 @cuda.jit(device=True)
 def calculateCost2Go(states, regressionX, time, path, control):
 
-    returnVal = (regressionX[time][control][0]
-                 + regressionX[time][control][1] * states[path][time][0]
-                 + regressionX[time][control][2] * states[path][time][1]
-                 + regressionX[time][control][3] * states[path][time][2]
-                 + regressionX[time][control][4] * states[path][time][0] ** 2
-                 + regressionX[time][control][5] * states[path][time][0]
+    returnVal = (regressionX[time][control][0][0]
+                 + regressionX[time][control][1][0] * states[path][time][0]
+                 + regressionX[time][control][2][0] * states[path][time][1]
+                 + regressionX[time][control][3][0] * states[path][time][2]
+                 + regressionX[time][control][4][0] * states[path][time][0]
+                     ** 2
+                 + regressionX[time][control][5][0] * states[path][time][0]
                      * states[path][time][1]
-                 + regressionX[time][control][6] * states[path][time][0]
+                 + regressionX[time][control][6][0] * states[path][time][0]
                      * states[path][time][2]
-                 + regressionX[time][control][7] * states[path][time][1] ** 2
-                 + regressionX[time][control][8] * states[path][time][1]
+                 + regressionX[time][control][7][0] * states[path][time][1]
+                     ** 2
+                 + regressionX[time][control][8][0] * states[path][time][1]
                      * states[path][time][2]
-                 + regressionX[time][control][9] * states[path][time][2] ** 2)
+                 + regressionX[time][control][9][0] * states[path][time][2]
+                     ** 2)
 
     return returnVal
 
@@ -432,13 +439,13 @@ def interpolateCost2Go(state, regressionX, regressionY, time, path, control):
     global epsilon
 
     """ Get the global upper and lower bounds for each dimension """
-    lower = cuda.local.array(5, dtype=float32)
-    upper = cuda.local.array(5, dtype=float32)
-    coeffs = cuda.local.array(32, dtype=float32)
-    lowerInd = cuda.local.array(5, dtype=int32)
+    lower = cuda.local.array(3, dtype=float32)
+    upper = cuda.local.array(3, dtype=float32)
+    coeffs = cuda.local.array(8, dtype=float32)
+    lowerInd = cuda.local.array(3, dtype=int32)
 
     # Indices for each state dimension value
-    for dim in range(5):
+    for dim in range(3):
         lower[dim] = regressionX[time][control][dim][0]
         upper[dim] = regressionX[time][control][dim][-1]
         lowerInd[dim] = int(len(regressionX[time][control][dim]) *
@@ -461,17 +468,25 @@ def interpolateCost2Go(state, regressionX, regressionY, time, path, control):
 
     # Assign y values to the coefficient matrix
     coeffs[0] = (
-        (1 - xd)*regressionY[time][control][lowerInd[0]][lowerInd[1]][lowerInd[2]]
-        + xd*regressionY[time][control][lowerInd[0]+1][lowerInd[1]][lowerInd[2]])
+        (1 - xd)*regressionY[time][control][lowerInd[0]][lowerInd[1]][
+            lowerInd[2]]
+        + xd*regressionY[time][control][lowerInd[0]+1][lowerInd[1]][
+            lowerInd[2]])
     coeffs[1] = (
-        (1 - xd)*regressionY[time][control][lowerInd[0]][lowerInd[1]][lowerInd[2]+1]
-        + xd*regressionY[time][control][lowerInd[0]+1][lowerInd[1]][lowerInd[2]+1])
+        (1 - xd)*regressionY[time][control][lowerInd[0]][lowerInd[1]][
+            lowerInd[2]+1]
+        + xd*regressionY[time][control][lowerInd[0]+1][lowerInd[1]][
+            lowerInd[2]+1])
     coeffs[2] = (
-        (1 - xd)*regressionY[time][control][lowerInd[0]][lowerInd[1]+1][lowerInd[2]]
-        + xd*regressionY[time][control][lowerInd[0]+1][lowerInd[1]+1][lowerInd[2]])
+        (1 - xd)*regressionY[time][control][lowerInd[0]][lowerInd[1]+1][
+            lowerInd[2]]
+        + xd*regressionY[time][control][lowerInd[0]+1][lowerInd[1]+1][
+            lowerInd[2]])
     coeffs[3] = (
-        (1 - xd)*regressionY[time][control][lowerInd[0]][lowerInd[1]][lowerInd[2]]
-        + xd*regressionY[time][control][lowerInd[0]+1][lowerInd[1]+1][lowerInd[2]+1])
+        (1 - xd)*regressionY[time][control][lowerInd[0]][lowerInd[1]][
+            lowerInd[2]]
+        + xd*regressionY[time][control][lowerInd[0]+1][lowerInd[1]+1][
+            lowerInd[2]+1])
 
     # Now progress down
     x0 = regressionX[time][control][1][lowerInd[0]]
@@ -2626,6 +2641,8 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
     d_expFiresComp = cuda.to_device(expFiresComp)
     d_lambdas = cuda.to_device(lambdas)
 
+    kernelReg = True if regressionY.shape[3] > 1 else False
+
     """ Initial Monte Carlo Paths """
     simulateMC(
             paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
@@ -2641,8 +2658,6 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             aircraftAssignments, controls, d_regressionX, d_regressionY,
             states, costs2Go, method, noControls, discount)
 
-    sys.exit()
-
     """ BACKWARD INDUCTION """
     """ Regressions and Forward Path Re-Computations"""
     for tt in range(totalSteps, 0, -1):
@@ -2651,6 +2666,46 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
         if tt < totalSteps and tt > 0:
 
             for control in range(noControls):
+
+                if kernelReg:
+                    xs = numpy.array([states[idx, tt, 0:3]
+                                      for _, idx in controls[:, tt]
+                                      if controls[idx, tt] == control])
+                    ys = numpy.array([costs2Go[idx, tt]
+                                       for _, idx in controls[:, tt]
+                                       if controls[idx, tt] == control])
+
+                    reg = smooth.NonParamRegression(
+                        xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
+                    reg.fit()
+                    clf = KernelRidge(kernel='rbf', gamma=0.1, alpha=0.1)
+                    clf.fit(xs, ys)
+                    rSquared[tt, control] = clf.score(xs, ys)
+                    regModels[tt][control] = clf
+
+                    tempGrid = numpy.meshgrid(
+                        numpy.linspace(min(xs[:, 0]), max(xs[:, 0], 50)),
+                        numpy.linspace(min(xs[:, 1]), max(xs[:, 1], 50)),
+                        numpy.linspace(min(xs[:, 2]), max(xs[:, 2], 50)))
+
+                    regressionY[tt][control] = clf.predict(
+                        numpy.array([tempGrid[0].flatten(),
+                                     tempGrid[1].flatten(),
+                                     tempGrid[2].flatten()]).transpose())
+
+                    regressionX[tt][control] = numpy.array([
+                        numpy.linspace(min(xs[0]), max(xs[0], 50)),
+                        numpy.linspace(min(xs[1]), max(xs[1], 50)),
+                        numpy.linspace(min(xs[2]), max(xs[2], 50))])
+
+                    """ Push the regressions back onto the GPU for reuse in the
+                    forward path recomputations """
+                    d_regressionX[tt][control] = cuda.to_device(
+                            regressionX[tt][control])
+                    d_regressionY[tt][control] = cuda.to_device(
+                            regressionY[tt][control])
+
+                else:
                     xs = numpy.array([states[idx, tt, 0:3]
                                       for _, idx in controls[:, tt]
                                       if controls[idx, tt] == control])
@@ -2668,6 +2723,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                     coeffs = clf.coef_
                     coeffs[0] = clf.intercept_
                     regressionX[tt][control] =  coeffs
+                    regressionY[tt][control] = numpy.zeros(1)
 
                     """ Push the regressions back onto the GPU for reuse in the
                     forward path recomputations """
@@ -2704,10 +2760,11 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
                 d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
                 totalSteps, lookahead, stepSize, accumulatedDamages,
-                accumulatedHours, fires, fireSizes, fireLocations, firePatches,
-                aircraftLocations, aircraftAssignments, controls,
-                d_regressionX, d_regressionY, states, costs2Go, method,
-                noControls, discount, tt, optimal=True)
+                accumulatedHours, fires, initialExtinguished, fireStarts,
+                fireSizes, fireLocations, firePatches, aircraftLocations,
+                aircraftAssignments, controls, d_regressionX, d_regressionY,
+                states, costs2Go, method, noControls, discount, tt,
+                optimal=True)
 
     """ Pull the final states and costs 2 go from the GPU and save to an output
     file. For analysis purposes, we need to print our paths to output csv files
@@ -2715,41 +2772,6 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
     The extraction is already done but the saving of the data is not. We save
     the data in the calling routine. """
 
-
-def forKernelRegression():
-
-#            reg = smooth.NonParamRegression(
-#                xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
-#            reg.fit()
-#            clf = KernelRidge(kernel='rbf', gamma=0.1, alpha=0.1)
-#            clf.fit(xs, ys)
-#            rSquared[tt, control] = clf.score(xs, ys)
-#            regModels[tt][control] = clf
-
-#x1_grid, x2_grid, x3_grid = np.meshgrid(np.arange(0, 10.1, 0.1), np.arange(0, 10.1, 0.1), np.arange(0, 10.1, 0.1))
-
-#            tempGrid = numpy.meshgrid(
-#                numpy.linspace(min(xs[:, 0]), max(xs[:, 0], 50)),
-#                numpy.linspace(min(xs[:, 1]), max(xs[:, 1], 50)),
-#                numpy.linspace(min(xs[:, 2]), max(xs[:, 2], 50)))
-#
-#            regressionY[tt][control] = clf.predict(
-#                numpy.array([tempGrid[0].flatten(),
-#                             tempGrid[1].flatten(),
-#                             tempGrid[2].flatten()]).transpose())
-#
-#            regressionX[tt][control] = numpy.array([
-#                numpy.linspace(min(xs[0]), max(xs[0], 50)),
-#                numpy.linspace(min(xs[1]), max(xs[1], 50)),
-#                numpy.linspace(min(xs[2]), max(xs[2], 50))])
-#
-#            """ Push the regressions back onto the GPU for reuse in the forward
-#            path recomputations """
-#            d_regressionX[tt][control] = cuda.to_device(
-#                    regressionX[tt][control])
-#            d_regressionY[tt][control] = cuda.to_device(
-#                    regressionY[tt][control])
-    pass
 
 """ Dynamic MPC """
 def simulateMPCDyn(paths, sampleFFDIs, patchVegetations, patchAreas,
@@ -2881,41 +2903,43 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
         blockspergrid = (batchSize + (threadsperblock - 1)) // threadsperblock
 
         # Copy batch-relevant memory to the device
-        d_accumulatedDamages = cuda.to_device(accumulatedDamages[
-                batchStart:batchEnd, start:(totalSteps+1), :])
-        d_accumulatedHours = cuda.to_device(accumulatedHours[
-                batchStart:batchEnd, start:(totalSteps+1), :])
-        d_fires = cuda.to_device(fires[batchStart:batchEnd,
-                                       start:(totalSteps+1)])
-        d_initialExtinguished = cuda.to_device(initialExtinguished[
-                batchStart:batchEnd, start:(totalSteps+1)])
-        d_fireStarts = cuda.to_device(fireStarts[
-                batchStart:batchEnd, start:(totalSteps+1)])
-        d_fireSizes = cuda.to_device(fireSizes[batchStart:batchEnd,
-                                               start:(totalSteps+1), :])
-        d_fireLocations = cuda.to_device(fireLocations[batchStart:batchEnd,
-                                                       start:(totalSteps+1),
-                                                       :])
-        d_firePatches = cuda.to_device(firePatches[batchStart:batchEnd,
-                                                   start:(totalSteps+1), :])
-        d_aircraftLocations = cuda.to_device(aircraftLocations[
-                batchStart:batchEnd, start:(totalSteps+1), :])
-        d_aircraftAssignments = cuda.to_device(aircraftAssignments[
-                batchStart:batchEnd, start:(totalSteps+1), :])
-        d_controls = cuda.to_device(controls[batchStart:batchEnd,
-                                             start:(totalSteps+1)])
-        d_states = cuda.to_device(states[batchStart:batchEnd,
-                                         start:(totalSteps+1), :])
-        d_costs2Go = cuda.to_device(costs2Go[batchStart:batchEnd,
-                                             start:(totalSteps+1)])
+        d_accumulatedDamages = cuda.to_device(
+                numpy.ascontiguousarray(accumulatedDamages[
+                batchStart:batchEnd, start:(totalSteps+1), :]))
+        d_accumulatedHours = cuda.to_device(
+                numpy.ascontiguousarray(accumulatedHours[
+                batchStart:batchEnd, start:(totalSteps+1), :]))
+        d_fires = cuda.to_device(numpy.ascontiguousarray(
+                fires[batchStart:batchEnd, start:(totalSteps+1)]))
+        d_initialExtinguished = cuda.to_device(numpy.ascontiguousarray(
+                initialExtinguished[batchStart:batchEnd,
+                                    start:(totalSteps+1)]))
+        d_fireStarts = cuda.to_device(numpy.ascontiguousarray(
+                fireStarts[batchStart:batchEnd, start:(totalSteps+1)]))
+        d_fireSizes = cuda.to_device(numpy.ascontiguousarray(
+                fireSizes[batchStart:batchEnd, start:(totalSteps+1), :]))
+        d_fireLocations = cuda.to_device(numpy.ascontiguousarray(
+                fireLocations[batchStart:batchEnd, start:(totalSteps+1), :]))
+        d_firePatches = cuda.to_device(numpy.ascontiguousarray(
+                firePatches[batchStart:batchEnd, start:(totalSteps+1), :]))
+        d_aircraftLocations = cuda.to_device(numpy.ascontiguousarray(
+                aircraftLocations[batchStart:batchEnd,
+                                  start:(totalSteps+1), :]))
+        d_aircraftAssignments = cuda.to_device(numpy.ascontiguousarray(
+                aircraftAssignments[batchStart:batchEnd,
+                                    start:(totalSteps+1), :]))
+        d_controls = cuda.to_device(numpy.ascontiguousarray(
+                controls[batchStart:batchEnd, start:(totalSteps+1)]))
+        d_states = cuda.to_device(numpy.ascontiguousarray(
+                states[batchStart:batchEnd, start:(totalSteps+1), :]))
+        d_costs2Go = cuda.to_device(numpy.ascontiguousarray(
+                costs2Go[batchStart:batchEnd, start:(totalSteps+1)]))
 
         # Initialise all random numbers state to use for each thread
         rng_states = create_xoroshiro128p_states(batchSize, seed=1)
 
         # Compute the paths in batches to preserve memory (see if we can
         # exploit both GPUs to share the computational load)
-        print (optimal)
-        print(static)
         simulateSinglePath[blockspergrid, threadsperblock](
                 batchSize, totalSteps, lookahead, d_sampleFFDIs,
                 d_expFiresComp, d_lambdas, d_patchVegetations, d_patchAreas,
@@ -2937,31 +2961,37 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
         # Return memory to the host. We unfortunately have to do this all the
         # time due to the batching requirement to prevent excessive memory
         # use on the GPU
-        d_accumulatedDamages.copy_to_host(accumulatedDamages[
-                batchStart:batchEnd, start:(totalSteps+1), :])
-        d_accumulatedHours.copy_to_host(accumulatedHours[
-                batchStart:batchEnd, start:(totalSteps+1), :])
-        d_fires.copy_to_host(fires[batchStart:batchEnd, start:(totalSteps+1)])
-        d_initialExtinguished.copy_to_host(initialExtinguished[
-                batchStart:batchEnd, start:(totalSteps+1)])
-        d_fireStarts.copy_to_host(fireStarts[
-                batchStart:batchEnd, start:(totalSteps+1)])
-        d_fireSizes.copy_to_host(fireSizes[batchStart:batchEnd,
-                                           start:(totalSteps+1), :])
-        d_fireLocations.copy_to_host(fireLocations[batchStart:batchEnd,
-                                                   start:(totalSteps+1), :])
-        d_firePatches.copy_to_host(firePatches[batchStart:batchEnd,
-                                               start:(totalSteps+1), :])
-        d_aircraftLocations.copy_to_host(aircraftLocations[
-                batchStart:batchEnd, start:(totalSteps+1), :])
-        d_aircraftAssignments.copy_to_host(aircraftAssignments[
-                batchStart:batchEnd, start:(totalSteps+1), :])
-        d_controls.copy_to_host(controls[batchStart:batchEnd,
-                                         start:(totalSteps+1)])
-        d_states.copy_to_host(states[batchStart:batchEnd,
-                                     start:(totalSteps+1), :])
-        d_costs2Go.copy_to_host(costs2Go[batchStart:batchEnd,
-                                         start:(totalSteps+1)])
+        d_accumulatedDamages.copy_to_host(numpy.ascontiguousarray(
+                accumulatedDamages[batchStart:batchEnd,
+                                   start:(totalSteps+1), :]))
+        d_accumulatedHours.copy_to_host(numpy.ascontiguousarray(
+                accumulatedHours[batchStart:batchEnd,
+                                 start:(totalSteps+1), :]))
+        d_fires.copy_to_host(numpy.ascontiguousarray(
+                fires[batchStart:batchEnd, start:(totalSteps+1)]))
+        d_initialExtinguished.copy_to_host(numpy.ascontiguousarray(
+                initialExtinguished[batchStart:batchEnd,
+                                    start:(totalSteps+1)]))
+        d_fireStarts.copy_to_host(numpy.ascontiguousarray(fireStarts[
+                batchStart:batchEnd, start:(totalSteps+1)]))
+        d_fireSizes.copy_to_host(numpy.ascontiguousarray(
+                fireSizes[batchStart:batchEnd, start:(totalSteps+1), :]))
+        d_fireLocations.copy_to_host(numpy.ascontiguousarray(
+                fireLocations[batchStart:batchEnd, start:(totalSteps+1), :]))
+        d_firePatches.copy_to_host(numpy.ascontiguousarray(
+                firePatches[batchStart:batchEnd, start:(totalSteps+1), :]))
+        d_aircraftLocations.copy_to_host(numpy.ascontiguousarray(
+                aircraftLocations[batchStart:batchEnd,
+                                  start:(totalSteps+1), :]))
+        d_aircraftAssignments.copy_to_host(numpy.ascontiguousarray(
+                aircraftAssignments[batchStart:batchEnd,
+                                    start:(totalSteps+1), :]))
+        d_controls.copy_to_host(numpy.ascontiguousarray(
+                controls[batchStart:batchEnd, start:(totalSteps+1)]))
+        d_states.copy_to_host(numpy.ascontiguousarray(
+                states[batchStart:batchEnd, start:(totalSteps+1), :]))
+        d_costs2Go.copy_to_host(numpy.ascontiguousarray(
+                costs2Go[batchStart:batchEnd, start:(totalSteps+1)]))
 
     d_expectedTemp.copy_to_host(expectedTemp)
     numpy.set_printoptions(threshold=numpy.nan)

@@ -3317,13 +3317,17 @@ class Simulation():
 
         for ii in range(samplePaths):
             randCont = numpy.random.randint(6, size=[mcPaths, totalSteps + 1])
-            regressionX = numpy.zeros([totalSteps, noControls, 10],
-                                      dtype=numpy.float32)
-            regressionY = numpy.zeros([totalSteps, noControls, res])
-#            regressionX = numpy.zeros([totalSteps, noControls, res, 3],
-#                                      dtype=numpy.float32)
-#            regressionY = numpy.zeros([totalSteps, noControls, res, res, res],
-#                                      dtype=numpy.float32)
+
+            if res > 1:
+                regressionX = numpy.zeros([totalSteps, noControls, res, 3],
+                                          dtype=numpy.float32)
+                regressionY = numpy.zeros([totalSteps, noControls, res, res, res],
+                                          dtype=numpy.float32)
+            else:
+                regressionX = numpy.zeros([totalSteps, noControls, 10, 1],
+                                          dtype=numpy.float32)
+                regressionY = numpy.zeros([totalSteps, noControls, 1, 1, 1])
+
             regModels = [[None] * noControls] * totalSteps
             rSquareds = numpy.zeros([totalSteps, noControls])
             tStatistics = numpy.zeros([totalSteps, noControls, 3])
@@ -4204,33 +4208,57 @@ class Simulation():
         """ ROV Regressions """
         outputfile = outfolder + "/ROVRegressions.csv"
 
-        with open(outputfile, 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile, delimiter=',')
+        if len(self.regressionsX[0].shape) == 4:
+            """ We used Kernel regression """
+            with open(outputfile, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile, delimiter=',')
 
-            rowLists = ([[
-                    ['T' + str(tt+1) + '_C' + str(cc+1) + '_S' + str(ss+1)
-                     for ss in range(3)]
-                    + ['T' + str(tt) + '_C' + str(cc) + '_C2G']
-                    for cc in range(len(self.model.getControls()))]
-                for tt in range(self.model.getTotalSteps())])
+                rowLists = ([[
+                        ['T' + str(tt+1) + '_C' + str(cc+1) + '_S' + str(ss+1)
+                         for ss in range(3)]
+                        + ['T' + str(tt) + '_C' + str(cc) + '_C2G']
+                        for cc in range(len(self.model.getControls()))]
+                    for tt in range(self.model.getTotalSteps())])
 
-            row = (rowListsL2[jj]
-                for rowListsL1 in rowLists
-                for rowListsL2 in rowListsL1
-                for jj in range(len(rowListsL2)))
+                row = (rowListsL2[jj]
+                    for rowListsL1 in rowLists
+                    for rowListsL2 in rowListsL1
+                    for jj in range(len(rowListsL2)))
 
-            # Three predictors
-            for r1 in range(res):
-                for r2 in range(res):
-                    for r3 in range(res):
-                        row = []
+                writer.writerow(row)
 
-                        for tt in range(self.model.getTotalSteps()):
-                            for cc in range(len(self.model.getControls())):
-                                for ss in range(3):
-                                    row.append(self.regressionsX[sample][tt][cc][ss])
+                # Three predictors
+                for r1 in range(res):
+                    for r2 in range(res):
+                        for r3 in range(res):
+                            row = []
 
-                                row.append(self.regressionsY[sample][tt][cc][r1][r2][r3])
+                            for tt in range(self.model.getTotalSteps()):
+                                for cc in range(len(self.model.getControls())):
+                                    row.append(self.regressionsX[
+                                            sample][tt, cc, r1, 0])
+                                    row.append(self.regressionsX[
+                                            sample][tt, cc, r2, 1])
+                                    row.append(self.regressionsX[
+                                            sample][tt, cc, r3, 2])
+
+                                    row.append(self.regressionsY[
+                                            sample][tt, cc, r1, r2, r3])
+
+                            writer.writerow(row)
+
+        else:
+            """ We used multiple global quadratic regression """
+            with open(outputfile, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile, delimiter=',')
+
+                row = ['Time+Control', '1', 'x1', 'x2', 'x3', 'x1^2', 'x1x2', 'x1x3',
+                       'x2^2', 'x2x3', 'x3^2']
+
+                for tt in range(self.model.getTotalSteps()):
+                    for cc in range(len(self.model.getControls())):
+                        row = ['T_' + str(tt + 1) + '_C_' + str(cc + 1)]
+                        row.extend(self.regressionsX[sample][tt, cc, :, 0])
 
         """ Controls """
         outputfile = outfolder + "/Controls.csv"
@@ -4459,20 +4487,20 @@ class Simulation():
 
         # Indices for each state dimension value
         for dim in range(3):
-            lower[dim] = regressionX[time][dim][0]
-            upper[dim] = regressionX[time][dim][-1]
-            lowerInd[dim] = int(len(regressionX[dim]) * stateVals[0] /
-                    (upper[dim] - lower[dim]))
+            lower[dim] = regressionX[time][control][dim][0]
+            upper[dim] = regressionX[time][control][dim][-1]
+            lowerInd[dim] = int(len(regressionX[time][control][dim])
+                                * stateVals[0] / (upper[dim] - lower[dim]))
 
             if lowerInd[dim] < 0:
                 lowerInd[dim] = 0
-            elif lowerInd[dim] >= len(regressionX[time][dim]):
-                lowerInd[dim] = len(regressionX[time][dim]) - 2
+            elif lowerInd[dim] >= len(regressionX[time][control][dim]):
+                lowerInd[dim] = len(regressionX[time][control][dim]) - 2
 
         # Now that we have all the index requirements, let's interpolate
         # Uppermost dimension X value
-        x0 = regressionX[0][lowerInd[0]]
-        x1 = regressionX[0][lowerInd[0] + 1]
+        x0 = regressionX[time][0][lowerInd[0]]
+        x1 = regressionX[time][0][lowerInd[0] + 1]
 
         if abs(x1 - x0) < sys.float_info.epsilon:
             xd = 0.0
@@ -4481,21 +4509,29 @@ class Simulation():
 
         # Assign y values to the coefficient matrix
         coeffs[0] = (
-            (1 - xd)*regressionY[lowerInd[0]][lowerInd[1]][lowerInd[2]]
-            + xd*regressionY[lowerInd[0]+1][lowerInd[1]][lowerInd[2]])
+            (1 - xd)*regressionY[time][control][lowerInd[0]][lowerInd[1]][
+            lowerInd[2]]
+            + xd*regressionY[time][control][lowerInd[0]+1][lowerInd[1]][
+            lowerInd[2]])
         coeffs[1] = (
-            (1 - xd)*regressionY[lowerInd[0]][lowerInd[1]][lowerInd[2]+1]
-            + xd*regressionY[lowerInd[0]+1][lowerInd[1]][lowerInd[2]+1])
+            (1 - xd)*regressionY[time][control][lowerInd[0]][lowerInd[1]][
+            lowerInd[2]+1]
+            + xd*regressionY[time][control][lowerInd[0]+1][lowerInd[1]][
+            lowerInd[2]+1])
         coeffs[2] = (
-            (1 - xd)*regressionY[lowerInd[0]][lowerInd[1]+1][lowerInd[2]]
-            + xd*regressionY[lowerInd[0]+1][lowerInd[1]+1][lowerInd[2]])
+            (1 - xd)*regressionY[time][control][lowerInd[0]][lowerInd[1]+1][
+            lowerInd[2]]
+            + xd*regressionY[time][control][lowerInd[0]+1][lowerInd[1]+1][
+            lowerInd[2]])
         coeffs[3] = (
-            (1 - xd)*regressionY[lowerInd[0]][lowerInd[1]][lowerInd[2]]
-            + xd*regressionY[lowerInd[0]+1][lowerInd[1]+1][lowerInd[2]+1])
+            (1 - xd)*regressionY[time][control][lowerInd[0]][lowerInd[1]][
+            lowerInd[2]]
+            + xd*regressionY[time][control][lowerInd[0]+1][lowerInd[1]+1][
+            lowerInd[2]+1])
 
         # Now progress down
-        x0 = regressionX[1][lowerInd[0]]
-        x1 = regressionX[1][lowerInd[0] + 1]
+        x0 = regressionX[time][control][1][lowerInd[0]]
+        x1 = regressionX[time][control][1][lowerInd[0] + 1]
 
         if abs(x1 - x0) < sys.float_info.epsilon:
             xd = 0.0
