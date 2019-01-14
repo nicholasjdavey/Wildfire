@@ -17,7 +17,9 @@ from numba.cuda.random import xoroshiro128p_normal_float32
 from numba.cuda.random import xoroshiro128p_uniform_float32
 #import pyqt_fit.nonparam_regression as smooth
 #from pyqt_fit import npr_methods
-from sklearn.kernel_ridge import KernelRidge
+#from sklearn.kernel_ridge import KernelRidge
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn import linear_model
 
 
 """ GLOBAL VARIABLES USED FOR ARRAY DIMENSIONS IN CUDA """
@@ -48,7 +50,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                        fireLocations, firePatches, aircraftLocations,
                        aircraftAssignments, rng_states, states, controls,
                        regressionX, regressionY, costs2Go, start, stepSize,
-                       method, optimal, static, expectedTemp):
+                       method, optimal, static, discount, expectedTemp):
 
     # Batched values start at zero here, but at different locations in the host
     # arrays. This is because only a portion of the host array is transferred.
@@ -96,31 +98,31 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                     ffdiRanges, rocA2PHMeans, rocA2PHSDs, extSuccess, configsE,
                     lookahead, expectedE, rng_states, path, False)
 
-            if path == 2 and tt == 11:
-                for fire in range(fires[path][tt]):
-                    for config in range(noConfE):
-                        expectedTemp[0, fire, config] = expectedE[fire, config]
-
-                    expectedTemp[0, fire, 0] = firePatches[path][tt - start][fire]
-                    expectedTemp[0, fire, 1] = fire + 1
-                    expectedTemp[0, fire, 2] = fireSizes[path][tt - start][fire]
-                    expectedTemp[0, fire, 3] = expectedFFDI[firePatches[path][tt - start][fire], tt]
-#                for patch in range(noPatches):
-#                    expectedTemp[0, patch, 0] = expectedFFDI[patch, 0]
-#                    expectedTemp[0, patch, 1] = sampleFFDIs[patch, tt]
-
-            if path == 2 and tt == 12:
-                for fire in range(fires[path][tt]):
-                    for config in range(noConfE):
-                        expectedTemp[1, fire, config] = expectedE[fire, config]
-
-                    expectedTemp[1, fire, 0] = firePatches[path][tt - start][fire]
-                    expectedTemp[1, fire, 1] = fire + 1
-                    expectedTemp[1, fire, 2] = fireSizes[path][tt - start][fire]
-                    expectedTemp[1, fire, 3] = expectedFFDI[firePatches[path][tt - start][fire], tt]
-#                for patch in range(noPatches):
-#                    expectedTemp[1, patch, 0] = expectedFFDI[patch, 0]
-#                    expectedTemp[1, patch, 1] = sampleFFDIs[patch, tt]
+#            if path == 2 and tt == 11:
+#                for fire in range(fires[path][tt]):
+#                    for config in range(noConfE):
+#                        expectedTemp[0, fire, config] = expectedE[fire, config]
+#
+#                    expectedTemp[0, fire, 0] = firePatches[path][tt - start][fire]
+#                    expectedTemp[0, fire, 1] = fire + 1
+#                    expectedTemp[0, fire, 2] = fireSizes[path][tt - start][fire]
+#                    expectedTemp[0, fire, 3] = expectedFFDI[firePatches[path][tt - start][fire], tt]
+##                for patch in range(noPatches):
+##                    expectedTemp[0, patch, 0] = expectedFFDI[patch, 0]
+##                    expectedTemp[0, patch, 1] = sampleFFDIs[patch, tt]
+#
+#            if path == 2 and tt == 12:
+#                for fire in range(fires[path][tt]):
+#                    for config in range(noConfE):
+#                        expectedTemp[1, fire, config] = expectedE[fire, config]
+#
+#                    expectedTemp[1, fire, 0] = firePatches[path][tt - start][fire]
+#                    expectedTemp[1, fire, 1] = fire + 1
+#                    expectedTemp[1, fire, 2] = fireSizes[path][tt - start][fire]
+#                    expectedTemp[1, fire, 3] = expectedFFDI[firePatches[path][tt - start][fire], tt]
+##                for patch in range(noPatches):
+##                    expectedTemp[1, patch, 0] = expectedFFDI[patch, 0]
+##                    expectedTemp[1, patch, 1] = sampleFFDIs[patch, tt]
 
             expectedDamagePotential(
                     expectedFFDI, patchVegetations, patchAreas, ffdiRanges,
@@ -139,27 +141,61 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                           selectedE, weightsP, states, lambdas, thresholds,
                           method, stepSize, tt, lookahead, expectedTemp, path)
 
-            if optimal and static < 0:
+            if (optimal and (static < 0)):
                 # ROV Optimal Control
                 # Compute the optimal control using regressions.
                 bestControl = 0
                 bestC2G = math.inf
 
-                for control in range(noControls):
-                    """ Need to determine the expected cost to go for each
-                    control in order to determine the best one to pick. This
-                    requires computing the state for each control using the
-                    assignment heuristic and then the regressions. """
+                """ For all steps in the backward induction except the first,
+                we need to determine the best control to pick """
+                if tt > 0:
+                    for control in range(noControls):
 
-                    """ Get the expected cost 2 go for this control at this
-                    time for the prevailing state """
-                    currC2G = interpolateCost2Go(states, regressionX,
-                                                 regressionY, tt - start, path,
-                                                 control)
+                        if tt == totalSteps:
+                            """ Determine termination cost at the start of the last
+                            period (no future flexibility, just use point estimate
+                            for C2G by computing MIP) """
+                            assignAircraft(
+                                aircraftAssignments, resourceSpeeds, resourceTypes,
+                                maxHours, aircraftLocations, accumulatedHours,
+                                baseLocations, tankerDists, heliDists, fires,
+                                fireSizes, fireLocations, ffdiRanges,
+                                configurations, configsE, configsP, baseConfigsMax,
+                                fireConfigsMax, thresholds, expFiresComp, expectedE,
+                                expectedP, selectedE, weightsP, tt - start,
+                                stepSize, lookahead, path, bestControl, lambdas,
+                                method, expectedTemp, 0)
 
-                    if currC2G < bestC2G:
-                        bestC2G = currC2G
-                        bestControl = control
+                            currC2G = 0.0
+
+                            for fire in range(fires[path][tt]):
+                                currC2G += expectedE[fire][selectedE[fire]]
+
+                            for patch in range(noPatches):
+                                for config in range(noConfP):
+                                    currC2G += weightsP[patch, config] * expectedP[
+                                            patch, config]
+
+                        else:
+                            """ Need to determine the expected cost to go for each
+                            control in order to determine the best one to pick. This
+                            requires computing the state for each control using the
+                            assignment heuristic and then the regressions. """
+
+                            """ Get the expected cost 2 go for this control at this
+                            time for the prevailing state """
+    #                        currC2G = interpolateCost2Go(states, regressionX,
+    #                                                     regressionY, tt - start,
+    #                                                     path, control)
+
+                            currC2G = calculateCost2Go(
+                                    states, regressionX, tt - start, path,
+                                    control)
+
+                        if currC2G < bestC2G:
+                            bestC2G = currC2G
+                            bestControl = control
 
                 controls[path][tt] = bestControl
 
@@ -218,6 +254,21 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                              start:(totalSteps + lookahead + 1), :],
                              accumulatedDamages, tt - start, stepSize,
                              rng_states, path)
+
+        for tt in range(start, totalSteps):
+            """ The cost to go for the prior period will include the
+            accumulated damage for that period's control for that period
+            up to now PLUS the C2G for this period to the next. This is used
+            for computing the regressions in the previous period. As we will
+            have (re-)computed the forward paths up to now, we can just use the
+            remaining accumulated damage to the end period minuts the
+            accumulated damage already incurred. """
+            costs2Go[path][tt-1] = 0
+
+            for patch in range(noPatches):
+                costs2Go[path][tt-2] += (
+                        accumulatedDamages[path, totalSteps + 1, patch]
+                        - accumulatedDamages[path, tt-1, patch])
 
 
 #@jit(nopython=True, fastmath=True)
@@ -353,6 +404,27 @@ def interpolate1D(xval, xrange, yrange):
              (yrange[idxMax] - yrange[idxMin]))
 
     return value
+
+
+@cuda.jit(device=True)
+def calculateCost2Go(states, regressionX, time, path, control):
+
+    returnVal = (regressionX[time][control][0]
+                 + regressionX[time][control][1] * states[path][time][0]
+                 + regressionX[time][control][2] * states[path][time][1]
+                 + regressionX[time][control][3] * states[path][time][2]
+                 + regressionX[time][control][4] * states[path][time][0] ** 2
+                 + regressionX[time][control][5] * states[path][time][0]
+                     * states[path][time][1]
+                 + regressionX[time][control][6] * states[path][time][0]
+                     * states[path][time][2]
+                 + regressionX[time][control][7] * states[path][time][1] ** 2
+                 + regressionX[time][control][8] * states[path][time][1]
+                     * states[path][time][2]
+                 + regressionX[time][control][9] * states[path][time][2] ** 2)
+
+    return returnVal
+
 
 @cuda.jit(device=True)
 def interpolateCost2Go(state, regressionX, regressionY, time, path, control):
@@ -2498,7 +2570,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 fireLocations, firePatches, aircraftLocations,
                 aircraftAssignments, controls, regressionX, regressionY,
                 regModels, rSquared, tStatistic, pValue, states, costs2Go,
-                lambdas, method, noCont):
+                lambdas, method, noCont, discount):
 
     """ Set global values """
     global noBases
@@ -2567,17 +2639,84 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             accumulatedHours, fires, initialExtinguished, fireStarts,
             fireSizes, fireLocations, firePatches, aircraftLocations,
             aircraftAssignments, controls, d_regressionX, d_regressionY,
-            states, costs2Go, method, noControls)
+            states, costs2Go, method, noControls, discount)
+
+    sys.exit()
 
     """ BACKWARD INDUCTION """
     """ Regressions and Forward Path Re-Computations"""
-    for tt in range(totalSteps - 1, -1, -1):
-        """ Regressions """
-        for control in range(noControls):
-            """ Compute the regression using the relevant states and
-            costs2Go """
-            xs = states[:, tt, 0:3]
-            ys = costs2Go[:, tt]
+    for tt in range(totalSteps, 0, -1):
+        """ Compute the regression using the relevant states and
+        costs2Go for all but the last and first periods. """
+        if tt < totalSteps and tt > 0:
+
+            for control in range(noControls):
+                    xs = numpy.array([states[idx, tt, 0:3]
+                                      for _, idx in controls[:, tt]
+                                      if controls[idx, tt] == control])
+                    ys = numpy.array([costs2Go[idx, tt]
+                                       for _, idx in controls[:, tt]
+                                       if controls[idx, tt] == control])
+
+                    poly_reg = PolynomialFeatures(degree=2)
+                    X_ = poly_reg.fit_transform(xs)
+                    clf = linear_model.LinearRegression()
+                    clf.fit(X_, ys)
+                    rSquared[tt, control] = clf.score(xs, ys)
+                    regModels[tt][control] = clf
+
+                    coeffs = clf.coef_
+                    coeffs[0] = clf.intercept_
+                    regressionX[tt][control] =  coeffs
+
+                    """ Push the regressions back onto the GPU for reuse in the
+                    forward path recomputations """
+                    d_regressionX[tt][control] = cuda.to_device(
+                            regressionX[tt][control])
+                    d_regressionY[tt][control] = cuda.to_device(
+                            regressionY[tt][control])
+
+            sys.exit()
+
+        elif tt == 0:
+            bestControl = 0
+            bestC2GStart = math.inf
+
+            for control in range(noControls):
+                ys = numpy.array([costs2Go[idx, tt]
+                                  for _, idx in controls[:, tt]
+                                  if controls[idx, tt] == control])
+
+                currC2GStart = ys.sum()
+
+                if currC2GStart < bestC2GStart:
+                    bestControl = control
+
+            controls[:, 0] = (
+                    numpy.ones(paths, dtype=numpy.int32) * bestControl)
+
+        simulateMC(
+                paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
+                d_patchLocations, d_baseLocations, d_resourceTypes,
+                d_resourceSpeeds, d_maxHours, d_configurations, d_configsE,
+                d_configsP, d_thresholds, d_ffdiRanges, d_rocA2PHMeans,
+                d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
+                d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
+                d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
+                totalSteps, lookahead, stepSize, accumulatedDamages,
+                accumulatedHours, fires, fireSizes, fireLocations, firePatches,
+                aircraftLocations, aircraftAssignments, controls,
+                d_regressionX, d_regressionY, states, costs2Go, method,
+                noControls, discount, tt, optimal=True)
+
+    """ Pull the final states and costs 2 go from the GPU and save to an output
+    file. For analysis purposes, we need to print our paths to output csv files
+    or data dumps (use Pandas?/Spark?)
+    The extraction is already done but the saving of the data is not. We save
+    the data in the calling routine. """
+
+
+def forKernelRegression():
 
 #            reg = smooth.NonParamRegression(
 #                xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
@@ -2586,6 +2725,8 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
 #            clf.fit(xs, ys)
 #            rSquared[tt, control] = clf.score(xs, ys)
 #            regModels[tt][control] = clf
+
+#x1_grid, x2_grid, x3_grid = np.meshgrid(np.arange(0, 10.1, 0.1), np.arange(0, 10.1, 0.1), np.arange(0, 10.1, 0.1))
 
 #            tempGrid = numpy.meshgrid(
 #                numpy.linspace(min(xs[:, 0]), max(xs[:, 0], 50)),
@@ -2608,27 +2749,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
 #                    regressionX[tt][control])
 #            d_regressionY[tt][control] = cuda.to_device(
 #                    regressionY[tt][control])
-#
-#        simulateMC(
-#                paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
-#                d_patchLocations, d_baseLocations, d_resourceTypes,
-#                d_resourceSpeeds, d_maxHours, d_configurations, d_configsE,
-#                d_configsP, d_thresholds, d_ffdiRanges, d_rocA2PHMeans,
-#                d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
-#                d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
-#                d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
-#                totalSteps, lookahead, stepSize, accumulatedDamages,
-#                accumulatedHours, fires, fireSizes, fireLocations, firePatches,
-#                aircraftLocations, aircraftAssignments, controls,
-#                d_regressionX, d_regressionY, states, costs2Go, method,
-#                noControls, tt, optimal=True)
-
-    """ Pull the final states and costs 2 go from the GPU and save to an output
-    file. For analysis purposes, we need to print our paths to output csv files
-    or data dumps (use Pandas?/Spark?)
-    The extraction is already done but the saving of the data is not. We save
-    the data in the calling routine. """
-
+    pass
 
 """ Dynamic MPC """
 def simulateMPCDyn(paths, sampleFFDIs, patchVegetations, patchAreas,
@@ -2641,7 +2762,7 @@ def simulateMPCDyn(paths, sampleFFDIs, patchVegetations, patchAreas,
                    accumulatedDamages, accumulatedHours, fires, fireSizes,
                    fireLocations, firePatches, aircraftLocations,
                    aircraftAssignments, controls, regressionX, regressionY,
-                   regModels, c2gSaved, lambdas, method, noCont,
+                   regModels, c2gSaved, lambdas, method, noCont, discount=1,
                    randChoice=True, testControl=0):
 
     """ Set global values """
@@ -2715,7 +2836,7 @@ def simulateMPCDyn(paths, sampleFFDIs, patchVegetations, patchAreas,
             totalSteps, lookahead, stepSize, accumulatedDamages,
             accumulatedHours, fires, fireSizes, fireLocations, firePatches,
             aircraftLocations, aircraftAssignments, controls, d_regressionX,
-            d_regressionY, states, costs2Go, method, noControls,
+            d_regressionY, states, costs2Go, method, noControls, discount,
             optimal=randChoice, static=testControl)
 
     """ Pull the final costs 2 go from the GPU ready to save to an output
@@ -2736,8 +2857,8 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
                accumulatedHours, fires, initialExtinguished, fireStarts,
                fireSizes, fireLocations, firePatches, aircraftLocations,
                aircraftAssignments, controls, d_regressionX, d_regressionY,
-               states, costs2Go, method, noControls, start=0, optimal=False,
-               static=-1):
+               states, costs2Go, method, noControls, discount=1, start=0,
+               optimal=False, static=-1):
 
     # Input values prefixed with 'd_' are already on the device and will not
     # be copied across. Values without the prefix need to be copied across.
@@ -2793,6 +2914,8 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
 
         # Compute the paths in batches to preserve memory (see if we can
         # exploit both GPUs to share the computational load)
+        print (optimal)
+        print(static)
         simulateSinglePath[blockspergrid, threadsperblock](
                 batchSize, totalSteps, lookahead, d_sampleFFDIs,
                 d_expFiresComp, d_lambdas, d_patchVegetations, d_patchAreas,
@@ -2806,7 +2929,8 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
                 d_fireStarts, d_fireSizes, d_fireLocations, d_firePatches,
                 d_aircraftLocations, d_aircraftAssignments, rng_states,
                 d_states, d_controls, d_regressionX, d_regressionY, d_costs2Go,
-                start, stepSize, method, optimal, static, d_expectedTemp)
+                start, stepSize, method, optimal, static, discount,
+                d_expectedTemp)
 
         cuda.synchronize()
 

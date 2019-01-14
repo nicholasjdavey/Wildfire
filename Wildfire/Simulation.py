@@ -3215,7 +3215,7 @@ class Simulation():
                                   dtype=numpy.float32)
 
 
-
+        discount = self.model.getDiscountFactor()
         method = self.model.getControlMethod()
         # Thresholds/parameters for each control
         lambdas = numpy.array([[
@@ -3317,10 +3317,13 @@ class Simulation():
 
         for ii in range(samplePaths):
             randCont = numpy.random.randint(6, size=[mcPaths, totalSteps + 1])
-            regressionX = numpy.zeros([totalSteps, noControls, res, 3],
+            regressionX = numpy.zeros([totalSteps, noControls, 10],
                                       dtype=numpy.float32)
-            regressionY = numpy.zeros([totalSteps, noControls, res, res, res],
-                                      dtype=numpy.float32)
+            regressionY = numpy.zeros([totalSteps, noControls, res])
+#            regressionX = numpy.zeros([totalSteps, noControls, res, 3],
+#                                      dtype=numpy.float32)
+#            regressionY = numpy.zeros([totalSteps, noControls, res, res, res],
+#                                      dtype=numpy.float32)
             regModels = [[None] * noControls] * totalSteps
             rSquareds = numpy.zeros([totalSteps, noControls])
             tStatistics = numpy.zeros([totalSteps, noControls, 3])
@@ -3463,7 +3466,7 @@ class Simulation():
                     firePatches, aircraftLocations, aircraftAssignments,
                     randCont, regressionX, regressionY, regModels, rSquareds,
                     tStatistics, pVals, states, costs2go, lambdas, method,
-                    noControls)
+                    noControls, discount)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
 

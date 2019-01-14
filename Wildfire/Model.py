@@ -278,7 +278,7 @@ class Model():
         return self.discountFactor
 
     def setDiscountFactor(self, f):
-        self.discounteFactor = f
+        self.discountFactor = f
 
     def getAlgo(self):
         return self.algo
