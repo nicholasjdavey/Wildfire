@@ -94,19 +94,18 @@ class Fire():
                               vegetation.getFFDIRange(),
                               vegetation.getROCA2PerHourMean()[configID])
 
+        grSD = max(0, numpy.interp(ffdi,
+                                   vegetation.getFFDIRange(),
+                                   vegetation.getROCA2PerHourSD()[configID]))
+
         success = numpy.interp(ffdi,
                                vegetation.getFFDIRange(),
-                               vegetation.getExtendedSuccess())
+                               vegetation.getExtendedSuccess()[configID])
 
         radCurr = (math.sqrt(self.size*10000/math.pi))
         randNo = numpy.random.rand()
 
         if random:
-            grSD = max(0,
-                       numpy.interp(ffdi,
-                                vegetation.getFFDIRange(),
-                                vegetation.getROCA2PerHourSD()[configID]))
-
             radNew = radCurr + math.exp(grMean + grSD * numpy.random.rand())
         else:
             radNew = radCurr + math.exp(grMean + grSD ** 2 / 2)

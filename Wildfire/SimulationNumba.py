@@ -2707,22 +2707,22 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
 
                 else:
                     xs = numpy.array([states[idx, tt, 0:3]
-                                      for _, idx in controls[:, tt]
+                                      for idx in range(len(controls[:, tt]))
                                       if controls[idx, tt] == control])
                     ys = numpy.array([costs2Go[idx, tt]
-                                       for _, idx in controls[:, tt]
+                                       for idx in range(len(controls[:, tt]))
                                        if controls[idx, tt] == control])
 
                     poly_reg = PolynomialFeatures(degree=2)
                     X_ = poly_reg.fit_transform(xs)
                     clf = linear_model.LinearRegression()
                     clf.fit(X_, ys)
-                    rSquared[tt, control] = clf.score(xs, ys)
+                    rSquared[tt, control] = clf.score(X_, ys)
                     regModels[tt][control] = clf
 
                     coeffs = clf.coef_
                     coeffs[0] = clf.intercept_
-                    regressionX[tt][control] =  coeffs
+                    regressionX[tt][control, :, 0] =  coeffs
                     regressionY[tt][control] = numpy.zeros(1)
 
                     """ Push the regressions back onto the GPU for reuse in the
@@ -2731,8 +2731,6 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                             regressionX[tt][control])
                     d_regressionY[tt][control] = cuda.to_device(
                             regressionY[tt][control])
-
-            sys.exit()
 
         elif tt == 0:
             bestControl = 0
@@ -2750,6 +2748,8 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
 
             controls[:, 0] = (
                     numpy.ones(paths, dtype=numpy.int32) * bestControl)
+
+        print('got here')
 
         simulateMC(
                 paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,

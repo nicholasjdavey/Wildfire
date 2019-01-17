@@ -247,8 +247,8 @@ class Simulation():
         switch = {
             1: self.buildMaxCover,
             2: self.buildPMedian,
-            3: self.buildAssignment1,
-            4: self.buildAssignment2
+            3: self.buildAssignment2,
+            4: self.buildAssignment1
         }
 
         self.buildModelBase()
@@ -473,9 +473,8 @@ class Simulation():
 
         """Ensures that an aircraft can be allocated to at most one fire"""
         cplxMod.constraintNames["C_6"] = [
-                "C_6_R" + str(r) + "_B" + str(b)
-                for r in cplxMod.R
-                for b in cplxMod.B]
+                "C_6_R" + str(r)
+                for r in cplxMod.R]
         cplxMod.constraintIdxStarts["C_6"] = totalConstraints
         totalConstraints = totalConstraints + len(
                 cplxMod.constraintNames["C_6"])
@@ -485,10 +484,9 @@ class Simulation():
                         cplex.SparsePair(
                                 ind=[],
                                 val=[])
-                        for r in cplxMod.R
-                        for b in cplxMod.B],
-                senses=["L"]*len(cplxMod.R)*len(cplxMod.B),
-                rhs=[1]*len(cplxMod.R)*len(cplxMod.B))
+                        for r in cplxMod.R],
+                senses=["L"]*len(cplxMod.R),
+                rhs=[1]*len(cplxMod.R))
 
         """Ensures that the maximum number of flying hours are not exceeded"""
         cplxMod.constraintNames["C_9"] = [
@@ -1347,7 +1345,7 @@ class Simulation():
                                     configsE[kk], 0,
                                     self.model.getTotalSteps() + lookahead)
                             for jj in range(len(activeFires))
-                            for kk in range(len(configsE))}
+                            for kk in configsE}
 
                     expDamagePoten = {
                             (jj, kk):
@@ -1355,7 +1353,7 @@ class Simulation():
                                     jj, expectedFFDI, configsP[kk], 0,
                                     self.model.getTotalSteps() + lookahead)
                             for jj in range(patches)
-                            for kk in range(len(configsP))}
+                            for kk in configsP}
 
                     [patchConfigs, fireConfigs] = (
                             self.assignAircraft(
@@ -1420,7 +1418,7 @@ class Simulation():
                     assignments are computed here. Otherwise, we also compute
                     relocations """
                     expDamageExist = {
-                            (jj, kk):
+                            (jj, configsE[kk] - 1):
                             self.expectedDamageExisting(
                                     activeFires[jj], expectedFFDI,
                                     configsE[kk], tt,
@@ -1430,7 +1428,7 @@ class Simulation():
                             for kk in range(len(configsE))}
 
                     expDamagePoten = {
-                            (jj, kk):
+                            (jj, configsP[kk] - 1):
                             self.expectedDamagePotential(
                                     jj, expectedFFDI, configsP[kk], tt,
                                     self.model.getTotalSteps() + lookahead
@@ -1451,8 +1449,8 @@ class Simulation():
                             # ROV
                             [s1, s2, s3] = self.computeState(
                                 assignmentsPath, resourcesPath, expDamageExist,
-                                expDamagePoten, activeFires, patchConfigs,
-                                fireConfigs, expectedFFDI, accumulatedHours,
+                                expDamagePoten, activeFires, configsP,
+                                configsE, expectedFFDI, accumulatedHours,
                                 method, tt + 1)
 
                             for c in range(noControls):
@@ -2201,6 +2199,9 @@ class Simulation():
                           expDamagePoten, activeFires, resourcesPath, ffdiPath,
                           timeStep, control, static, tempModel, method,
                           dummy=0):
+        """ Assigns aircraft by weighting:
+        1. Preference for EXISTING and POTENTIAL fires
+        2. Fire DAMAGE and RELOCATION COST """
 
         """ First copy the relocation model """
         bases = self.model.getRegion().getStations()[0]
@@ -2335,28 +2336,29 @@ class Simulation():
         """////////////////////////////////////////////////////////////////////
         ///////////////////// OBJECTIVE VALUE COEFFICIENTS ////////////////////
         ////////////////////////////////////////////////////////////////////"""
-
         startYMR = tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
         startXRB = tempModel.decisionVarsIdxStarts["X_RB"]
         startDeltaNK = tempModel.decisionVarsIdxStarts["Delta_NK"]
-        lambdaVals = tempModel.lambdas[control]
+        lambdaVals = tempModel.lambdas[control+1]
 
         if len(tempModel.M) > 0:
             tempModel.objective.set_linear(list(zip(
                     [startYMR + m*(lenR + lenKE) + lenR + k
                      for m in tempModel.M
-                     for k in tempModel.KE],
-                    [tempModel.D1_MK[m, k]*lambdaVals[0]*lambdaVals[1]
+                     for k in range(len(tempModel.KE))],
+                    [tempModel.D1_MK[m, tempModel.KE[k]]*lambdaVals[0]
+                     *lambdaVals[1]
                      for m in tempModel.M
-                     for k in tempModel.KE])))
+                     for k in range(len(tempModel.KE))])))
 
         tempModel.objective.set_linear(list(zip(
-                [startDeltaNK + n*lenKE + k
+                [startDeltaNK + n*lenKP + k
                  for n in tempModel.N
-                 for k in tempModel.KP],
-                [tempModel.D2_NK[n, k]*lambdaVals[1]*(1 - lambdaVals[0])
+                 for k in range(len(tempModel.KP))],
+                [tempModel.D2_NK[n, tempModel.KP[k]]*lambdaVals[1]
+                 *(1 - lambdaVals[0])
                  for n in tempModel.N
-                 for k in tempModel.KP])))
+                 for k in range(len(tempModel.KP))])))
 
         tempModel.objective.set_linear(list(zip(
                 [startXRB + r*lenB + b
@@ -2467,7 +2469,7 @@ class Simulation():
         if len(tempModel.M) > 0:
             coefficients = [
                     (startC6 + r,
-                     startYMR + m*(lenR + lenKP) + r,
+                     startYMR + m*(lenR + lenKE) + r,
                      1)
                     for r in tempModel.R
                     for m in tempModel.M]
@@ -2500,6 +2502,8 @@ class Simulation():
                 for r in tempModel.R])
 
         """ SOLVE THE MODEL """
+        print(tempModel.constraintIdxStarts)
+        print(tempModel.decisionVarsIdxStarts)
         tempModel.solve()
 
         """ UPDATE THE RESOURCE ASSIGNMENTS IN THE SYSTEM """
@@ -2725,6 +2729,8 @@ class Simulation():
                 (r, b): (1 if (tempModel.d1_RB[r, b]) <= maxB else 0)
                 for r in tempModel.R
                 for b in tempModel.B}
+
+        print(tempModel.d1_RB_B2)
 
         """ Whether fire M satisfies the maximum relocation distance for
         resources R for the designated control """
@@ -3100,6 +3106,7 @@ class Simulation():
         tempModel.constraintNames = copy.copy(copyModel.constraintNames)
         tempModel.d3_BN = copyModel.d3_BN
         tempModel.d3_BCN = copyModel.d3_BCN
+        tempModel.thresholds = copyModel.thresholds
 
     def geoDist(self, x1d, x2d):
         x1 = [x1d[0] * math.pi/180, x1d[1] * math.pi/180]
@@ -3115,7 +3122,7 @@ class Simulation():
         damage = 0
         fireTemp = copy.copy(fire)
         patch = fire.getPatchID()
-        vegetation = patch.getVegetation()
+        vegetation = self.model.getRegion().getPatches()[patch].getVegetation()
         size = fireTemp.getSize()
 
         for tt in range(look):
@@ -4208,7 +4215,7 @@ class Simulation():
         """ ROV Regressions """
         outputfile = outfolder + "/ROVRegressions.csv"
 
-        if len(self.regressionsX[0].shape) == 4:
+        if self.regressionsY[0].shape[3] >1:
             """ We used Kernel regression """
             with open(outputfile, 'w', newline='') as csvfile:
                 writer = csv.writer(csvfile, delimiter=',')
@@ -4411,7 +4418,7 @@ class Simulation():
         return [ffdiAgg, severityAgg]
 
     def computeState(self, assignmentsPath, resourcesPath, expDamageExist,
-                     expDamagePoten, activeFires, patchConfigs, fireConfigs,
+                     expDamagePoten, activeFires, configsP, configsE,
                      expectedFFDI, aircraftHours, method, time):
 
         """ STATES - USED """
