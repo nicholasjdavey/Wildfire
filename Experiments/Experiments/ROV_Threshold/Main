@@ -87,7 +87,7 @@ Time Steps                                                      : 5
 Step Size (Hours)                                               : 1
 Daylight Hours Per Day                                          : 15
 ROV Paths                                                       : 10000
-Relocation LP Method (1=MaxCover, 2=PMedian, 3=Asgn3, 4=Asgn4)  : 4
+Relocation LP Method (1=MaxCover, 2=PMedian, 3=Asgn3, 4=Asgn4)  : 3
 Lookahead                                                       : 5
 Cover Time (minutes)                                            : 20
 Monte Carlo Paths                                               : 10000

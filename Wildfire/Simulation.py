@@ -1569,8 +1569,33 @@ class Simulation():
                 self.realisedFFDIs[ii][run] = FFDI
                 self.aircraftHours[ii][run] = accumulatedHours
 
-                """Save the results for this sample"""
-                self.writeOutResults(ii, run)
+        """ Prepare for write out """
+        maxFFDI = 0.0
+        minFFDI = math.inf
+        maxDamage = 0.0
+        minDamage = math.inf
+
+        for ii in range(len(self.realisedFFDIs)):
+            for jj in range(self.model.getRuns()):
+                if self.realisedFFDIs[ii][jj].max() > maxFFDI:
+                    maxFFDI = self.realisedFFDIs[ii][jj].max()
+
+                if self.realisedFFDIs[ii][jj].min() < minFFDI:
+                    minFFDI = self.realisedFFDIs[ii][jj].min()
+
+        for ii in range(len(self.finalDamageMaps)):
+            for jj in range(self.model.getRuns()):
+                if self.finalDamageMaps[ii][jj].max() > maxFFDI:
+                    maxFFDI = self.finalDamageMaps[ii][jj].max()
+
+                if self.finalDamageMaps[ii][jj].min() < minFFDI:
+                    minFFDI = self.finalDamageMaps[ii][jj].min()
+
+        """Save the results for this sample"""
+        for ii in range(samplePaths):
+            for run in range(self.model.getRuns()):
+                self.writeOutResults(maxFFDI, minFFDI, maxDamage, minDamage,
+                                     ii, run)
 
         self.writeOutSummary()
 
@@ -1752,7 +1777,7 @@ class Simulation():
         resources R for the designated control """
         tempModel.d2_MR_B1 = {
                 (m, r):
-                (1 if (tempModel.d2_MR[m, r]) <= maxF
+                (1 if (tempModel.d2_RM[r, m]) <= maxF
                     else 0)
                 for m in tempModel.M
                 for r in tempModel.R}
@@ -2013,7 +2038,7 @@ class Simulation():
         resources R for the designated control """
         tempModel.d2_MR_B1 = {
                 (m, r):
-                (1 if (tempModel.d2_MR[m, r]) <= maxF
+                (1 if (tempModel.d2_RM[r, m]) <= maxF
                     else 0)
                 for m in tempModel.M
                 for r in tempModel.R}
@@ -2573,17 +2598,18 @@ class Simulation():
         lenC = len(tempModel.C)
 
         """ Thresholds """
+        print(tempModel.lambdas)
         if dummy == 0:
             # Chosen assignments
             if method == 1:
-                maxB = tempModel.lambdas[control][1]
-                maxF = tempModel.lambdas[control][0]
+                maxB = tempModel.lambdas[control+1][1]
+                maxF = tempModel.lambdas[control+1][0]
                 fw = 1
                 bw = 1
             elif method == 2:
-                fw = tempModel.lambdas[control][0]
-                bw = 1 - tempModel.lambdas[control][1]
-                maxB = tempModel.lambdas[control][1]
+                fw = tempModel.lambdas[control+1][0]
+                bw = 1 - tempModel.lambdas[control+1][1]
+                maxB = tempModel.lambdas[control+1][1]
                 maxF = math.inf
 
         elif dummy == 1:
@@ -2725,17 +2751,27 @@ class Simulation():
 
         """ Whether base B satisfies the maximum relocation distance for
         resource R for the designated control """
+        closestBase = numpy.zeros(len(tempModel.R))
+
+        for r in tempModel.R:
+            closestDist = math.inf
+
+            for b in tempModel.B:
+                if tempModel.d1_RB[r, b] < closestDist:
+                    closestBase[r] = b
+                    closestDist = tempModel.d1_RB[r, b]
+
         tempModel.d1_RB_B2 = {
-                (r, b): (1 if (tempModel.d1_RB[r, b]) <= maxB else 0)
+                (r, b): (1 if ((tempModel.d1_RB[r, b]) <= maxB
+                               or r == closestBase[r])
+                         else 0)
                 for r in tempModel.R
                 for b in tempModel.B}
-
-        print(tempModel.d1_RB_B2)
 
         """ Whether fire M satisfies the maximum relocation distance for
         resources R for the designated control """
         tempModel.d2_MR_B1 = {
-                (m, r): (1 if (tempModel.d2_MR[m, r]) <= maxF else 0)
+                (m, r): (1 if (tempModel.d2_RM[r, m]) <= maxF else 0)
                 for m in tempModel.M
                 for r in tempModel.R}
 
@@ -2757,27 +2793,32 @@ class Simulation():
         """////////////////////////////////////////////////////////////////////
         ///////////////////// OBJECTIVE VALUE COEFFICIENTS ////////////////////
         ////////////////////////////////////////////////////////////////////"""
-
         startYMR = tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
         startXRB = tempModel.decisionVarsIdxStarts["X_RB"]
         startDeltaNK = tempModel.decisionVarsIdxStarts["Delta_NK"]
+        lambdaVals = tempModel.lambdas[control+1]
+
+        if self.model.getControlMethod() == 2:
+            weight = lambdaVals[control+1][0]
+        else:
+            weight = 1.0
 
         if len(tempModel.M) > 0:
             tempModel.objective.set_linear(list(zip(
                     [startYMR + m*(lenR + lenKE) + lenR + k
                      for m in tempModel.M
-                     for k in tempModel.KE],
-                    [fw * tempModel.D1_MK[m, k]
+                     for k in range(len(tempModel.KE))],
+                    [tempModel.D1_MK[m, tempModel.KE[k]]*weight
                      for m in tempModel.M
-                     for k in tempModel.KE])))
+                     for k in range(len(tempModel.KE))])))
 
         tempModel.objective.set_linear(list(zip(
-                [startDeltaNK + n*lenKE + k
+                [startDeltaNK + n*lenKP + k
                  for n in tempModel.N
-                 for k in tempModel.KP],
-                [bw * tempModel.D2_NK[n, k]
+                 for k in range(len(tempModel.KP))],
+                [tempModel.D2_NK[n, tempModel.KP[k]]*(1 - weight)
                  for n in tempModel.N
-                 for k in tempModel.KP])))
+                 for k in range(len(tempModel.KP))])))
 
         """////////////////////////////////////////////////////////////////////
         //////////////////////////// CONSTRAINTS //////////////////////////////
@@ -2909,7 +2950,7 @@ class Simulation():
         if len(tempModel.M) > 0:
             coefficients = [
                     (startC6 + r,
-                     startYMR + m*(lenR + lenKP) + r,
+                     startYMR + m*(lenR + lenKE) + r,
                      1)
                     for r in tempModel.R
                     for m in tempModel.M]
@@ -3737,16 +3778,12 @@ class Simulation():
                 index = ffdiPath.append(mm)
                 expDE_lm[ll, mm] = expDE[index]
 
-    def writeOutResults(self, sample, run):
+    def writeOutResults(self, maxFFDI, minFFDI, maxDamage, minDamage, sample,
+                        run):
         plot = self.model.plot
         root = ("../Experiments/Experiments/" +
                 self.model.getInputFile().split(
                         "../Experiments/Experiments/")[1].split("/")[0])
-
-        maxFFDI = self.realisedFFDIs.max()
-        minFFDI = self.realisedFFDIs.min()
-        maxDamage = self.finalDamageMaps.max()
-        minDamage = self.finalDamageMaps.min()
 
         """ Output folder """
         outfolder = (root + "/Outputs/Scenario_" + str(self.id) + "/Sample_" +
@@ -3774,7 +3811,7 @@ class Simulation():
                     + ['']*(columns-1))
 
             writer.writerow(
-                    ['PATHS', str(len(self.realisedFFDIs))]
+                    ['PATHS', str(len(self.realisedFFDIs[sample][run]))]
                     + ['']*(columns-2))
 
             writer.writerow(
