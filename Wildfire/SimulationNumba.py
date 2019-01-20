@@ -139,7 +139,8 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                           expectedE, expectedP, expFiresComp, configurations,
                           configsE, configsP, baseConfigsMax, fireConfigsMax,
                           selectedE, weightsP, states, lambdas, thresholds,
-                          method, stepSize, tt, lookahead, expectedTemp, path)
+                          method, stepSize, tt - start, lookahead,
+                          expectedTemp, path)
 
             if (optimal and (static < 0)):
                 # ROV Optimal Control
@@ -226,6 +227,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                                     rng_states, path))
                             controls[path][tt] = bestControl
 
+#            bestControl = 0
             # AssignAircraft
             # This could potentially be very slow. Just use a naive assignment
             # for now
@@ -267,12 +269,12 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
             have (re-)computed the forward paths up to now, we can just use the
             remaining accumulated damage to the end period minuts the
             accumulated damage already incurred. """
-            costs2Go[path][tt-1] = 0
+            costs2Go[path][tt] = 0
 
             for patch in range(noPatches):
-                costs2Go[path][tt-2] += (
-                        accumulatedDamages[path, totalSteps + 1, patch]
-                        - accumulatedDamages[path, tt-1, patch])
+                costs2Go[path][tt] += (
+                        accumulatedDamages[path, totalSteps, patch]
+                        - accumulatedDamages[path, tt, patch])
 
 
 #@jit(nopython=True, fastmath=True)
@@ -2277,7 +2279,7 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
 
     global noAircraft
     global noPatches
-    global noConfP
+    global noConfigs
     statesTemp = cuda.local.array(4, dtype=float32)
     updateBases = cuda.local.array(noBases, dtype=b1)
     baseConfigsPossible = cuda.local.array(noConfigs, dtype=int32)
@@ -2644,6 +2646,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
     kernelReg = True if regressionY.shape[3] > 1 else False
 
     """ Initial Monte Carlo Paths """
+    print("Now run initial")
     simulateMC(
             paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
             d_patchLocations, d_baseLocations, d_resourceTypes,
@@ -2664,6 +2667,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
         """ Compute the regression using the relevant states and
         costs2Go for all but the last and first periods. """
         if tt < totalSteps and tt > 0:
+            print('got here ' + str(tt))
 
             for control in range(noControls):
 
@@ -2693,17 +2697,19 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                                      tempGrid[1].flatten(),
                                      tempGrid[2].flatten()]).transpose())
 
-                    regressionX[tt][control] = numpy.array([
+                    regressionX[tt, control, :, :, :] = numpy.array([
                         numpy.linspace(min(xs[0]), max(xs[0], 50)),
                         numpy.linspace(min(xs[1]), max(xs[1], 50)),
                         numpy.linspace(min(xs[2]), max(xs[2], 50))])
 
                     """ Push the regressions back onto the GPU for reuse in the
                     forward path recomputations """
-                    d_regressionX[tt][control] = cuda.to_device(
-                            regressionX[tt][control])
-                    d_regressionY[tt][control] = cuda.to_device(
-                            regressionY[tt][control])
+                    d_regressionX[tt, control, :, :] = cuda.to_device(
+                            numpy.ascontiguousarray(
+                                regressionX[tt, control, :, :]))
+                    d_regressionY[tt, control, :] = cuda.to_device(
+                            numpy.ascontiguousarray(
+                                regressionY[tt, control, :, :, :]))
 
                 else:
                     xs = numpy.array([states[idx, tt, 0:3]
@@ -2723,14 +2729,16 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                     coeffs = clf.coef_
                     coeffs[0] = clf.intercept_
                     regressionX[tt][control, :, 0] =  coeffs
+#                    print(regressionX[tt][control, :, 0])
                     regressionY[tt][control] = numpy.zeros(1)
 
                     """ Push the regressions back onto the GPU for reuse in the
                     forward path recomputations """
                     d_regressionX[tt][control] = cuda.to_device(
-                            regressionX[tt][control])
+                            numpy.ascontiguousarray(regressionX[tt][control]))
                     d_regressionY[tt][control] = cuda.to_device(
-                            regressionY[tt][control])
+                            numpy.ascontiguousarray(regressionY[tt][control]))
+#                    print('blin')
 
         elif tt == 0:
             bestControl = 0
@@ -2749,8 +2757,9 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             controls[:, 0] = (
                     numpy.ones(paths, dtype=numpy.int32) * bestControl)
 
-        print('got here')
+            print('git here')
 
+        print('Now run ' + str(tt))
         simulateMC(
                 paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
                 d_patchLocations, d_baseLocations, d_resourceTypes,
@@ -2763,7 +2772,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 accumulatedHours, fires, initialExtinguished, fireStarts,
                 fireSizes, fireLocations, firePatches, aircraftLocations,
                 aircraftAssignments, controls, d_regressionX, d_regressionY,
-                states, costs2Go, method, noControls, discount, tt,
+                states, costs2Go, method, noControls, discount, start=tt,
                 optimal=True)
 
     """ Pull the final states and costs 2 go from the GPU and save to an output
@@ -2995,18 +3004,19 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
 
     d_expectedTemp.copy_to_host(expectedTemp)
     numpy.set_printoptions(threshold=numpy.nan)
-    print(expectedTemp)
+#    print(expectedTemp)
 #    print(expectedTemp[0, :, :])
 #    print(expectedTemp[1, :, :])
 #    print(expectedTemp[2, :, :])
 #    print(expectedTemp[3, :, :])
 #    print(expectedTemp[4, :, :])
 #    print(expectedTemp[5, :, :])
-    print(sum(sum(accumulatedDamages[:,-1,:])/accumulatedDamages.shape[0]))
-    print(fireStarts[0:10])
-    print(firePatches[1, :, 0:16])
+#    print(sum(sum(accumulatedDamages[:,-1,:])/accumulatedDamages.shape[0]))
+#    print(fireStarts[0:10])
+#    print(firePatches[1, :, 0:16])
 #    print(fireSizes[1, :, 0:16])
-    print(fires[1])
+#    print(fires[1])
 #    print(aircraftAssignments[6, :, :])
+
 def analyseMCPaths():
     pass

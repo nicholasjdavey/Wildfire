@@ -19,6 +19,8 @@ import matplotlib.patches as mpp
 import matplotlib.collections as mpc
 import matplotlib.cm as clrmp
 import matplotlib.backends.backend_pdf as pdf
+import matplotlib.colors as colors
+from sklearn.preprocessing import PolynomialFeatures
 
 import SimulationNumba
 
@@ -1456,8 +1458,11 @@ class Simulation():
                             for c in range(noControls):
                                 # Use the current states to interpolate the
                                 # data representing the expectations
+                                poly_reg = PolynomialFeatures(degree=2)
+                                predict_ = poly_reg.fit_transform(
+                                        numpy.array([s1, s2, s3]).reshape(1, -1))
                                 currC2G = self.regModel[ii][tt][c].predict(
-                                        numpy.array([s1, s2, s3]))
+                                        predict_)
 
                                 if currC2G < bestC2G:
                                     bestC2G = currC2G
@@ -1529,14 +1534,23 @@ class Simulation():
                     else:
                         bestControl = 0
 
-                    if bestControl < len(self.relocationModel.lambdas) - 1:
+                    if bestControl < noControls:
                         [patchConfigs, fireConfigs] = (
                                 self.assignAircraft(
                                         assignmentsPath, expDamageExist,
                                         expDamagePoten, activeFires,
                                         resourcesPath, expectedFFDI, tt + 1,
                                         bestControl, method))
+                    else:
+                        print("Control Idx too high")
+                        print(bestControl)
+                        sys.exit()
 
+#                    [s1, s2, s3] = self.computeState(
+#                            assignmentsPath, resourcesPath, expDamageExist,
+#                            expDamagePoten, activeFires, configsP,
+#                            configsE, expectedFFDI, accumulatedHours,
+#                            method, tt + 1)
                     # Save the active fires to the path history
                     self.realisedFires[ii][run][tt + 1] = copy.copy(
                             activeFires)
@@ -1585,11 +1599,11 @@ class Simulation():
 
         for ii in range(len(self.finalDamageMaps)):
             for jj in range(self.model.getRuns()):
-                if self.finalDamageMaps[ii][jj].max() > maxFFDI:
-                    maxFFDI = self.finalDamageMaps[ii][jj].max()
+                if self.finalDamageMaps[ii][jj].max() > maxDamage:
+                    maxDamage = self.finalDamageMaps[ii][jj].max()
 
-                if self.finalDamageMaps[ii][jj].min() < minFFDI:
-                    minFFDI = self.finalDamageMaps[ii][jj].min()
+                if self.finalDamageMaps[ii][jj].min() < minDamage:
+                    minDamage = self.finalDamageMaps[ii][jj].min()
 
         """Save the results for this sample"""
         for ii in range(samplePaths):
@@ -2527,8 +2541,6 @@ class Simulation():
                 for r in tempModel.R])
 
         """ SOLVE THE MODEL """
-        print(tempModel.constraintIdxStarts)
-        print(tempModel.decisionVarsIdxStarts)
         tempModel.solve()
 
         """ UPDATE THE RESOURCE ASSIGNMENTS IN THE SYSTEM """
@@ -2598,7 +2610,6 @@ class Simulation():
         lenC = len(tempModel.C)
 
         """ Thresholds """
-        print(tempModel.lambdas)
         if dummy == 0:
             # Chosen assignments
             if method == 1:
@@ -2799,7 +2810,7 @@ class Simulation():
         lambdaVals = tempModel.lambdas[control+1]
 
         if self.model.getControlMethod() == 2:
-            weight = lambdaVals[control+1][0]
+            weight = lambdaVals[0]
         else:
             weight = 1.0
 
@@ -3261,7 +3272,6 @@ class Simulation():
                                    for ii in range(len(
                                        self.model.getSamplePaths()))],
                                   dtype=numpy.float32)
-
 
         discount = self.model.getDiscountFactor()
         method = self.model.getControlMethod()
@@ -4221,7 +4231,7 @@ class Simulation():
                     raise
 
         """ Monte Carlo Paths (with Reduced States) """
-        outputfile = outfolder + "/ROVPaths.csv"
+        outputfile = outfolder + "/ROV_Paths.csv"
 
         with open(outputfile, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile, delimiter=',')
@@ -4250,7 +4260,7 @@ class Simulation():
                 writer.writerow(row)
 
         """ ROV Regressions """
-        outputfile = outfolder + "/ROVRegressions.csv"
+        outputfile = outfolder + "/ROV_Regressions.csv"
 
         if self.regressionsY[0].shape[3] >1:
             """ We used Kernel regression """
@@ -4304,6 +4314,8 @@ class Simulation():
                         row = ['T_' + str(tt + 1) + '_C_' + str(cc + 1)]
                         row.extend(self.regressionsX[sample][tt, cc, :, 0])
 
+                        writer.writerow(row)
+
         """ Controls """
         outputfile = outfolder + "/Controls.csv"
 
@@ -4327,6 +4339,18 @@ class Simulation():
         """ Regression Data Points, Grouped by Control """
         noControls = len(self.model.getControls())
 
+        groupedC2G = numpy.zeros([self.model.getTotalSteps(),
+                                  noControls,
+                                  self.model.getROVPaths()])
+
+        groupedStates = numpy.zeros([self.model.getTotalSteps(),
+                                     noControls,
+                                     self.model.getROVPaths(),
+                                     3])
+        dataPoints = numpy.zeros([self.model.getTotalSteps(),
+                                  noControls],
+                                  dtype=numpy.int32)
+
         for c in range(noControls):
             outputfile = outfolder + "/Regression_Raw_data_" + str(c) + ".csv"
 
@@ -4344,11 +4368,17 @@ class Simulation():
 
                 writer.writerow(row)
 
-                for ii in range(self.model.getROVPaths()):
-                    if int(self.controls[sample][ii][tt]) == c:
-                        row = [str(ii + 1)]
+                for tt in range(self.model.getTotalSteps()):
+                    for ii in range(self.model.getROVPaths()):
+                        if int(self.controls[sample][ii][tt]) == c:
+                            row = [str(ii + 1)]
 
-                        for tt in range(self.model.getTotalSteps()):
+                            groupedStates[tt, c, dataPoints[tt, c], :] = (
+                                self.statePaths[sample][ii][tt][0:3])
+                            groupedC2G[tt, c, dataPoints[tt, c]] = (
+                                self.costs2Go[sample][ii][tt])
+                            dataPoints[tt, c] += 1
+
                             row.extend([
                                 self.statePaths[sample][ii][tt][ss]
                                 for ss in range(10)])
@@ -4356,6 +4386,88 @@ class Simulation():
                             row.append(self.accumulatedDamages[sample][ii][tt])
 
                         writer.writerow(row)
+
+        """ Plot the control maps at different times """
+        """ Plot for three different 2D views. One page per time step """
+        outputGraphs = pdf.PdfPages(outfolder + "Control_Maps.pdf")
+#        cm = plt.get_cmap('gist_rainbow')
+#        cNorm = colors.Normalize(vmin=0, vmax=noControls-1)
+#        scalarMap = clrmp.ScalarMappable(norm=cNorm, cmap=cm)
+
+        for tt in range(1, self.model.getTotalSteps()):
+            """ First time step not used """
+            fig = plt.figure()
+
+            """ State 1 and state 2 """
+            ax1 = fig.add_subplot(311)
+#            ax1.set_prop_cycle(color=[scalarMap.to_rgba(ii)
+#                                      for ii in range(noControls)])
+
+            for c in range(noControls):
+                ax1.scatter(groupedStates[tt, c, 0:dataPoints[tt, c], 0],
+                            groupedStates[tt, c, 0:dataPoints[tt, c], 1],
+                            s=5,
+                            label='c_' + str(c))
+
+            ax1.set_title('State_1 vs State_2')
+            ax1.set_xlabel('State_1')
+            ax1.set_ylabel('State_2')
+            ax1.legend(loc='upper left')
+
+            """ State 1 and state 3 """
+            ax2 = fig.add_subplot(312)
+
+            for c in range(noControls):
+                ax2.scatter(groupedStates[tt, c, 0:dataPoints[tt, c], 0],
+                            groupedStates[tt, c, 0:dataPoints[tt, c], 2],
+                            s=5,
+                            label='c_' + str(c))
+
+            ax2.set_title('State_1 vs State_3')
+            ax2.set_xlabel('State_1')
+            ax2.set_ylabel('State_3')
+            ax2.legend(loc='upper left')
+
+            """ State 2 and state 3 """
+            ax3 = fig.add_subplot(313)
+
+            for c in range(noControls):
+                ax3.scatter(groupedStates[tt, c, 0:dataPoints[tt, c], 1],
+                            groupedStates[tt, c, 0:dataPoints[tt, c], 2],
+                            s=5,
+                            label='c_' + str(c))
+
+            ax3.set_title('State_2 vs State_3')
+            ax3.set_xlabel('State_2')
+            ax3.set_ylabel('State_3')
+            ax3.legend(loc='upper left')
+
+            fig.tight_layout()
+            outputGraphs.savefig(fig)
+
+        outputGraphs.close()
+
+        """ Plot the raw data (and regressions) at different times for
+        different controls """
+        """ Plot for the C2G vs state for all three states. One page per time
+        step. One row per control. One column per state. """
+        outputGraphs = pdf.PdfPages(outfolder + "States_vs_C2G.pdf")
+
+        for tt in range(1, self.model.getTotalSteps()):
+            fig, axes = plt.subplots(nrows=noControls, ncols=3, sharey=True)
+
+            for c in range(noControls):
+                for s in range(3):
+                    axes[c, s].scatter(
+                        groupedStates[tt, c, 0:dataPoints[tt, c], s],
+                        groupedC2G[tt, c, 0:dataPoints[tt, c]],
+                        s=7,
+                        label='State_1 vs. C2G')
+
+            fig.tight_layout()
+            outputGraphs.savefig(fig)
+
+        outputGraphs.close()
 
     def writeOutStatistics(self, sample):
         root = ("../Experiments/Experiments/" +
@@ -4394,7 +4506,7 @@ class Simulation():
                 for cc in range(noControls):
                     row.append(self.rSquared[sample][tt][cc])
 
-            writer.writerow(row)
+                writer.writerow(row)
 
     def currPos2Fire(self, currLocs, fires):
         # Computes the distance between each aircraft and each fire
@@ -4468,15 +4580,15 @@ class Simulation():
         s1 = 0
 
         for patch in range(len(self.model.getRegion().getPatches())):
-            for config in range(patchConfigs.shape[1]):
+            for config in range(len(patchConfigs[0])):
                 s1 += (patchConfigs[patch][config]
-                       * expDamagePoten[patch][config])
+                       * expDamagePoten[patch, configsP[config]-1])
 
         """ 2. Expected existing damage (no suppression) """
         s2 = 0
 
         for fire in range(len(activeFires)):
-            s2 += expDamageExist[fire][0]
+            s2 += expDamageExist[fire, 0]
 
         """ 3. Expected potential  (relocate to existing, no existing) """
         """ Relocate to existing. Remainder cover potential. """
@@ -4491,20 +4603,26 @@ class Simulation():
         s4 = 0
 
         for fire in range(len(activeFires)):
-            s4 += expDamageExist[fire][fireConfigs[fire]]
+            s4 += expDamageExist[fire, fireConfigs[fire]]
 
         # Now check the expected damage from potential fires if expected fires
         # are ignored.
         [patchConfigs, fireConfigs] = self.assignAircraft(
                 assignmentsPath, expDamageExist, expDamagePoten, activeFires,
-                resourcesPath, expectedFFDI, time+1, 1, method, False, 3)
+                resourcesPath, expectedFFDI, time, 1, method, False, 3)
+
+#        # Do a dummy single period simulation
+#        _ = self.simulateSinglePeriod(
+#                assignmentsPath, resourcesPath, firesPath,
+#                activeFires, accumulatedDamage, accumulatedHours,
+#                patchConfigs, fireConfigs, FFDI[time], time)
 
         s3 = 0
 
         for patch in range(len(self.model.getRegion().getPatches())):
-            for config in range(patchConfigs.shape[1]):
+            for config in range(len(patchConfigs[0])):
                 s3 += (patchConfigs[patch][config]
-                       * expDamagePoten[patch][config])
+                       * expDamagePoten[patch, configsP[config]-1])
 
 #        # Aircraft hours state
 #        s1 = sum([self.relocationModel.maxHours[r] - aircraftHours[time, r]
