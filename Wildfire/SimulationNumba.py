@@ -19,7 +19,9 @@ import pyqt_fit.nonparam_regression as smooth
 from pyqt_fit import npr_methods
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.preprocessing import PolynomialFeatures
-from sklearn import linear_model
+#from sklearn import linear_model
+import statsmodels.api as sm
+#from scipy import stats
 
 
 """ GLOBAL VARIABLES USED FOR ARRAY DIMENSIONS IN CUDA """
@@ -261,7 +263,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                              accumulatedDamages, tt - start, stepSize,
                              rng_states, path)
 
-        for tt in range(start, totalSteps):
+        for tt in range(start, totalSteps + 1):
             """ The cost to go for the prior period will include the
             accumulated damage for that period's control for that period
             up to now PLUS the C2G for this period to the next. This is used
@@ -2587,7 +2589,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 fireLocations, firePatches, aircraftLocations,
                 aircraftAssignments, controls, regressionX, regressionY,
                 regModels, rSquared, tStatistic, pValue, states, costs2Go,
-                lambdas, method, noCont, discount):
+                lambdas, method, noCont, mapStates, mapC2G, discount):
 
     """ Set global values """
     global noBases
@@ -2673,11 +2675,17 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
 
                 if kernelReg:
                     xs = numpy.array([states[idx, tt, 0:3]
-                                      for _, idx in controls[:, tt]
+                                      for idx in range(len(controls[:, tt]))
                                       if controls[idx, tt] == control])
-                    ys = numpy.array([costs2Go[idx, tt]
-                                       for _, idx in controls[:, tt]
+
+                    ys = numpy.array([costs2Go[idx, tt+1]
+                                      + accumulatedDamages[idx, tt+1].sum()
+                                      - accumulatedDamages[idx, tt].sum()
+                                       for idx in range(len(controls[:, tt]))
                                        if controls[idx, tt] == control])
+
+                    mapStates[tt][control] = xs
+                    mapC2G[tt][control] = ys
 
                     reg = smooth.NonParamRegression(
                         xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
@@ -2715,19 +2723,30 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                     xs = numpy.array([states[idx, tt, 0:3]
                                       for idx in range(len(controls[:, tt]))
                                       if controls[idx, tt] == control])
-                    ys = numpy.array([costs2Go[idx, tt]
+                    """ Values for regression are the costs to go at future
+                    time periods (this is already optimised w.r.t. the next
+                    time step's optimal control) and the single period
+                    damage from this time step's control """
+                    ys = numpy.array([costs2Go[idx, tt+1]
+                                      + accumulatedDamages[idx, tt+1].sum()
+                                      - accumulatedDamages[idx, tt].sum()
                                        for idx in range(len(controls[:, tt]))
                                        if controls[idx, tt] == control])
 
+                    mapStates[tt][control] = xs
+                    mapC2G[tt][control] = ys
+
                     poly_reg = PolynomialFeatures(degree=2)
                     X_ = poly_reg.fit_transform(xs)
-                    clf = linear_model.LinearRegression()
-                    clf.fit(X_, ys)
-                    rSquared[tt, control] = clf.score(X_, ys)
+#                    clf = linear_model.LinearRegression()
+#                    clf.fit(X_, ys)
+#                    rSquared[tt, control] = clf.score(X_, ys)
+                    est = sm.OLS(ys, X_)
+                    clf = est.fit()
+                    rSquared[tt, control] = clf.rsquared_adj
                     regModels[tt][control] = clf
 
-                    coeffs = clf.coef_
-                    coeffs[0] = clf.intercept_
+                    coeffs = clf.params
                     regressionX[tt][control, :, 0] =  coeffs
 #                    print(regressionX[tt][control, :, 0])
                     regressionY[tt][control] = numpy.zeros(1)

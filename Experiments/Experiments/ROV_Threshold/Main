@@ -83,14 +83,14 @@ Aircraft Speed (Keep at 1. No need to vary)                     : 1
 Occurrence Probability (Sensitivity 1)                          : 1
 Damage Intensity (Keep at 1. No need to vary)                   : 1
 Weather Uncertainty                                             : 1
-Time Steps                                                      : 12
+Time Steps                                                      : 5
 Step Size (Hours)                                               : 1
 Daylight Hours Per Day                                          : 15
-ROV Paths                                                       : 50000
+ROV Paths                                                       : 10000
 Relocation LP Method (1=MaxCover, 2=PMedian, 3=Asgn3, 4=Asgn4)  : 3
 Lookahead                                                       : 3
 Cover Time (minutes)                                            : 20
-Monte Carlo Paths                                               : 50000
+Monte Carlo Paths                                               : 10000
 Time discount factor                                            : 1.0
 Algorithm (1=MPC, 2=ROV, 3=Static, 4=DynMPCFix, 5=DynMPCRand)   : 2
 Used Configurations (Exist)                                     : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27

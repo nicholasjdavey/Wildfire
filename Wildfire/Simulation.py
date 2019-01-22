@@ -19,7 +19,7 @@ import matplotlib.patches as mpp
 import matplotlib.collections as mpc
 import matplotlib.cm as clrmp
 import matplotlib.backends.backend_pdf as pdf
-import matplotlib.colors as colors
+#import matplotlib.colors as colors
 from sklearn.preprocessing import PolynomialFeatures
 
 import SimulationNumba
@@ -51,7 +51,9 @@ class Simulation():
         self.aircraftHours = []
         self.id = Simulation.simulations
         self.statePaths = None
+        self.mapStates = None
         self.costs2Go = None
+        self.mapC2G = None
         self.accumulatedDamages = None
         self.regressionsX = None
         self.regressionsY = None
@@ -170,11 +172,23 @@ class Simulation():
     def setStatePaths(self, p):
         self.statePaths = p
 
+    def getMapStates(self):
+        return self.mapStates
+
+    def setMapStates(self, s):
+        self.mapStates = s
+
     def getCosts2Go(self):
         return self.costs2Go
 
     def setCosts2Go(self, c):
         self.costs2Go = c
+
+    def getMapC2G(self):
+        return self.mapC2G
+
+    def setMapC2G(self, c):
+        self.mapC2G = c
 
     def getRegressionsX(self):
         return self.regressionsX
@@ -1648,6 +1662,7 @@ class Simulation():
                 r: resourcesPath[r].getFlyingHours()
                 for r in tempModel.R}
 
+        """ Travel times between resource R and base B """
         tempModel.d1_RB = {
                 (r, b): self.geoDist(bases[b].getLocation(),
                                      resourcesPath[r].getLocation()) /
@@ -2619,9 +2634,9 @@ class Simulation():
                 bw = 1
             elif method == 2:
                 fw = tempModel.lambdas[control+1][0]
-                bw = 1 - tempModel.lambdas[control+1][1]
+                bw = 1 - tempModel.lambdas[control+1][0]
                 maxB = tempModel.lambdas[control+1][1]
-                maxF = math.inf
+                maxF = tempModel.lambdas[control+1][1]
 
         elif dummy == 1:
             # Assign only to cover existing fires (state vals 3 + 4)
@@ -2774,7 +2789,7 @@ class Simulation():
 
         tempModel.d1_RB_B2 = {
                 (r, b): (1 if ((tempModel.d1_RB[r, b]) <= maxB
-                               or r == closestBase[r])
+                               or b == closestBase[r])
                          else 0)
                 for r in tempModel.R
                 for b in tempModel.B}
@@ -2807,19 +2822,13 @@ class Simulation():
         startYMR = tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
         startXRB = tempModel.decisionVarsIdxStarts["X_RB"]
         startDeltaNK = tempModel.decisionVarsIdxStarts["Delta_NK"]
-        lambdaVals = tempModel.lambdas[control+1]
-
-        if self.model.getControlMethod() == 2:
-            weight = lambdaVals[0]
-        else:
-            weight = 1.0
 
         if len(tempModel.M) > 0:
             tempModel.objective.set_linear(list(zip(
                     [startYMR + m*(lenR + lenKE) + lenR + k
                      for m in tempModel.M
                      for k in range(len(tempModel.KE))],
-                    [tempModel.D1_MK[m, tempModel.KE[k]]*weight
+                    [tempModel.D1_MK[m, tempModel.KE[k]]*fw
                      for m in tempModel.M
                      for k in range(len(tempModel.KE))])))
 
@@ -2827,7 +2836,7 @@ class Simulation():
                 [startDeltaNK + n*lenKP + k
                  for n in tempModel.N
                  for k in range(len(tempModel.KP))],
-                [tempModel.D2_NK[n, tempModel.KP[k]]*(1 - weight)
+                [tempModel.D2_NK[n, tempModel.KP[k]]*bw
                  for n in tempModel.N
                  for k in range(len(tempModel.KP))])))
 
@@ -3366,6 +3375,8 @@ class Simulation():
         self.regressionsX = [None]*samplePaths
         self.regressionsY = [None]*samplePaths
         self.costs2Go = [None]*samplePaths
+        self.mapStates = [None]*samplePaths
+        self.mapC2G = [None]*samplePaths
         self.accumulatedDamages = [None]*samplePaths
         self.controls = [None]*samplePaths
         self.rSquared = [None]*samplePaths
@@ -3392,7 +3403,10 @@ class Simulation():
             pVals = numpy.zeros([totalSteps, noControls, 3])
             states = numpy.zeros([mcPaths, totalSteps + 1, 10],
                                  dtype=numpy.float32)
-            costs2go = numpy.zeros([mcPaths, totalSteps], dtype=numpy.float32)
+            costs2go = numpy.zeros([mcPaths, totalSteps + 1],
+                                   dtype=numpy.float32)
+            mapStates = [[None] * noControls] * totalSteps
+            mapC2G = [[None] * noControls] * totalSteps
 
             """ Set Up Data Stream for ROV """
             accumulatedDamages = numpy.zeros([mcPaths, totalSteps + 1,
@@ -3528,7 +3542,7 @@ class Simulation():
                     firePatches, aircraftLocations, aircraftAssignments,
                     randCont, regressionX, regressionY, regModels, rSquareds,
                     tStatistics, pVals, states, costs2go, lambdas, method,
-                    noControls, discount)
+                    noControls, mapStates, mapC2G, discount)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
 
@@ -3539,6 +3553,8 @@ class Simulation():
             self.statePaths[ii] = states
             self.accumulatedDamages[ii] = accumulatedDamages
             self.costs2Go[ii] = costs2go
+            self.mapStates[ii] = mapStates
+            self.mapC2G[ii] = mapC2G
             self.controls[ii] = randCont
             self.rSquared[ii] = rSquareds
             self.tStatistic[ii] = tStatistics
@@ -4339,18 +4355,6 @@ class Simulation():
         """ Regression Data Points, Grouped by Control """
         noControls = len(self.model.getControls())
 
-        groupedC2G = numpy.zeros([self.model.getTotalSteps(),
-                                  noControls,
-                                  self.model.getROVPaths()])
-
-        groupedStates = numpy.zeros([self.model.getTotalSteps(),
-                                     noControls,
-                                     self.model.getROVPaths(),
-                                     3])
-        dataPoints = numpy.zeros([self.model.getTotalSteps(),
-                                  noControls],
-                                  dtype=numpy.int32)
-
         for c in range(noControls):
             outputfile = outfolder + "/Regression_Raw_data_" + str(c) + ".csv"
 
@@ -4358,34 +4362,33 @@ class Simulation():
                 writer = csv.writer(csvfile, delimiter=',')
 
                 rowLists = ([
-                        ['T_' + str(tt) + '_S_' + str(ss) for ss in range(10)]
-                        + ['T_' + str(tt) + '_C2G'] + ['T_' + str(tt) + '_AD']
+                        ['T_' + str(tt) + '_S_' + str(ss) for ss in range(3)]
+                        + ['T_' + str(tt) + '_C2G']
                     for tt in range(self.model.getTotalSteps())])
 
-                row = (['PATH'] + [listVal[ii]
-                    for listVal in rowLists
-                    for ii in range(len(listVal))])
+                row = ['SAMPLE']
+
+                for listVal in rowLists:
+                    row.extend(listVal)
 
                 writer.writerow(row)
 
-                for tt in range(self.model.getTotalSteps()):
-                    for ii in range(self.model.getROVPaths()):
-                        if int(self.controls[sample][ii][tt]) == c:
-                            row = [str(ii + 1)]
+                samples = [len(self.mapStates[sample][tt][c])
+                           for tt in range(self.model.getTotalSteps())]
 
-                            groupedStates[tt, c, dataPoints[tt, c], :] = (
-                                self.statePaths[sample][ii][tt][0:3])
-                            groupedC2G[tt, c, dataPoints[tt, c]] = (
-                                self.costs2Go[sample][ii][tt])
-                            dataPoints[tt, c] += 1
+                maxSamples = max(samples)
 
-                            row.extend([
-                                self.statePaths[sample][ii][tt][ss]
-                                for ss in range(10)])
-                            row.append(self.costs2Go[sample][ii][tt])
-                            row.append(self.accumulatedDamages[sample][ii][tt])
+                for ii in range(maxSamples):
+                    for tt in range(self.model.getTotalSteps()):
+                        row = [str(ii + 1)]
 
-                        writer.writerow(row)
+                        if ii < samples[tt]:
+                            row.extend(self.mapStates[sample][tt][c][ii])
+                            row.append(self.mapC2G[sample][tt][c][ii])
+                        else:
+                            row.extend(['', '', '', ''])
+
+                    writer.writerow(row)
 
         """ Plot the control maps at different times """
         """ Plot for three different 2D views. One page per time step """
@@ -4397,6 +4400,7 @@ class Simulation():
         for tt in range(1, self.model.getTotalSteps()):
             """ First time step not used """
             fig = plt.figure()
+            fig.set_size_inches(11.69, 16.53)
 
             """ State 1 and state 2 """
             ax1 = fig.add_subplot(311)
@@ -4404,8 +4408,8 @@ class Simulation():
 #                                      for ii in range(noControls)])
 
             for c in range(noControls):
-                ax1.scatter(groupedStates[tt, c, 0:dataPoints[tt, c], 0],
-                            groupedStates[tt, c, 0:dataPoints[tt, c], 1],
+                ax1.scatter(self.mapStates[sample][tt][c][:, 0],
+                            self.mapStates[sample][tt][c][:, 1],
                             s=5,
                             label='c_' + str(c))
 
@@ -4418,8 +4422,8 @@ class Simulation():
             ax2 = fig.add_subplot(312)
 
             for c in range(noControls):
-                ax2.scatter(groupedStates[tt, c, 0:dataPoints[tt, c], 0],
-                            groupedStates[tt, c, 0:dataPoints[tt, c], 2],
+                ax2.scatter(self.mapStates[sample][tt][c][:, 0],
+                            self.mapStates[sample][tt][c][:, 2],
                             s=5,
                             label='c_' + str(c))
 
@@ -4432,8 +4436,8 @@ class Simulation():
             ax3 = fig.add_subplot(313)
 
             for c in range(noControls):
-                ax3.scatter(groupedStates[tt, c, 0:dataPoints[tt, c], 1],
-                            groupedStates[tt, c, 0:dataPoints[tt, c], 2],
+                ax3.scatter(self.mapStates[sample][tt][c][:, 1],
+                            self.mapStates[sample][tt][c][:, 2],
                             s=5,
                             label='c_' + str(c))
 
@@ -4447,6 +4451,57 @@ class Simulation():
 
         outputGraphs.close()
 
+        """ Plot an projection of a regular grid onto a map for a clean
+        image. We need to slice in the unobserved dimension to be able to
+        project onto a 2D plane. """
+        outputGraphs = pdf.PdfPages(outfolder + "Control_Maps_Clean.pdf")
+
+        for tt in range(1, self.model.getTotalSteps()):
+            """ First time step not used """
+            fig, axes = plt.subplots(nrows=5, ncols=3)
+            fig.set_size_inches(11.69, 16.53)
+
+            """ State 1 and State 2. 5 Different levels of State 3 """
+            maxX = max([self.mapStates[sample][tt][c][:, 0].max()
+                        for c in range(noControls)])
+            minX = min([self.mapStates[sample][tt][c][:, 0].min()
+                        for c in range(noControls)])
+            maxY = max([self.mapStates[sample][tt][c][:, 1].max()
+                        for c in range(noControls)])
+            minY = min([self.mapStates[sample][tt][c][:, 1].min()
+                        for c in range(noControls)])
+            maxZ = min([self.mapStates[sample][tt][c][:, 2].max()
+                        for c in range(noControls)])
+            minZ = min([self.mapStates[sample][tt][c][:, 2].min()
+                        for c in range(noControls)])
+
+            for l in range(1,6):
+                poly_reg = PolynomialFeatures(degree = 2)
+
+                x1_grid, x2_grid, x3_grid = numpy.meshgrid(
+                    numpy.linspace(minX, maxX, 200),
+                    numpy.linspace(minY, maxY, 200),
+                    numpy.ones(200) * (maxZ - minZ) / 6.0 * c)
+
+                predict = numpy.array([numpy.ravel(x1_grid),
+                                       numpy.ravel(x2_grid),
+                                       numpy.ravel(x3_grid)]).transpose()
+
+                predict_ = poly_reg.fit_transform(predict)
+
+                yPredict = numpy.zeros([noControls, x1_grid.size])
+
+                for c in range(noControls):
+                    yPredict[:, c] = self.regModel[sample][tt][c].predict(
+                            predict_)
+
+                selectedC = yPredict.argmax(1).reshape(x1_grid.shape)
+
+                axes[l, 0].imshow(selectedC,
+                                  extent=[minX, maxX, minY, maxY],
+                                  aspect='auto')
+                axes[l, 0].invert_yaxis()
+
         """ Plot the raw data (and regressions) at different times for
         different controls """
         """ Plot for the C2G vs state for all three states. One page per time
@@ -4455,14 +4510,16 @@ class Simulation():
 
         for tt in range(1, self.model.getTotalSteps()):
             fig, axes = plt.subplots(nrows=noControls, ncols=3, sharey=True)
+            fig.set_size_inches(11.69, 16.53)
 
             for c in range(noControls):
                 for s in range(3):
                     axes[c, s].scatter(
-                        groupedStates[tt, c, 0:dataPoints[tt, c], s],
-                        groupedC2G[tt, c, 0:dataPoints[tt, c]],
+                        self.mapStates[sample][tt][c][:, s],
+                        self.mapC2G[sample][tt][c],
                         s=7,
-                        label='State_1 vs. C2G')
+                        label=('Time_' + str(tt) + '_State_' + str(s)
+                               + ' vs. C2G'))
 
             fig.tight_layout()
             outputGraphs.savefig(fig)
@@ -4493,20 +4550,52 @@ class Simulation():
         with open(outputfile, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile, delimiter=',')
 
-            row = ([
-                    ['TIME']
-                    + ['Control_' + str(cc) + '_RSquared'
-                       for cc in range(noControls)]])
+            row = (['TIME', 'CONTROL', 'Adj_R_Sq', 'F_stat', 'F_stat_p_val',
+                    'AIC', 'BIC']
+                   + ['Coeffs', '' ,'' ,'' ,'', '', '', '', '', '']
+                   + ['Coeffs_T_Stat', '' ,'' ,'' ,'', '', '', '', '', '']
+                   + ['Coeffs_P_Values', '' ,'' ,'' ,'', '', '', '', '', '']
+                   + ['Coeffs_STDErr', '' ,'' ,'' ,'', '', '', '', '', '']
+                   + ['Coeffs_P<2.5%', '' ,'' ,'' ,'', '', '', '', '', '']
+                   + ['Coeffs_P>97.5%', '' ,'' ,'' ,'', '', '', '', '', ''])
+
+            writer.writerow(row)
+            row = (['', '', '', '', '', '', '']
+                   + ['Const', 'x1', 'x2', 'x3', 'x1x1', 'x1x2', 'x1x3',
+                      'x2x2', 'x2x3', 'x3x3']
+                   + ['Const', 'x1', 'x2', 'x3', 'x1x1', 'x1x2', 'x1x3',
+                      'x2x2', 'x2x3', 'x3x3']
+                   + ['Const', 'x1', 'x2', 'x3', 'x1x1', 'x1x2', 'x1x3',
+                      'x2x2', 'x2x3', 'x3x3']
+                   + ['Const', 'x1', 'x2', 'x3', 'x1x1', 'x1x2', 'x1x3',
+                      'x2x2', 'x2x3', 'x3x3']
+                   + ['Const', 'x1', 'x2', 'x3', 'x1x1', 'x1x2', 'x1x3',
+                      'x2x2', 'x2x3', 'x3x3']
+                   + ['Const', 'x1', 'x2', 'x3', 'x1x1', 'x1x2', 'x1x3',
+                      'x2x2', 'x2x3', 'x3x3'])
 
             writer.writerow(row)
 
             for tt in range(self.model.getTotalSteps()):
-                row = [str(tt + 1)]
-
                 for cc in range(noControls):
-                    row.append(self.rSquared[sample][tt][cc])
+                    row = [str(tt + 1), str(cc + 1)]
 
-                writer.writerow(row)
+                    for cc in range(noControls):
+                        row.append(self.regModel[sample][tt][cc].rsquared_adj)
+                        row.append(self.regModel[sample][tt][cc].fvalue)
+                        row.append(self.regModel[sample][tt][cc].f_pvalue)
+                        row.append(self.regModel[sample][tt][cc].aic)
+                        row.append(self.regModel[sample][tt][cc].bic)
+                        row.extend(self.regModel[sample][tt][cc].params)
+                        row.extend(self.regModel[sample][tt][cc].pvalues)
+                        row.extend(self.regModel[sample][tt][cc].HC0_se)
+                        row.extend(self.regModel[sample][tt][cc].conf_int()[:,
+                                   0])
+                        row.extend(self.regModel[sample][tt][cc].conf_int()[:,
+                                   1])
+                        row.append(self.rSquared[sample][tt][cc])
+
+                        writer.writerow(row)
 
     def currPos2Fire(self, currLocs, fires):
         # Computes the distance between each aircraft and each fire
