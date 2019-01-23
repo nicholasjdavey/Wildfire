@@ -4508,6 +4508,7 @@ class Simulation():
             minZ = min([self.mapStates[sample][tt, c][:, 2].min()
                         for c in range(noControls)])
 
+            """ State 1 and State 2 """
             for l in range(1,6):
                 poly_reg = PolynomialFeatures(degree = 2)
 
@@ -4535,6 +4536,67 @@ class Simulation():
                                       extent=[minX, maxX, minY, maxY],
                                       aspect='auto')
                     axes[l-1, 0].invert_yaxis()
+
+            """ State 1 and State 3 """
+            for l in range(1,6):
+                poly_reg = PolynomialFeatures(degree = 2)
+
+                x1_grid, x3_grid = numpy.meshgrid(
+                    numpy.linspace(minX, maxX, 200),
+                    numpy.linspace(minZ, maxZ, 200))
+
+                predict = numpy.array([numpy.ravel(x1_grid),
+                                       numpy.ones(40000) * (maxY - minY)
+                                       / 6.0 * c,
+                                       numpy.ravel(x3_grid)]).transpose()
+
+                predict_ = poly_reg.fit_transform(predict)
+
+                yPredict = numpy.zeros([x1_grid.size, noControls])
+
+                for c in range(noControls):
+                    yPredict[:, c] = self.regModel[sample][tt, c].predict(
+                            predict_)
+
+                selectedC = yPredict.argmax(1).reshape(200, 200)
+
+                if (maxX > minX) and (maxZ > minZ):
+                    axes[l-1, 1].imshow(selectedC,
+                                      extent=[minX, maxX, minZ, maxZ],
+                                      aspect='auto')
+                    axes[l-1, 1].invert_yaxis()
+
+            """ State 2 and State 3 """
+            for l in range(1,6):
+                poly_reg = PolynomialFeatures(degree = 2)
+
+                x2_grid, x3_grid = numpy.meshgrid(
+                    numpy.linspace(minY, maxY, 200),
+                    numpy.linspace(minZ, maxZ, 200))
+
+                predict = numpy.array([numpy.ones(40000) * (maxX - minX)
+                                       / 6.0 * c,
+                                       numpy.ravel(x2_grid),
+                                       numpy.ravel(x3_grid)]).transpose()
+
+                predict_ = poly_reg.fit_transform(predict)
+
+                yPredict = numpy.zeros([x2_grid.size, noControls])
+
+                for c in range(noControls):
+                    yPredict[:, c] = self.regModel[sample][tt, c].predict(
+                            predict_)
+
+                selectedC = yPredict.argmax(1).reshape(200, 200)
+
+                if (maxY > minY) and (maxZ > minZ):
+                    axes[l-1, 2].imshow(selectedC,
+                                      extent=[minY, maxY, minZ, maxZ],
+                                      aspect='auto')
+                    axes[l-1, 2].invert_yaxis()
+
+            fig.tight_layout()
+            outputGraphs.savefig(fig)
 
         """ Plot the raw data (and regressions) at different times for
         different controls """
