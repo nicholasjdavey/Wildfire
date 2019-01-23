@@ -92,6 +92,9 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                 expectedP[ii, jj] = 0.0
 
         for tt in range(start, totalSteps):
+            """ For all time steps before the end of the day, we must
+            simulate. For the end of day, we don't. We just need the
+            termination value """
             expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
 
             expectedDamageExisting(
@@ -269,14 +272,32 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
             up to now PLUS the C2G for this period to the next. This is used
             for computing the regressions in the previous period. As we will
             have (re-)computed the forward paths up to now, we can just use the
-            remaining accumulated damage to the end period minuts the
-            accumulated damage already incurred. """
+            remaining accumulated damage to the end period minus the
+            accumulated damage already incurred.
+
+            We also go one extra period here to record the termination value
+            at the end of the final period. """
+
             costs2Go[path][tt] = 0
 
-            for patch in range(noPatches):
-                costs2Go[path][tt] += (
-                        accumulatedDamages[path, totalSteps, patch]
-                        - accumulatedDamages[path, tt, patch])
+            if tt == totalSteps:
+                currC2G = 0
+
+                for fire in range(fires[path][tt]):
+                    currC2G += expectedE[fire][selectedE[fire]]
+
+                for patch in range(noPatches):
+                    for config in range(noConfP):
+                        currC2G += (weightsP[patch, config]
+                                    * expectedP[patch, config])
+
+                costs2Go[path][tt] += currC2G
+
+            else:
+                for patch in range(noPatches):
+                    costs2Go[path][tt] += (
+                            accumulatedDamages[path, totalSteps, patch]
+                            - accumulatedDamages[path, tt, patch])
 
 
 #@jit(nopython=True, fastmath=True)
