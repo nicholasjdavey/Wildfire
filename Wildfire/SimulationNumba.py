@@ -158,7 +158,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                 if tt > 0:
                     for control in range(noControls):
 
-                        if tt == totalSteps:
+                        if tt == totalSteps - 1:
                             """ Determine termination cost at the start of the
                             last period (no future flexibility, just use point
                             estimate for C2G by computing MIP) """
@@ -176,8 +176,8 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
 
                             currC2G = 0.0
 
-                            for fire in range(fires[path][tt]):
-                                currC2G += expectedE[fire][selectedE[fire]]
+                            for fire in range(fires[path][tt - start]):
+                                currC2G += expectedE[fire, selectedE[fire]]
 
                             for patch in range(noPatches):
                                 for config in range(noConfP):
@@ -266,7 +266,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                              accumulatedDamages, tt - start, stepSize,
                              rng_states, path)
 
-        for tt in range(start, totalSteps + 1):
+        for tt in range(start, totalSteps):
             """ The cost to go for the prior period will include the
             accumulated damage for that period's control for that period
             up to now PLUS the C2G for this period to the next. This is used
@@ -280,11 +280,12 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
 
             costs2Go[path][tt] = 0
 
-            if tt == totalSteps:
+            if tt == totalSteps - 1:
+
                 currC2G = 0
 
-                for fire in range(fires[path][tt]):
-                    currC2G += expectedE[fire][selectedE[fire]]
+                for fire in range(fires[path][tt - start]):
+                    currC2G += expectedE[fire, selectedE[fire]]
 
                 for patch in range(noPatches):
                     for config in range(noConfP):
@@ -2686,10 +2687,47 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
 
     """ BACKWARD INDUCTION """
     """ Regressions and Forward Path Re-Computations"""
-    for tt in range(totalSteps, 0, -1):
+    for tt in range(totalSteps-1, -1, -1):
         """ Compute the regression using the relevant states and
         costs2Go for all but the last and first periods. """
-        if tt < totalSteps and tt > 0:
+        if tt == totalSteps - 1:
+            print('terminal value')
+            for control in range(noControls):
+
+                xs = numpy.array([states[idx, tt, 0:3]
+                                  for idx in range(len(controls[:, tt]))
+                                  if controls[idx, tt] == control])
+
+                ys = numpy.array([costs2Go[idx, tt+1]
+                                  for idx in range(len(controls[:, tt]))
+                                  if controls[idx, tt] == control])
+
+                mapStates[tt, control] = xs
+                mapC2G[tt, control] = ys
+
+#                poly_reg = PolynomialFeatures(degree=2)
+#                X_ = poly_reg.fit_transform(xs)
+#                est = sm.OLS(ys, X_)
+#                clf = est.fit()
+#                rSquared[tt, control] = clf.rsquared_adj
+#                regModels[tt, control] = clf
+#
+#                coeffs = clf.params
+#                regressionX[tt][control, :, 0] =  coeffs
+#                regressionY[tt][control] = numpy.zeros(1)
+#
+#                """ Push the regressions back onto the GPU for reuse in the
+#                forward path recomputations """
+#                d_regressionX[tt][control] = cuda.to_device(
+#                        numpy.ascontiguousarray(regressionX[tt][control]))
+#                d_regressionY[tt][control] = cuda.to_device(
+#                        numpy.ascontiguousarray(regressionY[tt][control]))
+
+        elif tt < totalSteps - 1 and tt > 0:
+            """ We don't need to compute the C2G at the final period as we just
+            take the best expected damage in the MIP. This is done in the
+            Simulation Kernel """
+
             print('got here ' + str(tt))
 
             for control in range(noControls):
@@ -2705,23 +2743,25 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                                        for idx in range(len(controls[:, tt]))
                                        if controls[idx, tt] == control])
 
-                    mapStates[tt][control] = xs
-                    mapC2G[tt][control] = ys
+                    mapStates[tt, control] = xs
+                    mapC2G[tt, control] = ys
 
                     reg = smooth.NonParamRegression(
                         xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
                     reg.fit()
-                    clf = KernelRidge(kernel='rbf', gamma=0.1, alpha=0.1)
-                    clf.fit(xs, ys)
-                    rSquared[tt, control] = clf.score(xs, ys)
-                    regModels[tt][control] = clf
+                    regModels[tt, control] = KernelRidge(
+                        kernel='rbf', gamma=0.1, alpha=0.1)
+                    regModels[tt, control].fit(xs, ys)
+                    rSquared[tt, control] = regModels[tt, control].score(
+                        xs, ys)
+                    regModels[tt, control] = regModels[tt, control]
 
                     tempGrid = numpy.meshgrid(
                         numpy.linspace(min(xs[:, 0]), max(xs[:, 0], 50)),
                         numpy.linspace(min(xs[:, 1]), max(xs[:, 1], 50)),
                         numpy.linspace(min(xs[:, 2]), max(xs[:, 2], 50)))
 
-                    regressionY[tt][control] = clf.predict(
+                    regressionY[tt][control] = regModels[tt, control].predict(
                         numpy.array([tempGrid[0].flatten(),
                                      tempGrid[1].flatten(),
                                      tempGrid[2].flatten()]).transpose())
@@ -2754,8 +2794,8 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                                        for idx in range(len(controls[:, tt]))
                                        if controls[idx, tt] == control])
 
-                    mapStates[tt][control] = xs
-                    mapC2G[tt][control] = ys
+                    mapStates[tt, control] = xs
+                    mapC2G[tt, control] = ys
 
                     poly_reg = PolynomialFeatures(degree=2)
                     X_ = poly_reg.fit_transform(xs)
@@ -2763,11 +2803,10 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
 #                    clf.fit(X_, ys)
 #                    rSquared[tt, control] = clf.score(X_, ys)
                     est = sm.OLS(ys, X_)
-                    clf = est.fit()
-                    rSquared[tt, control] = clf.rsquared_adj
-                    regModels[tt][control] = clf
+                    regModels[tt, control] = est.fit()
+                    rSquared[tt, control] = regModels[tt, control].rsquared_adj
 
-                    coeffs = clf.params
+                    coeffs = regModels[tt, control].params
                     regressionX[tt][control, :, 0] =  coeffs
 #                    print(regressionX[tt][control, :, 0])
                     regressionY[tt][control] = numpy.zeros(1)
@@ -2785,9 +2824,20 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             bestC2GStart = math.inf
 
             for control in range(noControls):
-                ys = numpy.array([costs2Go[idx, tt]
-                                  for _, idx in controls[:, tt]
+                """ The following is just for record-keeping purposes with
+                regards to state. Cost-to-go is still important. """
+                xs = numpy.array([states[idx, tt, 0:3]
+                                  for idx in range(len(controls[:, tt]))
                                   if controls[idx, tt] == control])
+
+                ys = numpy.array([costs2Go[idx, tt+1]
+                                  + accumulatedDamages[idx, tt+1].sum()
+                                  - accumulatedDamages[idx, tt].sum()
+                                   for idx in range(len(controls[:, tt]))
+                                   if controls[idx, tt] == control])
+
+                mapStates[tt, control] = xs
+                mapC2G[tt, control] = ys
 
                 currC2GStart = ys.sum()
 
@@ -2797,7 +2847,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             controls[:, 0] = (
                     numpy.ones(paths, dtype=numpy.int32) * bestControl)
 
-            print('git here')
+            print('ROV Complete')
 
         print('Now run ' + str(tt))
         simulateMC(

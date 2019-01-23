@@ -1463,24 +1463,34 @@ class Simulation():
 
                         if self.model.getAlgo() == 2:
                             # ROV
-                            [s1, s2, s3] = self.computeState(
-                                assignmentsPath, resourcesPath, expDamageExist,
-                                expDamagePoten, activeFires, configsP,
-                                configsE, expectedFFDI, accumulatedHours,
-                                method, tt + 1)
+                            if tt == timeSteps - 1:
+                                pass
+                            else:
+                                [s1, s2, s3] = self.computeState(
+                                    assignmentsPath, resourcesPath,
+                                    expDamageExist, expDamagePoten,
+                                    activeFires, configsP, configsE,
+                                    expectedFFDI, accumulatedHours, method,
+                                    tt + 1)
 
-                            for c in range(noControls):
-                                # Use the current states to interpolate the
-                                # data representing the expectations
-                                poly_reg = PolynomialFeatures(degree=2)
-                                predict_ = poly_reg.fit_transform(
-                                        numpy.array([s1, s2, s3]).reshape(1, -1))
-                                currC2G = self.regModel[ii][tt][c].predict(
-                                        predict_)
+                                if tt > 0:
+                                    for c in range(noControls):
+                                        # Use the current states to interpolate
+                                        # the data representing the
+                                        # expectations
+                                        poly_reg = PolynomialFeatures(degree=2)
+                                        predict_ = poly_reg.fit_transform(
+                                                numpy.array([s1, s2, s3])
+                                                .reshape(1, -1))
+                                        currC2G = (self.regModel[ii][tt, c]
+                                                   .predict(predict_))
 
-                                if currC2G < bestC2G:
-                                    bestC2G = currC2G
-                                    bestControl = c
+                                        if currC2G < bestC2G:
+                                            bestC2G = currC2G
+                                            bestControl = c
+
+                                else:
+                                    bestControl = self.controls[ii][0,0]
 
                         elif self.model.getAlgo() in [4, 5]:
                             # Dynamic MPC approaches
@@ -1795,10 +1805,20 @@ class Simulation():
 
         """ Whether base B satisfies the maximum relocation distance for
         resource R for the designated control """
+        closestBase = numpy.zeros(len(tempModel.R))
+
+        for r in tempModel.R:
+            closestDist = math.inf
+
+            for b in tempModel.B:
+                if tempModel.d1_RB[r, b] < closestDist:
+                    closestBase[r] = b
+                    closestDist = tempModel.d1_RB[r, b]
+
         tempModel.d1_RB_B2 = {
-                (r, b):
-                (1 if (tempModel.d1_RB[r, b]) <= maxB
-                    else 0)
+                (r, b): (1 if ((tempModel.d1_RB[r, b]) <= maxB
+                               or b == closestBase[r])
+                         else 0)
                 for r in tempModel.R
                 for b in tempModel.B}
 
@@ -2056,10 +2076,20 @@ class Simulation():
 
         """ Whether base B satisfies the maximum relocation distance for
         resource R for the designated control """
+        closestBase = numpy.zeros(len(tempModel.R))
+
+        for r in tempModel.R:
+            closestDist = math.inf
+
+            for b in tempModel.B:
+                if tempModel.d1_RB[r, b] < closestDist:
+                    closestBase[r] = b
+                    closestDist = tempModel.d1_RB[r, b]
+
         tempModel.d1_RB_B2 = {
-                (r, b):
-                (1 if (tempModel.d1_RB[r, b]) <= maxB
-                    else 0)
+                (r, b): (1 if ((tempModel.d1_RB[r, b]) <= maxB
+                               or b == closestBase[r])
+                         else 0)
                 for r in tempModel.R
                 for b in tempModel.B}
 
@@ -3397,7 +3427,8 @@ class Simulation():
                                           dtype=numpy.float32)
                 regressionY = numpy.zeros([totalSteps, noControls, 1, 1, 1])
 
-            regModels = [[None] * noControls] * totalSteps
+            regModels = {}
+#            regModels = [[None] * noControls] * totalSteps
             rSquareds = numpy.zeros([totalSteps, noControls])
             tStatistics = numpy.zeros([totalSteps, noControls, 3])
             pVals = numpy.zeros([totalSteps, noControls, 3])
@@ -3405,8 +3436,8 @@ class Simulation():
                                  dtype=numpy.float32)
             costs2go = numpy.zeros([mcPaths, totalSteps + 1],
                                    dtype=numpy.float32)
-            mapStates = [[None] * noControls] * totalSteps
-            mapC2G = [[None] * noControls] * totalSteps
+            mapStates = {}
+            mapC2G = {}
 
             """ Set Up Data Stream for ROV """
             accumulatedDamages = numpy.zeros([mcPaths, totalSteps + 1,
@@ -4373,18 +4404,19 @@ class Simulation():
 
                 writer.writerow(row)
 
-                samples = [len(self.mapStates[sample][tt][c])
-                           for tt in range(self.model.getTotalSteps())]
+                samples = [len(self.mapStates[sample][tt, c])
+                           for tt in range(self.model.getTotalSteps() - 1)]
 
                 maxSamples = max(samples)
 
                 for ii in range(maxSamples):
-                    for tt in range(self.model.getTotalSteps()):
-                        row = [str(ii + 1)]
+                    row = [str(ii)]
+
+                    for tt in range(self.model.getTotalSteps() - 1):
 
                         if ii < samples[tt]:
-                            row.extend(self.mapStates[sample][tt][c][ii])
-                            row.append(self.mapC2G[sample][tt][c][ii])
+                            row.extend(self.mapStates[sample][tt, c][ii])
+                            row.append(self.mapC2G[sample][tt, c][ii])
                         else:
                             row.extend(['', '', '', ''])
 
@@ -4408,8 +4440,8 @@ class Simulation():
 #                                      for ii in range(noControls)])
 
             for c in range(noControls):
-                ax1.scatter(self.mapStates[sample][tt][c][:, 0],
-                            self.mapStates[sample][tt][c][:, 1],
+                ax1.scatter(self.mapStates[sample][tt, c][:, 0],
+                            self.mapStates[sample][tt, c][:, 1],
                             s=5,
                             label='c_' + str(c))
 
@@ -4422,8 +4454,8 @@ class Simulation():
             ax2 = fig.add_subplot(312)
 
             for c in range(noControls):
-                ax2.scatter(self.mapStates[sample][tt][c][:, 0],
-                            self.mapStates[sample][tt][c][:, 2],
+                ax2.scatter(self.mapStates[sample][tt, c][:, 0],
+                            self.mapStates[sample][tt, c][:, 2],
                             s=5,
                             label='c_' + str(c))
 
@@ -4436,8 +4468,8 @@ class Simulation():
             ax3 = fig.add_subplot(313)
 
             for c in range(noControls):
-                ax3.scatter(self.mapStates[sample][tt][c][:, 1],
-                            self.mapStates[sample][tt][c][:, 2],
+                ax3.scatter(self.mapStates[sample][tt, c][:, 1],
+                            self.mapStates[sample][tt, c][:, 2],
                             s=5,
                             label='c_' + str(c))
 
@@ -4456,51 +4488,53 @@ class Simulation():
         project onto a 2D plane. """
         outputGraphs = pdf.PdfPages(outfolder + "Control_Maps_Clean.pdf")
 
-        for tt in range(1, self.model.getTotalSteps()):
-            """ First time step not used """
+        for tt in range(1, self.model.getTotalSteps() - 1):
+            """ First time step not used. Neither is last as the C2G there is
+            simply computed using the MIP heuristic. """
             fig, axes = plt.subplots(nrows=5, ncols=3)
             fig.set_size_inches(11.69, 16.53)
 
             """ State 1 and State 2. 5 Different levels of State 3 """
-            maxX = max([self.mapStates[sample][tt][c][:, 0].max()
+            maxX = max([self.mapStates[sample][tt, c][:, 0].max()
                         for c in range(noControls)])
-            minX = min([self.mapStates[sample][tt][c][:, 0].min()
+            minX = min([self.mapStates[sample][tt, c][:, 0].min()
                         for c in range(noControls)])
-            maxY = max([self.mapStates[sample][tt][c][:, 1].max()
+            maxY = max([self.mapStates[sample][tt, c][:, 1].max()
                         for c in range(noControls)])
-            minY = min([self.mapStates[sample][tt][c][:, 1].min()
+            minY = min([self.mapStates[sample][tt, c][:, 1].min()
                         for c in range(noControls)])
-            maxZ = min([self.mapStates[sample][tt][c][:, 2].max()
+            maxZ = min([self.mapStates[sample][tt, c][:, 2].max()
                         for c in range(noControls)])
-            minZ = min([self.mapStates[sample][tt][c][:, 2].min()
+            minZ = min([self.mapStates[sample][tt, c][:, 2].min()
                         for c in range(noControls)])
 
             for l in range(1,6):
                 poly_reg = PolynomialFeatures(degree = 2)
 
-                x1_grid, x2_grid, x3_grid = numpy.meshgrid(
+                x1_grid, x2_grid = numpy.meshgrid(
                     numpy.linspace(minX, maxX, 200),
-                    numpy.linspace(minY, maxY, 200),
-                    numpy.ones(200) * (maxZ - minZ) / 6.0 * c)
+                    numpy.linspace(minY, maxY, 200))
 
                 predict = numpy.array([numpy.ravel(x1_grid),
                                        numpy.ravel(x2_grid),
-                                       numpy.ravel(x3_grid)]).transpose()
+                                       numpy.ones(40000) * (maxZ - minZ)
+                                       / 6.0 * c]).transpose()
 
                 predict_ = poly_reg.fit_transform(predict)
 
-                yPredict = numpy.zeros([noControls, x1_grid.size])
+                yPredict = numpy.zeros([x1_grid.size, noControls])
 
                 for c in range(noControls):
-                    yPredict[:, c] = self.regModel[sample][tt][c].predict(
+                    yPredict[:, c] = self.regModel[sample][tt, c].predict(
                             predict_)
 
-                selectedC = yPredict.argmax(1).reshape(x1_grid.shape)
+                selectedC = yPredict.argmax(1).reshape(200, 200)
 
-                axes[l, 0].imshow(selectedC,
-                                  extent=[minX, maxX, minY, maxY],
-                                  aspect='auto')
-                axes[l, 0].invert_yaxis()
+                if (maxX > minX) and (maxY > minY):
+                    axes[l-1, 0].imshow(selectedC,
+                                      extent=[minX, maxX, minY, maxY],
+                                      aspect='auto')
+                    axes[l-1, 0].invert_yaxis()
 
         """ Plot the raw data (and regressions) at different times for
         different controls """
@@ -4515,8 +4549,8 @@ class Simulation():
             for c in range(noControls):
                 for s in range(3):
                     axes[c, s].scatter(
-                        self.mapStates[sample][tt][c][:, s],
-                        self.mapC2G[sample][tt][c],
+                        self.mapStates[sample][tt, c][:, s],
+                        self.mapC2G[sample][tt, c],
                         s=7,
                         label=('Time_' + str(tt) + '_State_' + str(s)
                                + ' vs. C2G'))
@@ -4576,24 +4610,26 @@ class Simulation():
 
             writer.writerow(row)
 
-            for tt in range(self.model.getTotalSteps()):
+            for tt in range(1, self.model.getTotalSteps() - 1):
+                """ The last period does not have a C2G function. It just uses
+                the MIP values """
                 for cc in range(noControls):
                     row = [str(tt + 1), str(cc + 1)]
 
                     for cc in range(noControls):
-                        row.append(self.regModel[sample][tt][cc].rsquared_adj)
-                        row.append(self.regModel[sample][tt][cc].fvalue)
-                        row.append(self.regModel[sample][tt][cc].f_pvalue)
-                        row.append(self.regModel[sample][tt][cc].aic)
-                        row.append(self.regModel[sample][tt][cc].bic)
-                        row.extend(self.regModel[sample][tt][cc].params)
-                        row.extend(self.regModel[sample][tt][cc].pvalues)
-                        row.extend(self.regModel[sample][tt][cc].HC0_se)
-                        row.extend(self.regModel[sample][tt][cc].conf_int()[:,
-                                   0])
-                        row.extend(self.regModel[sample][tt][cc].conf_int()[:,
-                                   1])
-                        row.append(self.rSquared[sample][tt][cc])
+                        row.append(self.regModel[sample][tt, cc].rsquared_adj)
+                        row.append(self.regModel[sample][tt, cc].fvalue)
+                        row.append(self.regModel[sample][tt, cc].f_pvalue)
+                        row.append(self.regModel[sample][tt, cc].aic)
+                        row.append(self.regModel[sample][tt, cc].bic)
+                        row.extend(self.regModel[sample][tt, cc].params)
+                        row.extend(self.regModel[sample][tt, cc].tvalues)
+                        row.extend(self.regModel[sample][tt, cc].pvalues)
+                        row.extend(self.regModel[sample][tt, cc].HC0_se)
+                        row.extend(self.regModel[sample][tt, cc].conf_int()[
+                            :10, 0])
+                        row.extend(self.regModel[sample][tt, cc].conf_int()[
+                            :10, 1])
 
                         writer.writerow(row)
 
