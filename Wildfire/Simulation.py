@@ -369,8 +369,9 @@ class Simulation():
                 (1
                     if (((c == 1 or c == 3) and cplxMod.d3_BN[b, n] <=
                             cplxMod.thresholds[0])
-                        or (c == 2 or c == 4 and cplxMod.d3_BN[b, n] >
-                            cplxMod.thresholds[0]))
+                        or (c == 2 or c == 4
+                            and cplxMod.d3_BN[b, n] > cplxMod.thresholds[0]
+                            and cplxMod.d3_BN[b, n] <= cplxMod.thresholds[1]))
                     else 0)
                 for b in cplxMod.B
                 for c in cplxMod.C
@@ -1213,14 +1214,28 @@ class Simulation():
                 self.dynamicC2G[ii] = [None]*runs
 
                 # Whether bases are within 20 minutes for each aircraft type
-                tankerCovers = numpy.array(
+                tankerCoversE = numpy.array(
                     [[True if tankerDists[patch, base] <= thresholds[0]
                         else False
                       for base in range(bases)]
                      for patch in range(patches)])
 
-                heliCovers = numpy.array(
+                tankerCoversL = numpy.array(
+                    [[True if (tankerDists[patch, base] > thresholds[0]
+                               and tankerDists[patch, base] <= thresholds[1])
+                        else False
+                      for base in range(bases)]
+                     for patch in range(patches)])
+
+                heliCoversE = numpy.array(
                     [[True if heliDists[patch, base] <= thresholds[0]
+                        else False
+                      for base in range(bases)]
+                     for patch in range(patches)])
+
+                heliCoversL = numpy.array(
+                    [[True if (heliDists[patch, base] > thresholds[0]
+                               and heliDists[patch, base] <= thresholds[1])
                         else False
                       for base in range(bases)]
                      for patch in range(patches)])
@@ -1265,12 +1280,10 @@ class Simulation():
                 # time step. As FFDI is assumed deterministic, this array is used
                 # for all paths
                 expFiresComp = numpy.array([[
-                        numpy.matmul(expectedFires[t], tankerCovers),
-                        numpy.matmul(expectedFires[t],
-                                     numpy.logical_not(tankerCovers)),
-                        numpy.matmul(expectedFires[t], heliCovers),
-                        numpy.matmul(expectedFires[t],
-                                     numpy.logical_not(heliCovers))]
+                        numpy.matmul(expectedFires[t], tankerCoversE),
+                        numpy.matmul(expectedFires[t], tankerCoversL),
+                        numpy.matmul(expectedFires[t], heliCoversE),
+                        numpy.matmul(expectedFires[t], heliCoversL)]
                     for t in range(timeSteps + lookahead)])
 
             for run in range(self.model.getRuns()):
@@ -1850,7 +1863,9 @@ class Simulation():
                               tempModel.thresholds[0])
                          or (c == 2 or c == 4
                              and tempModel.d4_BNC[b, n, c] >
-                             tempModel.thresholds[0]))
+                             tempModel.thresholds[0]
+                             and tempModel.d4_BNC[b, n, c] <=
+                             tempModel.thresholds[1]))
                      else 0
                      for n in tempModel.N])
                 for c in [1, 2, 3, 4]
@@ -2382,8 +2397,9 @@ class Simulation():
                 (1
                     if (((c == 1 or c == 3) and tempModel.d2_RM[r, m] <=
                             tempModel.thresholds[0])
-                        or (c == 2 or c == 4 and tempModel.d2_RM[r, m] >
-                            tempModel.thresholds[0]))
+                        or (c == 2 or c == 4 and
+                            tempModel.d2_RM[r, m] > tempModel.thresholds[0] and
+                            tempModel.d2_RM[r, m] <= tempModel.thresholds[1]))
                     else 0)
                 for r in tempModel.R
                 for c in tempModel.C
@@ -2395,8 +2411,9 @@ class Simulation():
                 (1
                     if (((c == 1 or c == 3) and tempModel.d3_BN[b, n] <=
                             tempModel.thresholds[0])
-                        or (c == 2 or c == 4 and tempModel.d3_BN[b, n] >
-                            tempModel.thresholds[0]))
+                        or (c == 2 or c == 4 and
+                            tempModel.d3_BN[b, n] > tempModel.thresholds[0] and
+                            tempModel.d3_BN[b, n] <= tempModel.thresholds[1]))
                     else 0)
                 for b in tempModel.B
                 for c in tempModel.C
@@ -2411,7 +2428,9 @@ class Simulation():
                               tempModel.thresholds[0])
                          or (c == 2 or c == 4
                              and tempModel.d4_BNC[b, n, c] >
-                                 tempModel.thresholds[0]))
+                                 tempModel.thresholds[0]
+                             and tempModel.d4_BNC[b, n, c] <=
+                                 tempModel.thresholds[1]))
                      else 0
                      for n in tempModel.N])
                 for c in tempModel.C
@@ -2798,8 +2817,9 @@ class Simulation():
                 (1
                     if (((c == 1 or c == 3) and tempModel.d2_RM[r, m] <=
                             tempModel.thresholds[0])
-                        or (c == 2 or c == 4 and tempModel.d2_RM[r, m] >
-                            tempModel.thresholds[0]))
+                        or (c == 2 or c == 4 and
+                            tempModel.d2_RM[r, m] > tempModel.thresholds[0] and
+                            tempModel.d2_RM[r, m] <= tempModel.thresholds[1]))
                     else 0)
                 for r in tempModel.R
                 for c in tempModel.C
@@ -2840,7 +2860,9 @@ class Simulation():
                               tempModel.thresholds[0])
                          or (c == 2 or c == 4
                              and tempModel.d4_BNC[b, n, c] >
-                                 tempModel.thresholds[0]))
+                                 tempModel.thresholds[0]
+                             and tempModel.d4_BNC[b, n, c] <=
+                                 tempModel.thresholds[1]))
                      else 0
                      for n in tempModel.N])
                 for c in tempModel.C
@@ -3495,15 +3517,29 @@ class Simulation():
                 dtype=numpy.float32)
 
             # Whether bases are within 20 minutes for each aircraft type
-            tankerCovers = numpy.array(
+            tankerCoversE = numpy.array(
                 [[True if tankerDists[patch, base] <= thresholds[0] else False
                   for base in range(noBases)]
                  for patch in range(noPatches)])
 
-            heliCovers = numpy.array(
+            tankerCoversL = numpy.array(
+                    [[True if (tankerDists[patch, base] > thresholds[0]
+                               and tankerDists[patch, base] <= thresholds[1])
+                        else False
+                      for base in range(bases)]
+                     for patch in range(patches)])
+
+            heliCoversE = numpy.array(
                 [[True if heliDists[patch, base] <= thresholds[0] else False
                   for base in range(noBases)]
                  for patch in range(noPatches)])
+
+            heliCoversL = numpy.array(
+                    [[True if (heliDists[patch, base] > thresholds[0]
+                               and heliDists[patch, base] <= thresholds[1])
+                        else False
+                      for base in range(bases)]
+                     for patch in range(patches)])
 
             # Min number of aircraft needed for each component of each config
             baseConfigsMax = numpy.array([0, 0, 0, 0], dtype=numpy.int32)
@@ -3544,12 +3580,10 @@ class Simulation():
             # time step. As FFDI is assumed deterministic, this array is used
             # for all paths
             expFiresComp = numpy.array([[
-                    numpy.matmul(expectedFires[t], tankerCovers),
-                    numpy.matmul(expectedFires[t],
-                                 numpy.logical_not(tankerCovers)),
-                    numpy.matmul(expectedFires[t], heliCovers),
-                    numpy.matmul(expectedFires[t],
-                                 numpy.logical_not(heliCovers))]
+                    numpy.matmul(expectedFires[t], tankerCoversE),
+                    numpy.matmul(expectedFires[t], tankerCoversL),
+                    numpy.matmul(expectedFires[t], heliCoversE),
+                    numpy.matmul(expectedFires[t], heliCoversL)]
                 for t in range(totalSteps + lookahead)])
 
             """ Call the ROV code to produce the maps """
@@ -4597,6 +4631,8 @@ class Simulation():
 
             fig.tight_layout()
             outputGraphs.savefig(fig)
+
+        outputGraphs.close()
 
         """ Plot the raw data (and regressions) at different times for
         different controls """

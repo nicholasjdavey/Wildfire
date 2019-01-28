@@ -810,6 +810,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
     fireImproveHeliL = cuda.local.array(noFiresMax, dtype=float32)
     baseImproveTankerE = cuda.local.array(noBases, dtype=float32)
     baseImproveHeliE = cuda.local.array(noBases, dtype=float32)
+    baseImproveTankerL = cuda.local.array(noBases, dtype=float32)
+    baseImproveHeliL = cuda.local.array(noBases, dtype=float32)
     fireMaxTankersE = cuda.local.array(noFiresMax, dtype=int32)
     fireMaxTankersL = cuda.local.array(noFiresMax, dtype=int32)
     baseMaxTankersE = cuda.local.array(noFiresMax, dtype=int32)
@@ -837,13 +839,13 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
             # Custom thresholds for relocation distances
             fw = 1
             pw = 1
-            maxFire = lambdas[control][0]
+            maxFire = min(thresholds[1], lambdas[control][0])
             maxBase = lambdas[control][1]
         elif method == 2:
             # Weighting between Fires and Potential and relocation
             fw = lambdas[control][0]
             pw = 1 - lambdas[control][0]
-            maxFire = lambdas[control][1]
+            maxFire = min(thresholds[1], lambdas[control][1])
             maxBase = lambdas[control][1]
 
     elif dummy == 1:
@@ -854,14 +856,14 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                 fw = max(fw, lambdas[c][0])
 
         pw = 1 - fw
-        maxFire = math.inf
+        maxFire = thresholds[1]
         maxBase = math.inf
 
     elif dummy == 2:
         # Assign only to cover potential fires
         fw= 0
         pw = 1 - fw
-        maxFire = math.inf
+        maxFire = thresholds[1]
         maxBase = math.inf
 
     """ Whether patches are covered within threshold time for different
@@ -922,10 +924,16 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
             if canBase[resource, base]:
                 if resourceTypes[resource] == 0:
-                    baseMaxTankersE[base] += 1
+                    if dist <= thresholds[0]:
+                        baseMaxTankersE[base] += 1
+                    elif dist <= thresholds[1]:
+                        baseMaxTankersL[base] += 1
 
                 elif resourceTypes[resource] == 1:
-                    baseMaxHelisE[base] += 1
+                    if dist <= thresholds[0]:
+                        baseMaxHelisE[base] += 1
+                    elif dist <= thresholds[1]:
+                        baseMaxHelisL[base] += 1
 
     # Possible aircraft to fire assignments based on control
     for resource in range(len(resourceTypes)):
@@ -945,12 +953,12 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                 if resourceTypes[resource] == 0:
                     if travTime < thresholds[0]:
                         fireMaxTankersE[fire] += 1
-                    else:
+                    elif travTime <= thresholds[1]:
                         fireMaxTankersL[fire] += 1
                 elif resourceTypes[resource] == 1:
                     if travTime < thresholds[0]:
                         fireMaxHelisE[fire] += 1
-                    else:
+                    elif travTime <= thresholds[1]:
                         fireMaxHelisL[fire] += 1
 
     # While remaining aircraft:
@@ -1073,11 +1081,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                 baseTankersL[base] = 0
                 baseHelisE[base] = 0
                 baseHelisL[base] = 0
-                # We ignore early and late here and assume all aircraft
-                # lateness/earliness are just a function of the distance
-                # between the base and patch
 
-                # Tanker
+                # Tanker Early
                 if baseMaxTankersE[base] > 0:
                     expectedDamageBase = 0.0
                     baseDamageBaseline = 0.0
@@ -1148,7 +1153,78 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                 else:
                     baseImproveTankerE[base] = 0.0
 
-                # Heli
+                # Tanker Late - Get to the base late
+                if baseMaxTankersL[base] > 0:
+                    expectedDamageBase = 0.0
+                    baseDamageBaseline = 0.0
+
+                    for patch in range(noPatches):
+                        if tankerCovers[patch, base] <= min(maxFire,
+                                thresholds[0]):
+                            # If the patch is close to the base
+                            configNos[0] = 0
+                            configNos[1] = 0
+                            configNos[2] = 1
+                            configNos[3] = 0
+
+                            getAllConfigsSorted(configurations, configsP,
+                                                baseConfigsPossible,
+                                                expectedP[patch], configNos)
+                            config = baseConfigsPossible[0]
+
+                            expFires = 0.0
+
+                            for tt in range(time, time + lookahead):
+                                expFires += expFiresComp[tt, 0, base]
+
+                            n_c = max(1, expFires)
+                            weight_c = 1/n_c
+
+                            expectedDamageBase += pw * (
+                                    expectedP[patch, 0] * (1 - weight_c) -
+                                    expectedP[patch, config] * weight_c)
+
+                            baseDamageBaseline += pw * expectedP[patch, 0]
+
+                        elif tankerCovers[patch, base] <= maxFire:
+                            # If the patch is further away but still allowed
+                            configNos[0] = 0
+                            configNos[1] = 0
+                            configNos[2] = 1
+                            configNos[3] = 0
+
+                            getAllConfigsSorted(configurations, configsP,
+                                                baseConfigsPossible,
+                                                expectedP[patch], configNos)
+                            config = baseConfigsPossible[0]
+
+                            expFires = 0.0
+
+                            for tt in range(time, time + lookahead):
+                                expFires += (expFiresComp[tt, 0, base]
+                                             + expFiresComp[tt, 2, base])
+
+                            n_c = max(1, expFires)
+                            weight_c = 1/n_c
+
+                            expectedDamageBase += pw * (
+                                    expectedP[patch, 0] * (1 - weight_c) -
+                                    expectedP[patch, config] * weight_c)
+
+                            baseDamageBaseline += pw * expectedP[patch, 0]
+
+                    baseImproveTankerL[base] = (baseDamageBaseline
+                        - expectedDamageBase)
+
+                    if baseImproveTankerE[base] > thisUpdateImprovement:
+                            thisUpdateImprovement = baseImproveTankerE[base]
+                            thisUpdateDType = 1
+                            thisUpdateACType = 1
+                            thisUpdateIdx = base
+                else:
+                    baseImproveTankerE[base] = 0.0
+
+                # Heli Early
                 if baseMaxHelisE[base] > 0:
                     expectedDamageBase = 0.0
                     baseDamageBaseline = 0.0
@@ -1211,14 +1287,86 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     baseImproveHeliE[base] = (baseDamageBaseline
                         - expectedDamageBase)
 
-                    if baseImproveTankerE[base] > thisUpdateImprovement:
-                            thisUpdateImprovement = baseImproveTankerE[base]
+                    if baseImproveHeliE[base] > thisUpdateImprovement:
+                            thisUpdateImprovement = baseImproveHeliE[base]
                             thisUpdateDType = 1
                             thisUpdateACType = 2
                             thisUpdateIdx = base
 
                 else:
                     baseImproveHeliE[base] = 0.0
+
+                # Heli Late
+                if baseMaxHelisL[base] > 0:
+                    expectedDamageBase = 0.0
+                    baseDamageBaseline = 0.0
+
+                    for patch in range(noPatches):
+                        if heliCovers[patch, base] <= min(maxFire,
+                                thresholds[0]):
+                            configNos[0] = 0
+                            configNos[1] = 0
+                            configNos[2] = 0
+                            configNos[3] = 1
+
+                            getAllConfigsSorted(configurations, configsP,
+                                                baseConfigsPossible,
+                                                expectedP[patch], configNos)
+                            config = baseConfigsPossible[0]
+
+                            # If the patch is close to the base
+                            expFires = 0.0
+
+                            for tt in range(time, time + lookahead):
+                                expFires += expFiresComp[tt, 1, base]
+
+                            n_c = max(1, expFires)
+                            weight_c = 1/n_c
+
+                            expectedDamageBase += pw * (
+                                    expectedP[patch, 0] * (1 - weight_c) -
+                                    expectedP[patch, config] * weight_c)
+
+                            baseDamageBaseline += pw * expectedP[patch, 0]
+
+                        elif heliCovers[patch, base] <= maxFire:
+                            configNos[0] = 0
+                            configNos[1] = 0
+                            configNos[2] = 0
+                            configNos[3] = 1
+
+                            getAllConfigsSorted(configurations, configsP,
+                                                baseConfigsPossible,
+                                                expectedP[patch], configNos)
+                            config = baseConfigsPossible[0]
+
+                            # If the patch is close to the base
+                            expFires = 0.0
+
+                            for tt in range(time, time + lookahead):
+                                expFires += (expFiresComp[tt, 1, base]
+                                             + expFiresComp[tt, 3, base])
+
+                            n_c = max(1, expFires)
+                            weight_c = 1/n_c
+
+                            expectedDamageBase += pw * (
+                                    expectedP[patch, 0] * (1 - weight_c) -
+                                    expectedP[patch, config] * weight_c)
+
+                            baseDamageBaseline += pw * expectedP[patch, 0]
+
+                    baseImproveHeliL[base] = (baseDamageBaseline
+                        - expectedDamageBase)
+
+                    if baseImproveHeliL[base] > thisUpdateImprovement:
+                            thisUpdateImprovement = baseImproveHeliL[base]
+                            thisUpdateDType = 1
+                            thisUpdateACType = 2
+                            thisUpdateIdx = base
+
+                else:
+                    baseImproveHeliL[base] = 0.0
 
         else:
             # Only update recently changed values (fires just updated or
@@ -1315,7 +1463,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                 ###############################################################
                 # First recalculate the base that was just updated
-                # An extra tanker ################
+                # An extra early tanker ################
                 if baseMaxTankersE[thisUpdateIdx] > baseTankersE[thisUpdateIdx]:
                     expectedDamageBase = 0.0
                     baseTankersE[thisUpdateIdx] += 1
@@ -1324,8 +1472,9 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     # base for each patch
                     for patch in range(noPatches):
                         componentNos(configNos, tankerCovers, heliCovers,
-                                     baseTankersE, baseHelisE, updateBases,
-                                     patch, maxFire, thresholds, True)
+                                     baseTankersE, baseHelisE, baseTankersL,
+                                     baseHelisL, updateBases, patch, maxFire,
+                                     thresholds, True)
 
                         if tankerCovers[patch, thisUpdateIdx] <= maxFire:
 
@@ -1335,7 +1484,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                     thresholds[0]):
                                 configNos[0] += 1
 
-                            else:
+                            elif (tankerCovers[patch, thisUpdateIdx] <=
+                                    thresholds[1]):
                                 configNos[2] += 1
 
                             # Get all possible configs and sort them by
@@ -1348,9 +1498,9 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             expectedDamageBase += expectedDamage(
                                 baseConfigsPossible, configurations, configsP,
                                 tankerCovers, heliCovers, baseTankersE,
-                                baseHelisE, expectedP, expFiresComp, weightsP,
-                                patch, time, lookahead, pw, maxFire,
-                                thresholds)
+                                baseHelisE, baseTankersL, baseHelisL,
+                                expectedP, expFiresComp, weightsP, patch,
+                                time, lookahead, pw, maxFire, thresholds)
 
                         else:
                             expectedDamageBase += patchExpectedDamage[patch]
@@ -1362,7 +1512,52 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                 else:
                     baseImproveTankerE[thisUpdateIdx] = 0.0
 
-                # An extra helicopter ############
+                # An extra late tanker ################
+                if baseMaxTankersL[thisUpdateIdx] > baseTankersL[thisUpdateIdx]:
+                    expectedDamageBase = 0.0
+                    baseTankersL[thisUpdateIdx] += 1
+
+                    # Calculate the improvement of one more tanker at this
+                    # base for each patch
+                    for patch in range(noPatches):
+                        componentNos(configNos, tankerCovers, heliCovers,
+                                     baseTankersE, baseHelisE, baseTankersL,
+                                     baseHelisL, updateBases, patch, maxFire,
+                                     thresholds, True)
+
+                        if tankerCovers[patch, thisUpdateIdx] <= maxFire:
+
+                            updatePatches[patch] = True
+
+                            if (tankerCovers[patch, thisUpdateIdx] <=
+                                    thresholds[1]):
+                                configNos[2] += 1
+
+                            # Get all possible configs and sort them by
+                            # benefit to this patch
+                            getAllConfigsSorted(
+                                    configurations, configsP,
+                                    baseConfigsPossible, expectedP[patch],
+                                    configNos)
+
+                            expectedDamageBase += expectedDamage(
+                                baseConfigsPossible, configurations, configsP,
+                                tankerCovers, heliCovers, baseTankersE,
+                                baseHelisE, baseTankersL, baseHelisL,
+                                expectedP, expFiresComp, weightsP, patch,
+                                time, lookahead, pw, maxFire, thresholds)
+
+                        else:
+                            expectedDamageBase += patchExpectedDamage[patch]
+
+                    baseImproveTankerL[thisUpdateIdx] = (
+                            currentImprove - expectedDamageBase)
+                    baseTankersL[thisUpdateIdx] -= 1
+
+                else:
+                    baseImproveTankerL[thisUpdateIdx] = 0.0
+
+                # An extra early helicopter ############
                 if baseMaxHelisE[thisUpdateIdx] > baseHelisE[thisUpdateIdx]:
                     expectedDamageBase = 0.0
                     baseHelisE[thisUpdateIdx] += 1
@@ -1371,8 +1566,9 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     # base for each patch
                     for patch in range(noPatches):
                         componentNos(configNos, tankerCovers, heliCovers,
-                                     baseTankersE, baseHelisE, updateBases,
-                                     patch, maxFire, thresholds, True)
+                                     baseTankersE, baseHelisE, baseTankersL,
+                                     baseHelisL, updateBases, patch,
+                                     maxFire, thresholds, True)
 
                         if heliCovers[patch, thisUpdateIdx] <= maxFire:
 
@@ -1382,7 +1578,8 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                     thresholds[0]):
                                 configNos[1] += 1
 
-                            else:
+                            elif (heliCovers[patch, thisUpdateIdx] <=
+                                    thresholds[1]):
                                 configNos[3] += 1
 
                             # Get all possible configs and sort them by
@@ -1395,9 +1592,9 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             expectedDamageBase += expectedDamage(
                                 baseConfigsPossible, configurations, configsP,
                                 tankerCovers, heliCovers, baseTankersE,
-                                baseHelisE, expectedP, expFiresComp, weightsP,
-                                patch, time, lookahead, pw, maxFire,
-                                thresholds)
+                                baseHelisE, baseTankersL, baseHelisL,
+                                expectedP, expFiresComp, weightsP, patch, time,
+                                lookahead, pw, maxFire, thresholds)
 
                         else:
                             expectedDamageBase += patchExpectedDamage[patch]
@@ -1409,13 +1606,58 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                 else:
                     baseImproveHeliE[thisUpdateIdx] = 0.0
 
+                # An extra late helicopter ############
+                if baseMaxHelisL[thisUpdateIdx] > baseHelisL[thisUpdateIdx]:
+                    expectedDamageBase = 0.0
+                    baseHelisL[thisUpdateIdx] += 1
+
+                    # Calculate the improvement of one more tanker at this
+                    # base for each patch
+                    for patch in range(noPatches):
+                        componentNos(configNos, tankerCovers, heliCovers,
+                                     baseTankersE, baseHelisE, baseTankersL,
+                                     baseHelisL, updateBases, patch,
+                                     maxFire, thresholds, True)
+
+                        if heliCovers[patch, thisUpdateIdx] <= maxFire:
+
+                            updatePatches[patch] = True
+
+                            if (heliCovers[patch, thisUpdateIdx] <=
+                                    thresholds[1]):
+                                configNos[3] += 1
+
+                            # Get all possible configs and sort them by
+                            # benefit to this patch
+                            getAllConfigsSorted(
+                                    configurations, configsP,
+                                    baseConfigsPossible, expectedP[patch],
+                                    configNos)
+
+                            expectedDamageBase += expectedDamage(
+                                baseConfigsPossible, configurations, configsP,
+                                tankerCovers, heliCovers, baseTankersE,
+                                baseHelisE, baseTankersL, baseHelisL,
+                                expectedP, expFiresComp, weightsP, patch, time,
+                                lookahead, pw, maxFire, thresholds)
+
+                        else:
+                            expectedDamageBase += patchExpectedDamage[patch]
+
+                    baseImproveHeliL[thisUpdateIdx] = (
+                        currentImprove - expectedDamageBase)
+                    baseHelisL[thisUpdateIdx] -= 1
+
+                else:
+                    baseImproveHeliL[thisUpdateIdx] = 0.0
+
                 ###############################################################
                 # Bases that are affected by adjusted patches
                 for baseOther in range(noBases):
                     if updateBases[baseOther]:
 
                         # First recalculate the base that was just updated
-                        # An extra tanker ################
+                        # An extra early tanker ################
                         if baseMaxTankersE[baseOther] > baseTankersE[baseOther]:
                             expectedDamageBase = 0.0
                             baseTankersE[baseOther] += 1
@@ -1425,15 +1667,17 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             for patch in range(noPatches):
                                 componentNos(
                                         configNos, tankerCovers, heliCovers,
-                                        baseTankersE, baseHelisE, updateBases,
-                                        patch, maxFire, thresholds, False)
+                                        baseTankersE, baseHelisE, baseTankersL,
+                                        baseHelisL, updateBases, patch,
+                                        maxFire, thresholds, False)
 
                                 if tankerCovers[patch, baseOther] <= maxFire:
 
                                     if (tankerCovers[patch, baseOther] <=
                                             thresholds[0]):
                                         configNos[0] += 1
-                                    else:
+                                    elif (tankerCovers[patch, baseOther] <=
+                                            thresholds[1]):
                                         configNos[2] += 1
 
                                     # Get all possible configs and sort them by
@@ -1448,6 +1692,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                             configurations, configsP,
                                             tankerCovers, heliCovers,
                                             baseTankersE, baseHelisE,
+                                            baseTankersL, baseHelisL,
                                             expectedP, expFiresComp, weightsP,
                                             patch, time, lookahead, pw,
                                             maxFire, thresholds)
@@ -1463,7 +1708,55 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                         else:
                             baseImproveTankerE[baseOther] = 0.0
 
-                        # An extra helicopter ############
+                        # An extra late tanker ###########
+                        if baseMaxTankersL[baseOther] > baseTankersL[baseOther]:
+                            expectedDamageBase = 0.0
+                            baseTankersL[baseOther] += 1
+
+                            # Calculate the improvement of one more tanker at
+                            # this base for each patch
+                            for patch in range(noPatches):
+                                componentNos(
+                                        configNos, tankerCovers, heliCovers,
+                                        baseTankersE, baseHelisE, baseTankersL,
+                                        baseHelisL, updateBases, patch,
+                                        maxFire, thresholds, False)
+
+                                if tankerCovers[patch, baseOther] <= maxFire:
+
+                                    if (tankerCovers[patch, baseOther] <=
+                                            thresholds[1]):
+                                        configNos[2] += 1
+
+                                    # Get all possible configs and sort them by
+                                    # benefit to this patch
+                                    getAllConfigsSorted(
+                                            configurations, configsP,
+                                            baseConfigsPossible,
+                                            expectedP[patch], configNos)
+
+                                    expectedDamageBase += expectedDamage(
+                                            baseConfigsPossible,
+                                            configurations, configsP,
+                                            tankerCovers, heliCovers,
+                                            baseTankersE, baseHelisE,
+                                            baseTankersL, baseHelisL,
+                                            expectedP, expFiresComp, weightsP,
+                                            patch, time, lookahead, pw,
+                                            maxFire, thresholds)
+
+                                else:
+                                    expectedDamageBase += (
+                                            patchExpectedDamage[patch])
+
+                            baseImproveTankerL[baseOther] = (
+                                currentImprove - expectedDamageBase)
+                            baseTankersL[baseOther] -= 1
+
+                        else:
+                            baseImproveTankerE[baseOther] = 0.0
+
+                        # An extra early helicopter ############
                         if baseMaxHelisE[baseOther] > baseHelisE[baseOther]:
                             expectedDamageBase = 0.0
                             baseHelisE[baseOther] += 1
@@ -1473,15 +1766,17 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                             for patch in range(noPatches):
                                 componentNos(
                                         configNos, tankerCovers, heliCovers,
-                                        baseTankersE, baseHelisE, updateBases,
-                                        patch, maxFire, thresholds, False)
+                                        baseTankersE, baseHelisE, baseTankersL,
+                                        baseHelisL, updateBases, patch,
+                                        maxFire, thresholds, False)
 
                                 if heliCovers[patch, baseOther] <= maxFire:
 
                                     if (heliCovers[patch, baseOther] <=
                                             thresholds[0]):
                                         configNos[1] += 1
-                                    else:
+                                    elif (heliCovers[patch, baseOther] <=
+                                            thresholds[1]):
                                         configNos[3] += 1
 
                                     # Get all possible configs and sort them by
@@ -1496,6 +1791,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                             configurations, configsP,
                                             tankerCovers, heliCovers,
                                             baseTankersE, baseHelisE,
+                                            baseTankersL, baseHelisL,
                                             expectedP, expFiresComp, weightsP,
                                             patch, time, lookahead, pw,
                                             maxFire, thresholds)
@@ -1510,6 +1806,54 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
                         else:
                             baseImproveHeliE[baseOther] = 0.0
+
+                        # An extra late helicopter ############
+                        if baseMaxHelisL[baseOther] > baseHelisL[baseOther]:
+                            expectedDamageBase = 0.0
+                            baseHelisL[baseOther] += 1
+
+                            # Calculate the improvement of one more tanker at
+                            # this base for each patch
+                            for patch in range(noPatches):
+                                componentNos(
+                                        configNos, tankerCovers, heliCovers,
+                                        baseTankersE, baseHelisE, baseTankersL,
+                                        baseHelisL, updateBases, patch,
+                                        maxFire, thresholds, False)
+
+                                if heliCovers[patch, baseOther] <= maxFire:
+
+                                    if (heliCovers[patch, baseOther] <=
+                                            thresholds[1]):
+                                        configNos[3] += 1
+
+                                    # Get all possible configs and sort them by
+                                    # benefit to this patch
+                                    getAllConfigsSorted(
+                                            configurations, configsP,
+                                            baseConfigsPossible,
+                                            expectedP[patch], configNos)
+
+                                    expectedDamageBase += expectedDamage(
+                                            baseConfigsPossible,
+                                            configurations, configsP,
+                                            tankerCovers, heliCovers,
+                                            baseTankersE, baseHelisE,
+                                            baseTankersL, baseHelisL,
+                                            expectedP, expFiresComp, weightsP,
+                                            patch, time, lookahead, pw,
+                                            maxFire, thresholds)
+
+                                else:
+                                    expectedDamageBase += (
+                                            patchExpectedDamage[patch])
+
+                            baseImproveHeliL[baseOther] = (
+                                currentImprove - expectedDamageBase)
+                            baseHelisL[baseOther] -= 1
+
+                        else:
+                            baseImproveHeliL[baseOther] = 0.0
 
         # Pick the best assignment ############################################
         for fire in range(noFires[thread_id][time]):
@@ -1550,6 +1894,18 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     thisUpdateACType = 2
                     thisUpdateIdx = base
 
+            if baseImproveTankerL[base] > thisUpdateImprovement:
+                    thisUpdateImprovement = baseImproveTankerL[base]
+                    thisUpdateDType = 1
+                    thisUpdateACType = 3
+                    thisUpdateIdx = base
+
+            if baseImproveHeliL[base] > thisUpdateImprovement:
+                    thisUpdateImprovement = baseImproveHeliL[base]
+                    thisUpdateDType = 1
+                    thisUpdateACType = 4
+                    thisUpdateIdx = base
+
         #######################################################################
         # Now update the number of aircraft assigned to the chosen base/fire
         # and the cumulative damage saved
@@ -1581,12 +1937,18 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
             elif thisUpdateACType == 2:
                 baseHelisE[thisUpdateIdx] += 1
 
+            elif thisUpdateACType == 3:
+                baseTankersL[thisUpdateIdx] += 1
+
+            elif thisUpdateACType == 4:
+                baseHelisL[thisUpdateIdx] += 1
+
             for patch in range(noPatches):
                 if updatePatches[patch]:
                     componentNos(
                             configNos, tankerCovers, heliCovers,
-                            baseTankersE, baseHelisE, updateBases,
-                            patch, maxFire, thresholds, False)
+                            baseTankersE, baseHelisE, baseTankersL, baseHelisL,
+                            updateBases, patch, maxFire, thresholds, False)
 
                     # Get all possible configs and sort them by benefit to this
                     # patch
@@ -1597,8 +1959,9 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                     patchExpectedDamage[patch] = expectedDamage(
                             baseConfigsPossible, configurations, configsP,
                             tankerCovers, heliCovers, baseTankersE, baseHelisE,
-                            expectedP, expFiresComp, weightsP, patch, time,
-                            lookahead, pw, maxFire, thresholds)
+                            baseTankersL, baseHelisL, expectedP, expFiresComp,
+                            weightsP, patch, time, lookahead, pw, maxFire,
+                            thresholds)
 
         #######################################################################
         # For given assignment, pick best A/C #################################
@@ -1655,8 +2018,26 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 for base in range(noBases):
                                     if canBase[resource, base]:
 
-                                        if baseImproveTankerE[base] > nextBest:
-                                            nextBest = baseImproveTankerE[base]
+                                        dist = geoDist(
+                                            aircraftLocations[thread_id][time][
+                                                resource],
+                                            baseLocations[base])
+
+                                        travTime = (dist /
+                                                    resourceSpeeds[resource])
+
+                                        if travTime <= thresholds[0]:
+                                            if (baseImproveTankerE[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveTankerE[
+                                                    base]
+                                        else:
+                                            if (baseImproveTankerL[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveTankerL[
+                                                    base]
 
                                 if nextBest < minMax:
                                     minMax = nextBest
@@ -1710,8 +2091,26 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 for base in range(noBases):
                                     if canBase[resource, base]:
 
-                                        if baseImproveHeliE[base] > nextBest:
-                                            nextBest = baseImproveHeliE[base]
+                                        dist = geoDist(
+                                        aircraftLocations[thread_id][time][
+                                            resource],
+                                        baseLocations[base])
+
+                                        travTime = (dist /
+                                                    resourceSpeeds[resource])
+
+                                        if travTime <= thresholds[0]:
+                                            if (baseImproveHeliE[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveHeliE[
+                                                    base]
+                                        else:
+                                            if (baseImproveHeliL[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveHeliL[
+                                                    base]
 
                                 if nextBest < minMax:
                                     minMax = nextBest
@@ -1765,8 +2164,26 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 for base in range(noBases):
                                     if canBase[resource, base]:
 
-                                        if baseImproveTankerE[base] > nextBest:
-                                            nextBest = baseImproveTankerE[base]
+                                        dist = geoDist(
+                                        aircraftLocations[thread_id][time][
+                                            resource],
+                                        baseLocations[base])
+
+                                        travTime = (dist /
+                                                    resourceSpeeds[resource])
+
+                                        if travTime <= thresholds[0]:
+                                            if (baseImproveTankerE[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveTankerE[
+                                                    base]
+                                        else:
+                                            if (baseImproveTankerL[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveTankerL[
+                                                    base]
 
                                 if nextBest < minMax:
                                     minMax = nextBest
@@ -1821,8 +2238,26 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 for base in range(noBases):
                                     if canBase[resource, base]:
 
-                                        if baseImproveHeliE[base] > nextBest:
-                                            nextBest = baseImproveHeliE[base]
+                                        dist = geoDist(
+                                        aircraftLocations[thread_id][time][
+                                            resource],
+                                        baseLocations[base])
+
+                                        travTime = (dist /
+                                                    resourceSpeeds[resource])
+
+                                        if travTime <= thresholds[0]:
+                                            if (baseImproveHeliE[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveHeliE[
+                                                    base]
+                                        else:
+                                            if (baseImproveHeliL[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveHeliL[
+                                                    base]
 
                                 if nextBest < minMax:
                                     minMax = nextBest
@@ -1830,7 +2265,7 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
         # Next assignment is a base
         elif thisUpdateDType == 1:
-            if (thisUpdateACType == 1 or thisUpdateACType == 3):
+            if (thisUpdateACType == 1):
                 for resource in range(noAircraft):
                     nextBest = 0
 
@@ -1839,79 +2274,287 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
                                 resource][0] == 0)):
 
                         if canBase[resource, thisUpdateIdx]:
-                            # This resource is a candidate
+                            dist = geoDist(
+                                aircraftLocations[thread_id][time][resource],
+                                baseLocations[thisUpdateIdx])
+                            travTime = dist / resourceSpeeds[resource]
 
-                            # Check potential benefit to other fires
-                            for fire in range(noFires[thread_id][time]):
-                                if canFire[resource, fire]:
+                            if travTime <= thresholds[0]:
+                                # This resource is a candidate
 
-                                    dist = geoDist(
-                                        aircraftLocations[thread_id][time][
-                                            resource],
-                                        fireLocations[thread_id][time][fire])
+                                # Check potential benefit to other fires
+                                for fire in range(noFires[thread_id][time]):
+                                    if canFire[resource, fire]:
 
-                                    travTime = dist / resourceSpeeds[resource]
+                                        dist = geoDist(
+                                            aircraftLocations[thread_id][time][
+                                                resource],
+                                            fireLocations[thread_id][time][
+                                                fire])
 
-                                    if travTime <= thresholds[0]:
-                                        if fireImproveTankerE[fire] > nextBest:
+                                        travTime = (dist /
+                                                    resourceSpeeds[resource])
 
-                                            nextBest = fireImproveTankerE[fire]
-                                    else:
-                                        if fireImproveTankerL[fire] > nextBest:
+                                        if travTime <= thresholds[0]:
+                                            if (fireImproveTankerE[fire] >
+                                                nextBest):
 
-                                            nextBest = fireImproveTankerL[fire]
+                                                nextBest = fireImproveTankerE[
+                                                    fire]
+                                        else:
+                                            if (fireImproveTankerL[fire] >
+                                                nextBest):
 
-                            # Check potential benefit to bases
-                            for base in range(noBases):
-                                if (base != thisUpdateIdx
-                                    and canBase[resource, fire]):
+                                                nextBest = fireImproveTankerL[
+                                                    fire]
 
-                                    if baseImproveTankerE[base] > nextBest:
-                                        nextBest = baseImproveTankerE[base]
+                                # Check potential benefit to bases
+                                for base in range(noBases):
+                                    if (base != thisUpdateIdx
+                                        and canBase[resource, fire]):
 
-                            if nextBest < minMax:
-                                minMax = nextBest
-                                nextAC = resource
+                                        dist = geoDist(
+                                            aircraftLocations[thread_id][time][
+                                                resource],
+                                            baseLocations[base])
 
-            if (thisUpdateACType == 2 or thisUpdateACType == 4):
+                                        travTime = (dist /
+                                                    resourceSpeeds[resource])
+
+                                        if travTime <= thresholds[0]:
+                                            if (baseImproveTankerE[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveTankerE[
+                                                    base]
+                                        else:
+                                            if (baseImproveTankerL[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveTankerL[
+                                                    base]
+
+                                if nextBest < minMax:
+                                    minMax = nextBest
+                                    nextAC = resource
+
+            elif (thisUpdateACType == 2):
                 for resource in range(noAircraft):
                     nextBest = 0
 
                     if (resourceTypes[resource] == 1
                         and int(aircraftAssignments[thread_id][time][
                                 resource][0] == 0)):
-                            # This resource is a candidate
 
-                            # Check potential benefit to other fires
-                            for fire in range(noFires[thread_id][time]):
-                                if canFire[resource, fire]:
-                                    dist = geoDist(
-                                        aircraftLocations[thread_id][time][
-                                            resource],
-                                        fireLocations[thread_id][time][fire])
+                        if canBase[resource, thisUpdateIdx]:
+                            dist = geoDist(
+                                aircraftLocations[thread_id][time][resource],
+                                baseLocations[thisUpdateIdx])
+                            travTime = dist / resourceSpeeds[resource]
 
-                                    travTime = dist / resourceSpeeds[resource]
+                            if travTime <= thresholds[0]:
+                                # This resource is a candidate
 
-                                    if travTime < thresholds[0]:
-                                        if fireImproveHeliE[fire] > nextBest:
+                                # Check potential benefit to other fires
+                                for fire in range(noFires[thread_id][time]):
+                                    if canFire[resource, fire]:
+                                        dist = geoDist(
+                                            aircraftLocations[thread_id][time][
+                                                resource],
+                                            fireLocations[thread_id][time][
+                                                fire])
 
-                                            nextBest = fireImproveHeliE[fire]
-                                    else:
-                                        if fireImproveHeliL[fire] > nextBest:
+                                        travTime = (dist /
+                                                    resourceSpeeds[resource])
 
-                                            nextBest = fireImproveHeliL[fire]
+                                        if travTime < thresholds[0]:
+                                            if (fireImproveHeliE[fire] >
+                                                nextBest):
 
-                            # Check potential benefit to bases
-                            for base in range(noBases):
-                                if (base != thisUpdateIdx
-                                    and canBase[resource, fire]):
+                                                nextBest = fireImproveHeliE[
+                                                    fire]
+                                        else:
+                                            if (fireImproveHeliL[fire] >
+                                                nextBest):
 
-                                    if baseImproveHeliE[base] > nextBest:
-                                        nextBest = baseImproveHeliE[base]
+                                                nextBest = fireImproveHeliL[
+                                                    fire]
 
-                            if nextBest < minMax:
-                                minMax = nextBest
-                                nextAC = resource
+                                # Check potential benefit to bases
+                                for base in range(noBases):
+                                    if (base != thisUpdateIdx
+                                        and canBase[resource, fire]):
+
+                                        dist = geoDist(
+                                            aircraftLocations[thread_id][time][
+                                                resource],
+                                            baseLocations[base])
+
+                                        travTime = (dist /
+                                                    resourceSpeeds[resource])
+
+                                        if travTime <= thresholds[0]:
+                                            if (baseImproveTankerE[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveTankerE[
+                                                    base]
+                                        else:
+                                            if (baseImproveTankerL[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveTankerL[
+                                                    base]
+
+                                if nextBest < minMax:
+                                    minMax = nextBest
+                                    nextAC = resource
+
+            elif (thisUpdateACType == 3):
+                for resource in range(noAircraft):
+                    nextBest = 0
+
+                    if (resourceTypes[resource] == 0
+                        and int(aircraftAssignments[thread_id][time+1][
+                                resource][0] == 0)):
+
+                        if canBase[resource, thisUpdateIdx]:
+                            dist = geoDist(
+                                aircraftLocations[thread_id][time][resource],
+                                baseLocations[thisUpdateIdx])
+                            travTime = dist / resourceSpeeds[resource]
+
+                            if travTime > thresholds[0]:
+                                # This resource is a candidate
+
+                                # Check potential benefit to other fires
+                                for fire in range(noFires[thread_id][time]):
+                                    if canFire[resource, fire]:
+
+                                        dist = geoDist(
+                                            aircraftLocations[thread_id][time][
+                                                resource],
+                                            fireLocations[thread_id][time][
+                                                fire])
+
+                                        travTime = (dist /
+                                                    resourceSpeeds[resource])
+
+                                        if travTime <= thresholds[0]:
+                                            if (fireImproveTankerE[fire] >
+                                                nextBest):
+
+                                                nextBest = fireImproveTankerE[
+                                                    fire]
+                                        else:
+                                            if (fireImproveTankerL[fire] >
+                                                nextBest):
+
+                                                nextBest = fireImproveTankerL[
+                                                    fire]
+
+                                # Check potential benefit to bases
+                                for base in range(noBases):
+                                    if (base != thisUpdateIdx
+                                        and canBase[resource, fire]):
+
+                                        dist = geoDist(
+                                            aircraftLocations[thread_id][time][
+                                                resource],
+                                            baseLocations[base])
+
+                                        travTime = (dist /
+                                                    resourceSpeeds[resource])
+
+                                        if travTime <= thresholds[0]:
+                                            if (baseImproveTankerE[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveTankerE[
+                                                    base]
+                                        else:
+                                            if (baseImproveTankerL[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveTankerL[
+                                                    base]
+
+                                if nextBest < minMax:
+                                    minMax = nextBest
+                                    nextAC = resource
+
+            elif (thisUpdateACType == 4):
+                for resource in range(noAircraft):
+                    nextBest = 0
+
+                    if (resourceTypes[resource] == 1
+                        and int(aircraftAssignments[thread_id][time+1][
+                                resource][0] == 0)):
+
+                        if canBase[resource, thisUpdateIdx]:
+                            dist = geoDist(
+                                aircraftLocations[thread_id][time][resource],
+                                baseLocations[thisUpdateIdx])
+                            travTime = dist / resourceSpeeds[resource]
+
+                            if travTime > thresholds[0]:
+                                # This resource is a candidate
+
+                                # Check potential benefit to other fires
+                                for fire in range(noFires[thread_id][time]):
+                                    if canFire[resource, fire]:
+
+                                        dist = geoDist(
+                                            aircraftLocations[thread_id][time][
+                                                resource],
+                                            fireLocations[thread_id][time][
+                                                fire])
+
+                                        travTime = (dist /
+                                                    resourceSpeeds[resource])
+
+                                        if travTime <= thresholds[0]:
+                                            if (fireImproveTankerE[fire] >
+                                                nextBest):
+
+                                                nextBest = fireImproveTankerE[
+                                                    fire]
+                                        else:
+                                            if (fireImproveTankerL[fire] >
+                                                nextBest):
+
+                                                nextBest = fireImproveTankerL[
+                                                    fire]
+
+                                # Check potential benefit to bases
+                                for base in range(noBases):
+                                    if (base != thisUpdateIdx
+                                        and canBase[resource, fire]):
+
+                                        dist = geoDist(
+                                            aircraftLocations[thread_id][time][
+                                                resource],
+                                            baseLocations[base])
+
+                                        travTime = (dist /
+                                                    resourceSpeeds[resource])
+
+                                        if travTime <= thresholds[0]:
+                                            if (baseImproveTankerE[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveTankerE[
+                                                    base]
+                                        else:
+                                            if (baseImproveTankerL[base] >
+                                                nextBest):
+
+                                                nextBest = baseImproveTankerL[
+                                                    base]
+
+                                if nextBest < minMax:
+                                    minMax = nextBest
+                                    nextAC = resource
 
         # Update the assignments matrix #######################################
         if int(thisUpdateDType == 0):
@@ -2001,17 +2644,29 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
 
         for base in range(noBases):
             if canBase[nextAC, base]:
-                if thisUpdateACType == 1 or thisUpdateACType == 3:
+                if thisUpdateACType == 1:
                     baseMaxTankersE[base] -= 1
 
                     if baseMaxTankersE[base] == baseTankersE[fire]:
                         baseImproveTankerE[base] = 0
 
-                elif thisUpdateACType == 2 or thisUpdateACType == 4:
+                elif thisUpdateACType == 2:
                     baseMaxHelisE[base] -= 1
 
                     if baseMaxHelisE[base] == baseHelisE[fire]:
                         baseImproveHeliE[base] = 0
+
+                elif thisUpdateACType == 3:
+                    baseMaxTankersL[base] -= 1
+
+                    if baseMaxTankersL[base] == baseTankersL[fire]:
+                        baseImproveTankerL[base] = 0
+
+                elif thisUpdateACType == 4:
+                    baseMaxHelisE[base] -= 1
+
+                    if baseMaxHelisL[base] == baseHelisL[fire]:
+                        baseImproveHeliL[base] = 0
 
         # Repeat until assignments complete
         lastUpdateDType = thisUpdateDType
@@ -2046,16 +2701,17 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
     # Compute the resulting patch config weights
     for patch in range(noPatches):
         componentNos(configNos, tankerCovers, heliCovers, baseTankersE,
-                     baseHelisE, updateBases, patch, maxFire, thresholds,
-                     False)
+                     baseHelisE, baseTankersL, baseHelisL, updateBases, patch,
+                     maxFire, thresholds, False)
 
         getAllConfigsSorted(configurations, configsP, baseConfigsPossible,
                             expectedP[patch], configNos)
 
         patchExpectedDamage[patch] = expectedDamage(
                 baseConfigsPossible, configurations, configsP, tankerCovers,
-                heliCovers, baseTankersE, baseHelisE, expectedP, expFiresComp,
-                weightsP, patch, time, lookahead, pw, maxFire, thresholds)
+                heliCovers, baseTankersE, baseHelisE, baseTankersL, baseHelisL,
+                expectedP, expFiresComp, weightsP, patch, time, lookahead, pw,
+                maxFire, thresholds)
 
     # Compute resulting fire configurations and patch configuration weights
     # given these assignments
@@ -2127,9 +2783,9 @@ def travTime(X1, X2, speed):
 
 @cuda.jit(device=True)
 def expectedDamage(baseConfigsPossible, configurations, configsP, tankerCovers,
-                   heliCovers, baseTankersE, baseHelisE, expectedP,
-                   expFiresComp, weightsP, patch, time, lookahead, pw,
-                   maxFire, thresholds):
+                   heliCovers, baseTankersE, baseHelisE, baseTankersL,
+                   baseHelisL, expectedP, expFiresComp, weightsP, patch, time,
+                   lookahead, pw, maxFire, thresholds):
 
     global noConfP
 
@@ -2146,8 +2802,8 @@ def expectedDamage(baseConfigsPossible, configurations, configsP, tankerCovers,
 
         weight_c = potentialWeight(
                 configurations, tankerCovers, heliCovers, baseTankersE,
-                baseHelisE, expFiresComp, patch, config, time, lookahead,
-                maxFire, thresholds)
+                baseHelisE, baseTankersL, baseHelisL, expFiresComp, patch,
+                config, time, lookahead, maxFire, thresholds)
 
         weight_c = min(weight_c, 1 - weight_total)
         weightsP[patch, baseConfigsPossible[configIdx]] = weight_c
@@ -2164,7 +2820,8 @@ def expectedDamage(baseConfigsPossible, configurations, configsP, tankerCovers,
 
 @cuda.jit(device=True)
 def componentNos(configNos, tankerCovers, heliCovers, baseTankersE, baseHelisE,
-                 updateBases, patch, maxFire, thresholds, initial):
+                 baseTankersL, baseHelisL, updateBases, patch, maxFire,
+                 thresholds, initial):
 
     for c in range(4):
         configNos[c] = 0
@@ -2178,13 +2835,14 @@ def componentNos(configNos, tankerCovers, heliCovers, baseTankersE, baseHelisE,
                 updateBases[base] = True
 
             configNos[0] += baseTankersE[base]
+            configNos[2] += baseTankersL[base]
 
         elif tankerCovers[patch, base] <= maxFire:
 
             if initial:
                 updateBases[base] = True
 
-            configNos[2] += baseTankersE[base]
+            configNos[2] += (baseTankersE[base] + baseTankersL[base])
 
         if heliCovers[patch, base] <= min(
             maxFire, thresholds[0]):
@@ -2193,19 +2851,20 @@ def componentNos(configNos, tankerCovers, heliCovers, baseTankersE, baseHelisE,
                 updateBases[base] = True
 
             configNos[1] += baseHelisE[base]
+            configNos[3] += baseHelisL[base]
 
         elif heliCovers[patch, base] <= maxFire:
 
             if initial:
                 updateBases[base] = True
 
-            configNos[3] += baseHelisE[base]
+            configNos[3] += (baseHelisE[base] + baseHelisL[base])
 
 
 @cuda.jit(device=True)
 def potentialWeight(configurations, tankerCovers, heliCovers, baseTankersE,
-                    baseHelisE, expFiresComp, patch, config, time, lookahead,
-                    maxFire, thresholds):
+                    baseHelisE, baseTankersL, baseHelisL, expFiresComp, patch,
+                    config, time, lookahead, maxFire, thresholds):
 
     weight_c = 0.0
 
@@ -2265,6 +2924,10 @@ def potentialWeight(configurations, tankerCovers, heliCovers, baseTankersE,
                       tankerCovers[patch, base] > thresholds[0])
                   else 0) / n_c)
 
+        a_cb += ((baseTankersL[base]
+                  if (tankerCovers[patch, base] <= maxFire)
+                  else 0) / n_c)
+
     if configurations[config - 1, 2] > 0:
         q_c = max(1, configurations[config - 1, 2])
         weight_c = min(weight_c, (a_cb / q_c))
@@ -2283,6 +2946,10 @@ def potentialWeight(configurations, tankerCovers, heliCovers, baseTankersE,
         a_cb += ((baseHelisE[base]
                   if (heliCovers[patch, base] <= maxFire and
                       heliCovers[patch, base] > thresholds[0])
+                  else 0) / n_c)
+
+        a_cb += ((baseHelisL[base]
+                  if (heliCovers[patch, base] <= maxFire)
                   else 0) / n_c)
 
     if configurations[config - 1, 3] > 0:
@@ -2313,10 +2980,10 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
     """ 1. Expected potential damage (no relocation, no existing) """
     """ Or weighted cover without relocation """
     states[thread_id, time, 0] = potentialNoRelocation(
-            configNos, tankerCovers, heliCovers, resourceTypes, updateBases,
-            configurations, configsP, baseConfigsPossible, expFiresComp,
-            expectedP, resourceAssignments, math.inf, time, lookahead,
-            thread_id)
+            configNos, tankerCovers, heliCovers, resourceTypes,
+            aircraftLocations, baseLocations, updateBases, configurations,
+            configsP, baseConfigsPossible, expFiresComp, expectedP,
+            resourceAssignments, math.inf, time, lookahead, thread_id)
 
     """ 2. Expected existing damage (no suppression) """
     states[thread_id, time, 1] = existingNoSuppression(expectedE, fires[
@@ -2365,10 +3032,10 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
 
 @cuda.jit(device=True)
 def potentialNoRelocation(configNos, tankerCovers, heliCovers, resourceTypes,
-                          updateBases, configurations, configsP,
-                          baseConfigsPossible, expFiresComp, expectedP,
-                          aircraftAssignments, maxFire, time, lookahead,
-                          thread_id):
+                          aircraftLocations, baseLocations, updateBases,
+                          configurations, configsP, baseConfigsPossible,
+                          expFiresComp, expectedP, aircraftAssignments,
+                          maxFire, time, lookahead, thread_id):
 
     global noBases
     global noPatches
@@ -2378,6 +3045,8 @@ def potentialNoRelocation(configNos, tankerCovers, heliCovers, resourceTypes,
 
     baseTankersE = cuda.local.array(noBases, dtype=int32)
     baseHelisE = cuda.local.array(noBases, dtype=int32)
+    baseTankersL = cuda.local.array(noBases, dtype=int32)
+    baseHelisL = cuda.local.array(noBases, dtype=int32)
     weightsP = cuda.local.array((noPatches, noConfP), dtype=float32)
     thresholds = cuda.local.array(2, dtype=float32)
     thresholds[0] = math.inf
@@ -2386,30 +3055,42 @@ def potentialNoRelocation(configNos, tankerCovers, heliCovers, resourceTypes,
     for base in range(noBases):
         baseTankersE[base] = 0
         baseHelisE[base] = 0
+        baseTankersL[base] = 0
+        baseHelisL[base] = 0
 
     for resource in range(noAircraft):
         for base in range(noBases):
             if aircraftAssignments[thread_id][time][resource][0] == base + 1:
+                dist = geoDist(aircraftLocations[thread_id][time][resource],
+                           baseLocations[base])
+
                 if int(resourceTypes[resource]) == 0:
-                    baseTankersE[base] += 1
+                    if dist <= thresholds[0]:
+                        baseTankersE[base] += 1
+                    else:
+                        baseTankersL[base] += 1
                 elif int(resourceTypes[resource]) == 1:
-                    baseHelisE[base] += 1
+                    if dist <= thresholds[0]:
+                        baseHelisE[base] += 1
+                    else:
+                        baseHelisL[base] += 1
 
     # We assume that aircraft can attend to any fire. If this doesn't work, we
     # will consider a 20 minute max distance to see how well staying works vs
     # relocating to patches.
     for patch in range(noPatches):
         componentNos(configNos, tankerCovers, heliCovers, baseTankersE,
-                     baseHelisE, updateBases, patch, math.inf, thresholds,
-                     False)
+                     baseHelisE, baseTankersL, baseHelisL, updateBases, patch,
+                     math.inf, thresholds, False)
 
         getAllConfigsSorted(configurations, configsP, baseConfigsPossible,
                             expectedP[patch], configNos)
 
         stateVal += expectedDamage(
                 baseConfigsPossible, configurations, configsP, tankerCovers,
-                heliCovers, baseTankersE, baseHelisE, expectedP, expFiresComp,
-                weightsP, patch, time, lookahead, 1.0, maxFire, thresholds)
+                heliCovers, baseTankersE, baseHelisE, baseTankersL, baseHelisL,
+                expectedP, expFiresComp, weightsP, patch, time, lookahead, 1.0,
+                maxFire, thresholds)
 
     return stateVal
 
@@ -2454,6 +3135,8 @@ def statesRelocate(aircraftAssignments, resourceSpeeds, resourceTypes,
 
     baseTankersE = cuda.local.array(noBases, dtype=int32)
     baseHelisE = cuda.local.array(noBases, dtype=int32)
+    baseTankersL = cuda.local.array(noBases, dtype=int32)
+    baseHelisL = cuda.local.array(noBases, dtype=int32)
     weightsP = cuda.local.array((noPatches, noConfP), dtype=float32)
     thresholds = cuda.local.array(2, dtype=float32)
     thresholds[0] = math.inf
@@ -2462,14 +3145,25 @@ def statesRelocate(aircraftAssignments, resourceSpeeds, resourceTypes,
     for base in range(noBases):
         baseTankersE[base] = 0
         baseHelisE[base] = 0
+        baseTankersL[base] = 0
+        baseHelisL[base] = 0
 
     for resource in range(noAircraft):
         for base in range(noBases):
             if aircraftAssignments[thread_id][time+1][resource][0] == base + 1:
+                dist = geoDist(aircraftLocations[thread_id][time][resource],
+                           baseLocations[base])
+
                 if int(resourceTypes[resource]) == 0:
-                    baseTankersE[base] += 1
+                    if dist <= thresholds[0]:
+                        baseTankersE[base] += 1
+                    else:
+                        baseTankersL[base] += 1
                 elif int(resourceTypes[resource]) == 1:
-                    baseHelisE[base] += 1
+                    if dist <= thresholds[0]:
+                        baseHelisE[base] += 1
+                    else:
+                        baseHelisL[base] += 1
 
     # POTENTIAL FIRE COMPONENT
     # We assume that aircraft can attend to any fire. If this doesn't work, we
@@ -2477,16 +3171,17 @@ def statesRelocate(aircraftAssignments, resourceSpeeds, resourceTypes,
     # relocating to patches.
     for patch in range(noPatches):
         componentNos(configNos, tankerCovers, heliCovers, baseTankersE,
-                     baseHelisE, updateBases, patch, math.inf, thresholds,
-                     False)
+                     baseHelisE, baseTankersL, baseHelisL, updateBases, patch,
+                     math.inf, thresholds, False)
 
         getAllConfigsSorted(configurations, configsP, baseConfigsPossible,
                             expectedP[patch], configNos)
 
         stateVal += expectedDamage(
                 baseConfigsPossible, configurations, configsP, tankerCovers,
-                heliCovers, baseTankersE, baseHelisE, expectedP, expFiresComp,
-                weightsP, patch, time, lookahead, 1.0, maxFire, thresholds)
+                heliCovers, baseTankersE, baseHelisE, baseTankersL, baseHelisL,
+                expectedP, expFiresComp, weightsP, patch, time, lookahead, 1.0,
+                maxFire, thresholds)
 
     returnedStates[0] = stateVal
 
