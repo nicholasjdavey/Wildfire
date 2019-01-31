@@ -1857,17 +1857,18 @@ class Simulation():
         """ Expected number of fires visible by base B for aircraft type C """
         tempModel.no_CB = {
                 (c, b):
-                sum([tempModel.no_N[n]
-                     if (((c == 1 or c == 3)
-                          and tempModel.d4_BNC[b, n, c] <=
-                              tempModel.thresholds[0])
-                         or (c == 2 or c == 4
-                             and tempModel.d4_BNC[b, n, c] >
-                             tempModel.thresholds[0]
-                             and tempModel.d4_BNC[b, n, c] <=
-                             tempModel.thresholds[1]))
-                     else 0
-                     for n in tempModel.N])
+                max(1,
+                    sum([tempModel.no_N[n]
+                         if (((c == 1 or c == 3)
+                              and tempModel.d4_BNC[b, n, c] <=
+                                  tempModel.thresholds[0])
+                             or (c == 2 or c == 4
+                                 and tempModel.d4_BNC[b, n, c] >
+                                 tempModel.thresholds[0]
+                                 and tempModel.d4_BNC[b, n, c] <=
+                                 tempModel.thresholds[1]))
+                         else 0
+                         for n in tempModel.N]))
                 for c in [1, 2, 3, 4]
                 for b in tempModel.B}
 
@@ -2422,17 +2423,18 @@ class Simulation():
         """ Expected number of fires visible by base B for component C """
         tempModel.no_CB = {
                 (c, b):
-                sum([tempModel.no_N[n]
-                     if (((c == 1 or c == 3)
-                          and tempModel.d4_BNC[b, n, c] <=
-                              tempModel.thresholds[0])
-                         or (c == 2 or c == 4
-                             and tempModel.d4_BNC[b, n, c] >
-                                 tempModel.thresholds[0]
-                             and tempModel.d4_BNC[b, n, c] <=
-                                 tempModel.thresholds[1]))
-                     else 0
-                     for n in tempModel.N])
+                max(1,
+                    sum([tempModel.no_N[n]
+                         if (((c == 1 or c == 3)
+                              and tempModel.d4_BNC[b, n, c] <=
+                                  tempModel.thresholds[0])
+                             or (c == 2 or c == 4
+                                 and tempModel.d4_BNC[b, n, c] >
+                                     tempModel.thresholds[0]
+                                 and tempModel.d4_BNC[b, n, c] <=
+                                     tempModel.thresholds[1]))
+                         else 0
+                         for n in tempModel.N]))
                 for c in tempModel.C
                 for b in tempModel.B}
 
@@ -2854,17 +2856,18 @@ class Simulation():
         """ Expected number of fires visible by base B for component C """
         tempModel.no_CB = {
                 (c, b):
-                sum([tempModel.no_N[n]
-                     if (((c == 1 or c == 3)
-                          and tempModel.d4_BNC[b, n, c] <=
-                              tempModel.thresholds[0])
-                         or (c == 2 or c == 4
-                             and tempModel.d4_BNC[b, n, c] >
-                                 tempModel.thresholds[0]
-                             and tempModel.d4_BNC[b, n, c] <=
-                                 tempModel.thresholds[1]))
-                     else 0
-                     for n in tempModel.N])
+                max(1,
+                    sum([tempModel.no_N[n]
+                         if (((c == 1 or c == 3)
+                              and tempModel.d4_BNC[b, n, c] <=
+                                  tempModel.thresholds[0])
+                             or (c == 2 or c == 4
+                                 and tempModel.d4_BNC[b, n, c] >
+                                     tempModel.thresholds[0]
+                                 and tempModel.d4_BNC[b, n, c] <=
+                                     tempModel.thresholds[1]))
+                         else 0
+                         for n in tempModel.N]))
                 for c in tempModel.C
                 for b in tempModel.B}
 

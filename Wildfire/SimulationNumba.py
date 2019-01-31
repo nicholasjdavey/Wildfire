@@ -15,8 +15,8 @@ from numba.types import b1
 from numba.cuda.random import create_xoroshiro128p_states
 from numba.cuda.random import xoroshiro128p_normal_float32
 from numba.cuda.random import xoroshiro128p_uniform_float32
-import pyqt_fit.nonparam_regression as smooth
-from pyqt_fit import npr_methods
+#import pyqt_fit.nonparam_regression as smooth
+#from pyqt_fit import npr_methods
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.preprocessing import PolynomialFeatures
 #from sklearn import linear_model
