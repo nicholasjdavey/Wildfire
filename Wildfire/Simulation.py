@@ -1368,21 +1368,21 @@ class Simulation():
                 if static:
                     expectedFFDI = sampleFFDIs[ii]
                     expDamageExist = {
-                            (jj, kk):
+                            (jj, configsE[kk] - 1):
                             self.expectedDamageExisting(
                                     activeFires[jj], expectedFFDI,
                                     configsE[kk], 0,
                                     self.model.getTotalSteps() + lookahead)
                             for jj in range(len(activeFires))
-                            for kk in configsE}
+                            for kk in range(len(configsE))}
 
                     expDamagePoten = {
-                            (jj, kk):
+                            (jj, configsP[kk] - 1):
                             self.expectedDamagePotential(
                                     jj, expectedFFDI, configsP[kk], 0,
                                     self.model.getTotalSteps() + lookahead)
                             for jj in range(patches)
-                            for kk in configsP}
+                            for kk in range(len(configsP))}
 
                     [patchConfigs, fireConfigs] = (
                             self.assignAircraft(
@@ -1440,19 +1440,18 @@ class Simulation():
                         expectedFFDI = FFDISamples.sum(0)/len(samplePaths2)
 
                     else:
-                        expectedFFDI = sampleFFDIs[ii][:, tt:(
-                                self.model.getTotalSteps() + lookahead + 1)]
+                        expectedFFDI = sampleFFDIs[ii]
 
                     """ Compute the new assignments. If static, only fire
                     assignments are computed here. Otherwise, we also compute
                     relocations """
+                    """ The expected damages are for the rolling horizon, not
+                    the full horizon """
                     expDamageExist = {
                             (jj, configsE[kk] - 1):
                             self.expectedDamageExisting(
                                     activeFires[jj], expectedFFDI,
-                                    configsE[kk], tt,
-                                    self.model.getTotalSteps() + lookahead
-                                            - tt)
+                                    configsE[kk], tt, lookahead)
                             for jj in range(len(activeFires))
                             for kk in range(len(configsE))}
 
@@ -1460,8 +1459,7 @@ class Simulation():
                             (jj, configsP[kk] - 1):
                             self.expectedDamagePotential(
                                     jj, expectedFFDI, configsP[kk], tt,
-                                    self.model.getTotalSteps() + lookahead
-                                            - tt)
+                                    lookahead)
                             for jj in range(patches)
                             for kk in range(len(configsP))}
 
@@ -1571,13 +1569,16 @@ class Simulation():
                     else:
                         bestControl = 0
 
+#                    print(self.relocationModel.decisionVarsIdxStarts)
+#                    print(self.relocationModel.constraintIdxStarts)
                     if bestControl < noControls:
                         [patchConfigs, fireConfigs] = (
                                 self.assignAircraft(
                                         assignmentsPath, expDamageExist,
                                         expDamagePoten, activeFires,
                                         resourcesPath, expectedFFDI, tt + 1,
-                                        bestControl, method))
+                                        bestControl, method,
+                                        staticAfter=static))
                     else:
                         print("Control Idx too high")
                         print(bestControl)
@@ -1669,7 +1670,8 @@ class Simulation():
 
     def assignAircraft(self, assignmentsPath, expDamageExist,
                        expDamagePoten, activeFires, resourcesPath, ffdiPath,
-                       timeStep, control=0, method=1, static=False, dummy=0):
+                       timeStep, control=0, method=1, static=False, dummy=0,
+                       staticAfter=False):
 
         """First compute the parts common to all relocation programs"""
         """ First copy the relocation model """
@@ -1729,7 +1731,7 @@ class Simulation():
         prog = switch.get(lpModel)
         return prog(assignmentsPath, expDamageExist, expDamagePoten,
                     activeFires, resourcesPath, ffdiPath, timeStep, control,
-                    static, tempModel, method, dummy)
+                    static, tempModel, method, dummy, staticAfter)
 
     def assignMaxCover(self, assignmentsPath, expDamageExist, expDamagePoten,
                        activeFires, resourcesPath, ffdiPath, timeStep, control,
@@ -2655,7 +2657,7 @@ class Simulation():
     def assignAssignment2(self, assignmentsPath, expDamageExist,
                           expDamagePoten, activeFires, resourcesPath, ffdiPath,
                           timeStep, control, static, tempModel, method,
-                          dummy=0):
+                          dummy=0, staticAfter=False):
 
         """ Main assignment method with thresholds or thresholds and weight """
 
@@ -2729,7 +2731,7 @@ class Simulation():
                     tempModel.variables.set_upper_bounds(
                         start + r*lenB + b, 0.0)
 
-                    if assignmentsPath[timeStep][r][0] == b:
+                    if assignmentsPath[timeStep][r][0] == b + 1:
                         tempModel.variables.set_lower_bounds(
                             start + r*lenB + b, 1.0)
                         tempModel.variables.set_upper_bounds(
@@ -2798,7 +2800,7 @@ class Simulation():
 
         """ Expected number of fires for patch N over horizon """
         look = (self.model.getLookahead() + self.model.getTotalSteps()
-                if static
+                if static and timeStep == 0
                 else self.model.getLookahead())
 
         tempModel.no_N = {
@@ -2839,12 +2841,20 @@ class Simulation():
                     closestBase[r] = b
                     closestDist = tempModel.d1_RB[r, b]
 
-        tempModel.d1_RB_B2 = {
-                (r, b): (1 if ((tempModel.d1_RB[r, b]) <= maxB
-                               or b == closestBase[r])
-                         else 0)
-                for r in tempModel.R
-                for b in tempModel.B}
+        if staticAfter:
+            print("got here cunt")
+            tempModel.d1_RB_B2 = {
+                    (r, b): (1 if (assignmentsPath[0][r][0] == b + 1)
+                             else 0)
+                    for r in tempModel.R
+                    for b in tempModel.B}
+        else:
+            tempModel.d1_RB_B2 = {
+                    (r, b): (1 if ((tempModel.d1_RB[r, b]) <= maxB
+                                   or b == closestBase[r])
+                             else 0)
+                    for r in tempModel.R
+                    for b in tempModel.B}
 
         """ Whether fire M satisfies the maximum relocation distance for
         resources R for the designated control """
@@ -3064,6 +3074,7 @@ class Simulation():
                 for r in tempModel.R
                 for b in tempModel.B])
 
+#        self.relocationModel.write('LP.lp')
         """ SOLVE THE MODEL """
         tempModel.solve()
 
@@ -3242,7 +3253,7 @@ class Simulation():
         size = fireTemp.getSize()
 
         for tt in range(look):
-            ffdi = ffdiPath[patch, tt]
+            ffdi = ffdiPath[patch, tt + time]
 
             success = numpy.interp(ffdi,
                                    vegetation.getFFDIRange(),
@@ -3264,8 +3275,8 @@ class Simulation():
 
         for tt in range(look):
             # Only look at the expected damage of fires started at this time
-            # period to the end of the horizon
-            ffdi = ffdiPath[patchID, tt]
+            # period to the end of the rolling horizon
+            ffdi = ffdiPath[patchID, tt + time]
 
             occ = numpy.interp(ffdi,
                                vegetation.getFFDIRange(),
@@ -3288,7 +3299,7 @@ class Simulation():
             damage += occ * size
 
             for t2 in range(tt, look):
-                ffdi = ffdiPath[patchID, t2]
+                ffdi = ffdiPath[patchID, t2 + time]
                 success2 = numpy.interp(ffdi,
                                         vegetation.getFFDIRange(),
                                         vegetation.getExtendedSuccess()[
@@ -3529,8 +3540,8 @@ class Simulation():
                     [[True if (tankerDists[patch, base] > thresholds[0]
                                and tankerDists[patch, base] <= thresholds[1])
                         else False
-                      for base in range(bases)]
-                     for patch in range(patches)])
+                      for base in range(noBases)]
+                     for patch in range(noPatches)])
 
             heliCoversE = numpy.array(
                 [[True if heliDists[patch, base] <= thresholds[0] else False
@@ -3541,8 +3552,8 @@ class Simulation():
                     [[True if (heliDists[patch, base] > thresholds[0]
                                and heliDists[patch, base] <= thresholds[1])
                         else False
-                      for base in range(bases)]
-                     for patch in range(patches)])
+                      for base in range(noBases)]
+                     for patch in range(noPatches)])
 
             # Min number of aircraft needed for each component of each config
             baseConfigsMax = numpy.array([0, 0, 0, 0], dtype=numpy.int32)
@@ -4556,7 +4567,7 @@ class Simulation():
                 predict = numpy.array([numpy.ravel(x1_grid),
                                        numpy.ravel(x2_grid),
                                        numpy.ones(40000) * (maxZ - minZ)
-                                       / 6.0 * c]).transpose()
+                                       / 6.0 * l]).transpose()
 
                 predict_ = poly_reg.fit_transform(predict)
 
@@ -4584,7 +4595,7 @@ class Simulation():
 
                 predict = numpy.array([numpy.ravel(x1_grid),
                                        numpy.ones(40000) * (maxY - minY)
-                                       / 6.0 * c,
+                                       / 6.0 * l,
                                        numpy.ravel(x3_grid)]).transpose()
 
                 predict_ = poly_reg.fit_transform(predict)
@@ -4612,7 +4623,7 @@ class Simulation():
                     numpy.linspace(minZ, maxZ, 200))
 
                 predict = numpy.array([numpy.ones(40000) * (maxX - minX)
-                                       / 6.0 * c,
+                                       / 6.0 * l,
                                        numpy.ravel(x2_grid),
                                        numpy.ravel(x3_grid)]).transpose()
 

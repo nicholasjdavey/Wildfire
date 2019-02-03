@@ -3441,9 +3441,9 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                     mapStates[tt, control] = xs
                     mapC2G[tt, control] = ys
 
-                    reg = smooth.NonParamRegression(
-                        xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
-                    reg.fit()
+#                    reg = smooth.NonParamRegression(
+#                        xs, ys, method=npr_methods.LocalPolynomialKernel(q=2))
+#                    reg.fit()
                     regModels[tt, control] = KernelRidge(
                         kernel='rbf', gamma=0.1, alpha=0.1)
                     regModels[tt, control].fit(xs, ys)
