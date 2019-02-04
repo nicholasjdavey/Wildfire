@@ -2695,7 +2695,7 @@ class Simulation():
             # Assign only to cover existing fires (state vals 3 + 4)
             if method == 1:
                 fw = max([tempModel.lambdas[c][0]
-                          for c in range(len(tempModel.lambdas))])
+                          for c in tempModel.lambdas.keys()])
                 fw = max(fw, 0.95)
             else:
                 fw = 0.95
