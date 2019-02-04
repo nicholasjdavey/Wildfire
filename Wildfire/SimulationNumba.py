@@ -849,11 +849,11 @@ def assignAircraft(aircraftAssignments, resourceSpeeds, resourceTypes,
             maxBase = lambdas[control][1]
 
     elif dummy == 1:
-        fw = 0.9
-        # Assign only to cover existing fires
-        if method == 1:
-            for c in range(len(lambdas[:])):
-                fw = max(fw, lambdas[c][0])
+        fw = 0.95
+#        # Assign only to cover existing fires
+#        if method == 1:
+#            for c in range(len(lambdas[:])):
+#                fw = max(fw, lambdas[c][0])
 
         pw = 1 - fw
         maxFire = thresholds[1]
