@@ -1388,9 +1388,11 @@ class Simulation():
                             self.assignAircraft(
                                     assignmentsPath, expDamageExist,
                                     expDamagePoten, activeFires, resourcesPath,
-                                    expectedFFDI, 0, 1, method, static))
+                                    expectedFFDI, 0, 0, method, static))
 
                     self.fixBaseAssignments(assignmentsPath[0])
+                    print(assignmentsPath[0])
+                    print(assignmentsPath[1])
 
                 for tt in range(timeSteps):
                     if len(sampleFFDIs) == 0:
@@ -1656,7 +1658,7 @@ class Simulation():
         self.relocationModel.variables.set_upper_bounds([(
                 (self.relocationModel.decisionVarsIdxStarts["X_RB"] +
                  r*len(self.relocationModel.B) + b,
-                 1 if assignments[r, 0] == b + 1 else 0))
+                 1.5 if assignments[r, 0] == b + 1 else 0))
                 for r in self.relocationModel.R
                 for b in self.relocationModel.B])
 
@@ -1664,7 +1666,7 @@ class Simulation():
         self.relocationModel.variables.set_lower_bounds([
                 (self.relocationModel.decisionVarsIdxStarts["X_RB"] +
                  r*len(self.relocationModel.B) + b,
-                 1 if assignments[r, 0] == b + 1 else 0)
+                 0.5 if assignments[r, 0] == b + 1 else 0)
                 for r in self.relocationModel.R
                 for b in self.relocationModel.B])
 
@@ -2300,7 +2302,7 @@ class Simulation():
     def assignAssignment1(self, assignmentsPath, expDamageExist,
                           expDamagePoten, activeFires, resourcesPath, ffdiPath,
                           timeStep, control, static, tempModel, method,
-                          dummy=0):
+                          dummy=0, staticAfter=False):
         """ Assigns aircraft by weighting:
         1. Preference for EXISTING and POTENTIAL fires
         2. Fire DAMAGE and RELOCATION COST """
@@ -2844,12 +2846,15 @@ class Simulation():
                     closestDist = tempModel.d1_RB[r, b]
 
         if staticAfter:
-            print("got here cunt")
             tempModel.d1_RB_B2 = {
-                    (r, b): (1 if (assignmentsPath[0][r][0] == b + 1)
-                             else 0)
+                    (r, b): 1
                     for r in tempModel.R
                     for b in tempModel.B}
+#            tempModel.d1_RB_B2 = {
+#                    (r, b): (1 if (assignmentsPath[0][r, 0] == b + 1)
+#                             else 0)
+#                    for r in tempModel.R
+#                    for b in tempModel.B}
         else:
             tempModel.d1_RB_B2 = {
                     (r, b): (1 if ((tempModel.d1_RB[r, b]) <= maxB
@@ -3078,6 +3083,8 @@ class Simulation():
 
 #        self.relocationModel.write('LP.lp')
         """ SOLVE THE MODEL """
+        print(tempModel.constraintIdxStarts)
+        print(tempModel.decisionVarsIdxStarts)
         tempModel.solve()
 
         """ UPDATE THE RESOURCE ASSIGNMENTS IN THE SYSTEM """
