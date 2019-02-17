@@ -47,8 +47,8 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                        initSizeSD, initSuccess, extSuccess, resourceTypes,
                        resourceSpeeds, maxHours, configurations, configsE,
                        configsP, baseConfigsMax, fireConfigsMax, thresholds,
-                       accumulatedDamages, accumulatedHours, fires,
-                       initialExtinguished, fireStarts,fireSizes,
+                       accumulatedDamages, randomFFDIpaths, accumulatedHours,
+                       fires, initialExtinguished, fireStarts,fireSizes,
                        fireLocations, firePatches, aircraftLocations,
                        aircraftAssignments, rng_states, states, controls,
                        regressionX, regressionY, costs2Go, start, stepSize,
@@ -76,6 +76,8 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
     path = tx + ty * bw
 
     if path < paths:
+        costs2Go[path][tt] = 0
+
         # Modify to take variables as assignments. Use tuples to define shape
         # e.g. cuda.local.array((16, 1000), dtype=float32)
         expectedE = cuda.local.array((noFiresMax, noConfE), dtype=float32)
@@ -95,13 +97,23 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
             """ For all time steps before the end of the day, we must
             simulate. For the end of day, we don't. We just need the
             termination value """
-            expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
+            expectedFFDI = expectedFFDIpath(randomFFDIpaths[path, :, tt],
+                sampleFFDIs[:, tt:(totalSteps + lookahead + 1)])
+#            expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
 
             expectedDamageExisting(
                     expectedFFDI, firePatches[path][tt - start], fires[path][tt
                     - start], fireSizes[path][tt - start], patchVegetations,
                     ffdiRanges, rocA2PHMeans, rocA2PHSDs, extSuccess, configsE,
-                    lookahead, expectedE, rng_states, path, False)
+                    lookahead, expectedE, rng_states, path, False, totalSteps -
+                    tt)
+
+            expectedDamagePotential(
+                    expectedFFDI, patchVegetations, patchAreas, ffdiRanges,
+                    rocA2PHMeans, rocA2PHSDs, occurrence[:, start:(totalSteps +
+                    lookahead + 1), :], initSizeM, initSizeSD, initSuccess,
+                    extSuccess, configsP, tt - start, lookahead, expectedP,
+                    rng_states, path, False, totalSteps - tt)
 
 #            if path == 2 and tt == 11:
 #                for fire in range(fires[path][tt]):
@@ -129,13 +141,6 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
 ##                    expectedTemp[1, patch, 0] = expectedFFDI[patch, 0]
 ##                    expectedTemp[1, patch, 1] = sampleFFDIs[patch, tt]
 
-            expectedDamagePotential(
-                    expectedFFDI, patchVegetations, patchAreas, ffdiRanges,
-                    rocA2PHMeans, rocA2PHSDs, occurrence[:, start:(totalSteps
-                    + lookahead + 1), :], initSizeM, initSizeSD, initSuccess,
-                    extSuccess, configsP, tt - start, lookahead, expectedP,
-                    rng_states, path, False)
-
             if static < 0:
                 saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
                           maxHours, tankerDists, heliDists, aircraftLocations,
@@ -153,8 +158,8 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                 bestControl = 0
                 bestC2G = math.inf
 
-                """ For all steps in the backward induction except the first,
-                we need to determine the best control to pick """
+                """ For all steps in the backward induction we need to
+                determine the best control to pick """
                 if tt > 0:
                     for control in range(noControls):
 
@@ -190,18 +195,57 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                             pick. This requires computing the state for each
                             control using the assignment heuristic and then the
                             regressions. """
+                            assignAircraft(
+                                aircraftAssignments, resourceSpeeds,
+                                resourceTypes, maxHours, aircraftLocations,
+                                accumulatedHours, baseLocations, tankerDists,
+                                heliDists, fires, fireSizes, fireLocations,
+                                ffdiRanges, configurations, configsE, configsP,
+                                baseConfigsMax, fireConfigsMax, thresholds,
+                                expFiresComp, expectedE, expectedP, selectedE,
+                                weightsP, tt - start, stepSize, lookahead,
+                                path, bestControl, lambdas, method,
+                                expectedTemp, 0)
+
+                            # First, we need to determine the single-period
+                            # damage (expected) by selecting this control. This
+                            # step also determines the next period state, which
+                            # is used to compute the C2G after this time step.
+                            simulateNextStep(
+                                aircraftAssignments, resourceTypes,
+                                resourceSpeeds, aircraftLocations,
+                                accumulatedHours, baseLocations, fires,
+                                initialExtinguished, fireStarts,
+                                patchVegetations, patchLocations, patchAreas,
+                                ffdiRanges, fireLocations, firePatches,
+                                expectedFFDI, rocA2PHMeans, rocA2PHSDs,
+                                fireSizes, configsE, configsP, selectedE,
+                                weightsP, initSizeM, initSizeSD, initSuccess,
+                                extSuccess, occurrence[:, start:(totalSteps +
+                                lookahead + 1), :], accumulatedDamages, tt -
+                                start, stepSize, rng_states, path)
+
+                            """ Single-period expected accumulated damage """
+                            currC2G = 0
+
+                            for patch in range(noPatches):
+                                currC2G += (accumulatedDamages[path, tt + 1,
+                                                               patch]
+                                            - accumulatedDamages[path, tt,
+                                                                 patch])
 
                             """ Get the expected cost 2 go for this control at
-                            this time for the prevailing state """
+                            this time for the updated state at the next time
+                            period """
                             if len(regressionX.shape) == 4:
-                                currC2G = interpolateCost2Go(
+                                currC2G += interpolateCost2Go(
                                         states, regressionX, regressionY,
-                                        tt - start, path, control)
+                                        tt - start + 1, path, control)
 
                             else:
-                                currC2G = calculateCost2Go(
-                                        states, regressionX, tt - start, path,
-                                        control)
+                                currC2G += calculateCost2Go(
+                                        states, regressionX, tt - start + 1,
+                                        path, control)
 
                         if currC2G < bestC2G:
                             bestC2G = currC2G
@@ -266,13 +310,14 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                              accumulatedDamages, tt - start, stepSize,
                              rng_states, path)
 
-        for tt in range(start, totalSteps):
-            """ The cost to go for the prior period will include the
+        for tt in range(start, start + 1):
+            """ The cost to go for the prior period will include the expected
             accumulated damage for that period's control for that period
-            up to now PLUS the C2G for this period to the next. This is used
-            for computing the regressions in the previous period. As we will
-            have (re-)computed the forward paths up to now, we can just use the
-            remaining accumulated damage to the end period minus the
+            up to now PLUS the C2G from this period onwards, given the updated
+            state expected from running the best control for one period. This
+            is used for computing the regressions in the previous period. As we
+            will have (re-)computed the forward paths up to now, we can just
+            use the remaining accumulated damage to the end period minus the
             accumulated damage already incurred.
 
             We also go one extra period here to record the termination value
@@ -281,24 +326,39 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
             costs2Go[path][tt] = 0
 
             if tt == totalSteps - 1:
-
-                currC2G = 0
-
-                for fire in range(fires[path][tt - start]):
-                    currC2G += expectedE[fire, selectedE[fire]]
-
-                for patch in range(noPatches):
-                    for config in range(noConfP):
-                        currC2G += (weightsP[patch, config]
-                                    * expectedP[patch, config])
-
-                costs2Go[path][tt] += currC2G
+                pass
+                # We can just sum over the future expectation for this period
+                # with the selected assignment. and the following five periods
+                # (nighttime) with no assignment, given that this period's
+                # assignments.
 
             else:
-                for patch in range(noPatches):
-                    costs2Go[path][tt] += (
-                            accumulatedDamages[path, totalSteps, patch]
-                            - accumulatedDamages[path, tt, patch])
+                # We need to determine the single period expected damages for
+                # the chosen assignments, which we add to the C2G
+                expectedDamageExisting(
+                    expectedFFDI, firePatches[path][tt - start], fires[path][tt
+                    - start], fireSizes[path][tt - start], patchVegetations,
+                    ffdiRanges, rocA2PHMeans, rocA2PHSDs, extSuccess, configsE,
+                    1, expectedE, rng_states, path, False, 1)
+
+                expectedDamagePotential(
+                    expectedFFDI, patchVegetations, patchAreas, ffdiRanges,
+                    rocA2PHMeans, rocA2PHSDs, occurrence[:, start:(totalSteps
+                    + lookahead + 1), :], initSizeM, initSizeSD, initSuccess,
+                    extSuccess, configsP, tt - start, 1, expectedP,
+                    rng_states, path, False, 1)
+
+            currC2G = 0
+
+            for fire in range(fires[path][tt - start]):
+                currC2G += expectedE[fire, selectedE[fire]]
+
+            for patch in range(noPatches):
+                for config in range(noConfP):
+                    currC2G += (weightsP[patch, config]
+                                * expectedP[patch, config])
+
+            costs2Go[path][tt] += currC2G
 
 
 #@jit(nopython=True, fastmath=True)
@@ -306,7 +366,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
 def expectedDamageExisting(ffdi_path, fire_patches, no_fires, fire_sizes,
                            patch_vegetations, ffdi_ranges, roc_a2_ph_means,
                            roc_a2_ph_sds, ext_success, configs, lookahead,
-                           expected, rng_states, thread_id, random):
+                           expected, rng_states, thread_id, random, endTime):
 
     for fire in range(no_fires):
         patch = int(fire_patches[fire])
@@ -322,6 +382,9 @@ def expectedDamageExisting(ffdi_path, fire_patches, no_fires, fire_sizes,
             config = configs[c]
 
             for tt in range(lookahead):
+                if tt >= endTime:
+                    config = 1
+
                 ffdi = ffdi_path[patch, tt]
                 success = interpolate1D(ffdi, ffdi_range, ext_succ[config - 1])
                 growth = growFire(ffdi, config - 1, ffdi_range, roc_a2_ph_mean,
@@ -340,7 +403,7 @@ def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
                             occurrence, init_size_m, init_size_sd,
                             init_success, ext_success, configs, time,
                             lookahead, expected, rng_states, thread_id,
-                            random):
+                            random, endTime):
 
     for patch in range(len(patch_vegetations)):
         vegetation = int(patch_vegetations[patch])
@@ -359,6 +422,8 @@ def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
             expected[patch, c] = 0.0
 
             for tt in range(lookahead):
+                if tt >= endTime:
+                    config = 1
                 # Only look at the expected damage of fires started at this
                 # time period to the end of the horizon
                 ffdi = ffdi_path[patch, tt]
@@ -3301,9 +3366,9 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM,
                 initSizeSD, initSuccess, extSuccess, tankerDists, heliDists,
                 fireConfigsMax, baseConfigsMax, expFiresComp, totalSteps,
-                lookahead, stepSize, accumulatedDamages, accumulatedHours,
-                fires, initialExtinguished, fireStarts, fireSizes,
-                fireLocations, firePatches, aircraftLocations,
+                lookahead, stepSize, accumulatedDamages, randomFFDIpaths,
+                accumulatedHours, fires, initialExtinguished, fireStarts,
+                fireSizes, fireLocations, firePatches, aircraftLocations,
                 aircraftAssignments, controls, regressionX, regressionY,
                 regModels, rSquared, tStatistic, pValue, states, costs2Go,
                 lambdas, method, noCont, mapStates, mapC2G, discount):
@@ -3375,8 +3440,8 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
             d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
             totalSteps, lookahead, stepSize, accumulatedDamages,
-            accumulatedHours, fires, initialExtinguished, fireStarts,
-            fireSizes, fireLocations, firePatches, aircraftLocations,
+            randomFFDIpaths, accumulatedHours, fires, initialExtinguished,
+            fireStarts, fireLocations, firePatches, aircraftLocations,
             aircraftAssignments, controls, d_regressionX, d_regressionY,
             states, costs2Go, method, noControls, discount)
 
@@ -3554,11 +3619,11 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
                 d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
                 totalSteps, lookahead, stepSize, accumulatedDamages,
-                accumulatedHours, fires, initialExtinguished, fireStarts,
-                fireSizes, fireLocations, firePatches, aircraftLocations,
-                aircraftAssignments, controls, d_regressionX, d_regressionY,
-                states, costs2Go, method, noControls, discount, start=tt,
-                optimal=True)
+                randomFFDIpaths, accumulatedHours, fires, initialExtinguished,
+                fireStarts, fireSizes, fireLocations, firePatches,
+                aircraftLocations, aircraftAssignments, controls,
+                d_regressionX, d_regressionY, states, costs2Go, method,
+                noControls, discount, start=tt, optimal=True)
 
     """ Pull the final states and costs 2 go from the GPU and save to an output
     file. For analysis purposes, we need to print our paths to output csv files
@@ -3575,11 +3640,11 @@ def simulateMPCDyn(paths, sampleFFDIs, patchVegetations, patchAreas,
                    occurrence, initSizeM, initSizeSD, initSuccess, extSuccess,
                    tankerDists, heliDists, fireConfigsMax, baseConfigsMax,
                    expFiresComp, totalSteps, lookahead, stepSize,
-                   accumulatedDamages, accumulatedHours, fires, fireSizes,
-                   fireLocations, firePatches, aircraftLocations,
-                   aircraftAssignments, controls, regressionX, regressionY,
-                   regModels, c2gSaved, lambdas, method, noCont, discount=1,
-                   randChoice=True, testControl=0):
+                   accumulatedDamages, randomFFDIpaths, accumulatedHours,
+                   fires, fireSizes, fireLocations, firePatches,
+                   aircraftLocations, aircraftAssignments, controls,
+                   regressionX, regressionY, regModels, c2gSaved, lambdas,
+                   method, noCont, discount=1, randChoice=True, testControl=0):
 
     """ Set global values """
     global noBases
@@ -3650,10 +3715,10 @@ def simulateMPCDyn(paths, sampleFFDIs, patchVegetations, patchAreas,
             d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
             d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
             totalSteps, lookahead, stepSize, accumulatedDamages,
-            accumulatedHours, fires, fireSizes, fireLocations, firePatches,
-            aircraftLocations, aircraftAssignments, controls, d_regressionX,
-            d_regressionY, states, costs2Go, method, noControls, discount,
-            optimal=randChoice, static=testControl)
+            randomFFDIpaths, accumulatedHours, fires, fireSizes, fireLocations,
+            firePatches, aircraftLocations, aircraftAssignments, controls,
+            d_regressionX, d_regressionY, states, costs2Go, method, noControls,
+            discount, optimal=randChoice, static=testControl)
 
     """ Pull the final costs 2 go from the GPU ready to save to an output
     file. We save the data in the calling routine. """
@@ -3670,11 +3735,11 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
                d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
                d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
                totalSteps, lookahead, stepSize, accumulatedDamages,
-               accumulatedHours, fires, initialExtinguished, fireStarts,
-               fireSizes, fireLocations, firePatches, aircraftLocations,
-               aircraftAssignments, controls, d_regressionX, d_regressionY,
-               states, costs2Go, method, noControls, discount=1, start=0,
-               optimal=False, static=-1):
+               randomFFDIpaths, accumulatedHours, fires, initialExtinguished,
+               fireStarts, fireSizes, fireLocations, firePatches,
+               aircraftLocations, aircraftAssignments, controls, d_regressionX,
+               d_regressionY, states, costs2Go, method, noControls, discount=1,
+               start=0, optimal=False, static=-1):
 
     # Input values prefixed with 'd_' are already on the device and will not
     # be copied across. Values without the prefix need to be copied across.
@@ -3699,6 +3764,9 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
         # Copy batch-relevant memory to the device
         d_accumulatedDamages = cuda.to_device(
                 numpy.ascontiguousarray(accumulatedDamages[
+                batchStart:batchEnd, start:(totalSteps+1), :]))
+        d_randomFFDIpaths = cuda.to_device(
+                numpy.ascontiguousarray(randomFFDIpaths[
                 batchStart:batchEnd, start:(totalSteps+1), :]))
         d_accumulatedHours = cuda.to_device(
                 numpy.ascontiguousarray(accumulatedHours[
@@ -3743,12 +3811,12 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
                 d_resourceTypes, d_resourceSpeeds, d_maxHours,
                 d_configurations, d_configsE, d_configsP, d_baseConfigsMax,
                 d_fireConfigsMax, d_thresholds, d_accumulatedDamages,
-                d_accumulatedHours, d_fires, d_initialExtinguished,
-                d_fireStarts, d_fireSizes, d_fireLocations, d_firePatches,
-                d_aircraftLocations, d_aircraftAssignments, rng_states,
-                d_states, d_controls, d_regressionX, d_regressionY, d_costs2Go,
-                start, stepSize, method, optimal, static, discount,
-                d_expectedTemp)
+                d_randomFFDIpaths, d_accumulatedHours, d_fires,
+                d_initialExtinguished, d_fireStarts, d_fireSizes,
+                d_fireLocations, d_firePatches, d_aircraftLocations,
+                d_aircraftAssignments, rng_states, d_states, d_controls,
+                d_regressionX, d_regressionY, d_costs2Go, start, stepSize,
+                method, optimal, static, discount, d_expectedTemp)
 
         cuda.synchronize()
 

@@ -1361,6 +1361,8 @@ class Simulation():
                 windRegimes = numpy.zeros([timeSteps+1+lookahead])
                 windRegimes[0] = region.getWindRegime()
                 accumulatedDamage = numpy.zeros([timeSteps+1, patches])
+                randomFFDIpaths = numpy.zeros([mcPaths, timeSteps + 1,
+                                               patches], dtype=numpy.float32)
                 accumulatedHours = numpy.zeros([timeSteps+1, len(resources)])
 
                 """ If not MPC, we need to know the initial assignments of
@@ -1526,11 +1528,12 @@ class Simulation():
                                         fireConfigsMax, baseConfigsMax,
                                         expFiresComp, timeSteps, lookahead,
                                         stepSize, accumulatedDamage,
-                                        accumulatedHours, fires, fireSizes,
-                                        fireLocations, firePatches,
-                                        aircraftLocations, aircraftAssignments,
-                                        noControls, self.dynamicC2G[ii][run],
-                                        lambdas, method, noControls, False, c)
+                                        randomFFDIpaths, accumulatedHours,
+                                        fires, fireSizes, fireLocations,
+                                        firePatches, aircraftLocations,
+                                        aircraftAssignments, noControls,
+                                        self.dynamicC2G[ii][run], lambdas,
+                                        method, noControls, False, c)
 
                                     currC2G = self.dynamicC2G[ii][run][:, c].mean()
 
@@ -1556,11 +1559,12 @@ class Simulation():
                                         fireConfigsMax, baseConfigsMax,
                                         expFiresComp, timeSteps, lookahead,
                                         stepSize, accumulatedDamage,
-                                        accumulatedHours, fires, fireSizes,
-                                        fireLocations, firePatches,
-                                        aircraftLocations, aircraftAssignments,
-                                        noControls, self.dynamicC2G[ii][run],
-                                        lambdas, method, noControls, True, c)
+                                        randomFFDIpaths, accumulatedHours,
+                                        fires, fireSizes, fireLocations,
+                                        firePatches, aircraftLocations,
+                                        aircraftAssignments, noControls,
+                                        self.dynamicC2G[ii][run], lambdas,
+                                        method, noControls, True, c)
 
                                     currC2G = self.dynamicC2G[ii][run][:, c].mean()
 
@@ -3487,6 +3491,8 @@ class Simulation():
             """ Set Up Data Stream for ROV """
             accumulatedDamages = numpy.zeros([mcPaths, totalSteps + 1,
                                               noPatches], dtype=numpy.float32)
+            randomFFDIpaths = numpy.zeros([mcPaths, totalSteps + 1,
+                                           noPatches], dtype=numpy.float32)
             accumulatedHours = numpy.zeros([mcPaths, totalSteps + 1,
                                             noResources], dtype=numpy.float32)
             aircraftLocations = numpy.zeros([mcPaths, totalSteps + 1,
@@ -3625,12 +3631,12 @@ class Simulation():
                     occurrence, initSizeM, initSizeSD, initSuccess, extSuccess,
                     tankerDists, heliDists, fireConfigsMax, baseConfigsMax,
                     expFiresComp, totalSteps, lookahead, stepSize,
-                    accumulatedDamages, accumulatedHours, noFires,
-                    initialExtinguished, fireStarts, fireSizes, fireLocations,
-                    firePatches, aircraftLocations, aircraftAssignments,
-                    randCont, regressionX, regressionY, regModels, rSquareds,
-                    tStatistics, pVals, states, costs2go, lambdas, method,
-                    noControls, mapStates, mapC2G, discount)
+                    accumulatedDamages, randomFFDIpaths, accumulatedHours,
+                    noFires, initialExtinguished, fireStarts, fireSizes,
+                    fireLocations, firePatches, aircraftLocations,
+                    aircraftAssignments, randCont, regressionX, regressionY,
+                    regModels, rSquareds, tStatistics, pVals, states, costs2go,
+                    lambdas, method, noControls, mapStates, mapC2G, discount)
             t1 = time.clock()
             print('Time:   ' + str(t1-t0))
 
