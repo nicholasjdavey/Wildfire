@@ -142,15 +142,16 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
 ##                    expectedTemp[1, patch, 1] = sampleFFDIs[patch, tt]
 
             if static < 0:
-                saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
-                          maxHours, tankerDists, heliDists, aircraftLocations,
-                          accumulatedHours, patchLocations, baseLocations,
-                          ffdiRanges, fires, fireSizes, fireLocations,
-                          expectedE, expectedP, expFiresComp, configurations,
-                          configsE, configsP, baseConfigsMax, fireConfigsMax,
-                          selectedE, weightsP, states, lambdas, thresholds,
-                          method, stepSize, tt - start, lookahead,
-                          expectedTemp, path)
+#                saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
+#                          maxHours, tankerDists, heliDists, aircraftLocations,
+#                          accumulatedHours, patchLocations, baseLocations,
+#                          ffdiRanges, fires, fireSizes, fireLocations,
+#                          expectedE, expectedP, expFiresComp, configurations,
+#                          configsE, configsP, baseConfigsMax, fireConfigsMax,
+#                          selectedE, weightsP, states, lambdas, thresholds,
+#                          method, stepSize, tt - start, lookahead,
+#                          expectedTemp, path)
+                pass
 
             if (optimal and (static < 0)):
                 # ROV Optimal Control
@@ -3454,6 +3455,8 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             print('terminal value')
             for control in range(noControls):
 
+                # We are just storing them here. They are not used as we use
+                # The MIP runs to determine the best control at the end time.
                 xs = numpy.array([states[idx, tt, 0:3]
                                   for idx in range(len(controls[:, tt]))
                                   if controls[idx, tt] == control])
