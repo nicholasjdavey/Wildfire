@@ -76,7 +76,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
     path = tx + ty * bw
 
     if path < paths:
-        costs2Go[path][tt] = 0
+        costs2Go[path][start] = 0
 
         # Modify to take variables as assignments. Use tuples to define shape
         # e.g. cuda.local.array((16, 1000), dtype=float32)
