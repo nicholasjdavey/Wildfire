@@ -97,7 +97,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
             """ For all time steps before the end of the day, we must
             simulate. For the end of day, we don't. We just need the
             termination value """
-            expectedFFDI = expectedFFDIpath(randomFFDIpaths[path, :, tt],
+            expectedFFDI = expectedFFDIPath(randomFFDIpaths[path, :, tt],
                 sampleFFDIs[:, tt:(totalSteps + lookahead + 1)])
 #            expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
 
@@ -360,6 +360,11 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                                 * expectedP[patch, config])
 
             costs2Go[path][tt] += currC2G
+
+
+@cuda.jit(device=True)
+def expectedFFDIPath(randomFFDIpath, meanFFDIs):
+
 
 
 #@jit(nopython=True, fastmath=True)

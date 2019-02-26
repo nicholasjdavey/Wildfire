@@ -3493,6 +3493,7 @@ class Simulation():
                                               noPatches], dtype=numpy.float32)
             randomFFDIpaths = numpy.zeros([mcPaths, totalSteps + 1,
                                            noPatches], dtype=numpy.float32)
+            randomFFDIpaths[] =
             accumulatedHours = numpy.zeros([mcPaths, totalSteps + 1,
                                             noResources], dtype=numpy.float32)
             aircraftLocations = numpy.zeros([mcPaths, totalSteps + 1,
