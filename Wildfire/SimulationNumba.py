@@ -84,6 +84,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
         expectedP = cuda.local.array((noPatches, noConfP), dtype=float32)
         weightsP = cuda.local.array((noPatches, noConfP), dtype=float32)
         selectedE = cuda.local.array(noFiresMax, dtype=int32)
+        expectedFFDI = cuda.local.array((noPatches, lookahead), dtype=float32)
 
         for ii in range(noFiresMax):
             for jj in range(noConfE):
@@ -97,8 +98,9 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
             """ For all time steps before the end of the day, we must
             simulate. For the end of day, we don't. We just need the
             termination value """
-            expectedFFDI = expectedFFDIPath(randomFFDIpaths[path, :, tt],
-                sampleFFDIs[:, tt:(totalSteps + lookahead + 1)])
+            expectedFFDIPath(randomFFDIpaths[path, :, tt],
+                sampleFFDIs[:, tt:(totalSteps + lookahead + 1)],
+                mr, sd, expectedFFDI)
 #            expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
 
             expectedDamageExisting(
@@ -363,8 +365,13 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
 
 
 @cuda.jit(device=True)
-def expectedFFDIPath(randomFFDIpath, meanFFDIs):
+def expectedFFDIPath(randomFFDIpath, meanFFDIs, mr, sd, expectedFFDI):
+    expectedFFDI[:, 0] = randomFFDIpath;
 
+    # We provide all patches the same uncertainty
+    for tt in range(lookahead):
+        expectedFFDI[:, tt+1] = ((meanFFDIs[:, tt] - expectedFFDI[:, tt]) * mr
+            + expectedFFDI[:, tt] + )
 
 
 #@jit(nopython=True, fastmath=True)
