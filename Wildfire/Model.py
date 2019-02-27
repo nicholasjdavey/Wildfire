@@ -94,6 +94,18 @@ class Model():
     def setROVResolution(self, r):
         self.resolution = r
 
+    def getFFDIMR(self):
+        return self.ffdiMR
+
+    def setFFDIMR(self, f):
+        self.ffdiMR = f
+
+    def getFFDISD(self):
+        return self.ffdiSD
+
+    def setFFDISD(self, f):
+        self.ffdiSD = f
+
     def getROVPaths(self):
         return self.rovPaths
 
@@ -507,6 +519,13 @@ class Model():
         self.resolution = int(contents[89 + noAircraft + noLandcraft
                                        + noVegetations + noControls]
                                        .split(":")[1].strip())
+
+        self.ffdiMR = float(contents[90 + noAircraft + noLandcraft
+                                     + noVegetations + noControls]
+                                     .split(":")[1].strip())
+        self.ffdiSD = float(contents[91 + noAircraft + noLandcraft
+                                     + noVegetations + noControls]
+                                     .split(":")[1].strip())
 
         self.variableParameters = varParams
 

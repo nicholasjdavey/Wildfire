@@ -102,3 +102,5 @@ Max Fire Threshold Distance (for far)                           : 1
 Control Method, Assignment (1=Thresholds, 2=Weight+Threshold)   : 2
 Plot Maps                                                       : 0
 ROV Resolution (1 -> Polynomial Reg.  >1 -> Kernel Reg)         : 1
+FFDI Mean Reversion                                             : 0.3
+FFDI Standard Deviation (for lognormal dist.)                   : 0.3

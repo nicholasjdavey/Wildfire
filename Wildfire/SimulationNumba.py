@@ -40,19 +40,20 @@ global epsilon
 
 
 @cuda.jit
-def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
-                       lambdas, patchVegetations, patchAreas, patchLocations,
-                       baseLocations, tankerDists, heliDists, ffdiRanges,
-                       rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM,
-                       initSizeSD, initSuccess, extSuccess, resourceTypes,
-                       resourceSpeeds, maxHours, configurations, configsE,
-                       configsP, baseConfigsMax, fireConfigsMax, thresholds,
-                       accumulatedDamages, randomFFDIpaths, accumulatedHours,
-                       fires, initialExtinguished, fireStarts,fireSizes,
-                       fireLocations, firePatches, aircraftLocations,
-                       aircraftAssignments, rng_states, states, controls,
-                       regressionX, regressionY, costs2Go, start, stepSize,
-                       method, optimal, static, discount, expectedTemp):
+def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
+                       expFiresComp, lambdas, patchVegetations, patchAreas,
+                       patchLocations, baseLocations, tankerDists, heliDists,
+                       ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
+                       initSizeM, initSizeSD, initSuccess, extSuccess,
+                       resourceTypes, resourceSpeeds, maxHours, configurations,
+                       configsE, configsP, baseConfigsMax, fireConfigsMax,
+                       thresholds, accumulatedDamages, randomFFDIpaths,
+                       accumulatedHours, fires, initialExtinguished,
+                       fireStarts, fireSizes, fireLocations, firePatches,
+                       aircraftLocations, aircraftAssignments, rng_states,
+                       states, controls, regressionX, regressionY, costs2Go,
+                       start, stepSize, method, optimal, static, discount,
+                       expectedTemp):
 
     # Batched values start at zero here, but at different locations in the host
     # arrays. This is because only a portion of the host array is transferred.
@@ -100,7 +101,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
             termination value """
             expectedFFDIPath(randomFFDIpaths[path, :, tt],
                 sampleFFDIs[:, tt:(totalSteps + lookahead + 1)],
-                mr, sd, expectedFFDI)
+                mr, mrsd, lookahead, expectedFFDI)
 #            expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
 
             expectedDamageExisting(
@@ -179,7 +180,7 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                                 baseConfigsMax, fireConfigsMax, thresholds,
                                 expFiresComp, expectedE, expectedP, selectedE,
                                 weightsP, tt - start, stepSize, lookahead,
-                                path, bestControl, lambdas, method,
+                                path, control, lambdas, method,
                                 expectedTemp, 0)
 
                             currC2G = 0.0
@@ -207,13 +208,15 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                                 baseConfigsMax, fireConfigsMax, thresholds,
                                 expFiresComp, expectedE, expectedP, selectedE,
                                 weightsP, tt - start, stepSize, lookahead,
-                                path, bestControl, lambdas, method,
+                                path, control, lambdas, method,
                                 expectedTemp, 0)
 
                             # First, we need to determine the single-period
                             # damage (expected) by selecting this control. This
                             # step also determines the next period state, which
                             # is used to compute the C2G after this time step.
+                            # This means that the simulation to the next step
+                            # must use expectations
                             simulateNextStep(
                                 aircraftAssignments, resourceTypes,
                                 resourceSpeeds, aircraftLocations,
@@ -221,12 +224,13 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
                                 initialExtinguished, fireStarts,
                                 patchVegetations, patchLocations, patchAreas,
                                 ffdiRanges, fireLocations, firePatches,
-                                expectedFFDI, rocA2PHMeans, rocA2PHSDs,
-                                fireSizes, configsE, configsP, selectedE,
-                                weightsP, initSizeM, initSizeSD, initSuccess,
-                                extSuccess, occurrence[:, start:(totalSteps +
-                                lookahead + 1), :], accumulatedDamages, tt -
-                                start, stepSize, rng_states, path)
+                                sampleFFDIs, randomFFDIpaths, mr, mrsd,
+                                rocA2PHMeans, rocA2PHSDs, fireSizes, configsE,
+                                configsP, selectedE, weightsP, initSizeM,
+                                initSizeSD, initSuccess, extSuccess,
+                                occurrence[:, start:(totalSteps + lookahead +
+                                1), :], accumulatedDamages, tt - start,
+                                stepSize, rng_states, False, path)
 
                             """ Single-period expected accumulated damage """
                             currC2G = 0
@@ -365,13 +369,17 @@ def simulateSinglePath(paths, totalSteps, lookahead, sampleFFDIs, expFiresComp,
 
 
 @cuda.jit(device=True)
-def expectedFFDIPath(randomFFDIpath, meanFFDIs, mr, sd, expectedFFDI):
+def expectedFFDIPath(randomFFDIpath, meanFFDIs, mr, sd, lookahead,
+                     expectedFFDI):
     expectedFFDI[:, 0] = randomFFDIpath;
 
-    # We provide all patches the same uncertainty
+    # We provide all patches the same uncertainty. The model is a generalised
+    # Ornstein-Uhlenbeck process (mean reversion with geometric Brownian
+    # motion where the Brownian component is dependent on the square root of
+    # the FFDI at the previous time period)
     for tt in range(lookahead):
-        expectedFFDI[:, tt+1] = ((meanFFDIs[:, tt] - expectedFFDI[:, tt]) * mr
-            + expectedFFDI[:, tt] + )
+        expectedFFDI[:, tt+1] = max(((meanFFDIs[:, tt] - expectedFFDI[:, tt])
+            * mr + expectedFFDI[:, tt] + math.sqrt(expectedFFDI[:, tt])), 0)
 
 
 #@jit(nopython=True, fastmath=True)
@@ -671,13 +679,29 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                      aircraftLocations, accumulatedHours, baseLocations,
                      noFires, initialExtinguished, fireStarts,
                      patchVegetations, patchLocations, patchAreas, ffdiRanges,
-                     fireLocations, firePatches, ffdis, roc_a2_ph_means,
-                     roc_a2_ph_sds, fireSizes, fireConfigs, patchConfigs,
-                     selectedE, configWeights, initM, initSD, init_succ,
-                     ext_succ, occurrence, accumulatedDamage, time, stepSize,
-                     rng_states, thread_id):
+                     fireLocations, firePatches, sampleFFDIs, randomFFDIpaths,
+                     mr, mrsd, roc_a2_ph_means, roc_a2_ph_sds, fireSizes,
+                     fireConfigs, patchConfigs, selectedE, configWeights,
+                     initM, initSD, init_succ, ext_succ, occurrence,
+                     accumulatedDamage, time, stepSize, rng_states, random,
+                     thread_id):
 
     global noPatches
+
+    """ Update patch FFDIs """
+    if random:
+        for patch in range(noPatches):
+            rand = xoroshiro128p_normal_float32(rng_states, thread_id)
+            randomFFDIpaths[thread_id, patch, time + 1] = max(mr * (
+                sampleFFDIs[patch, time + 1] - randomFFDIpaths[thread_id,
+                patch, time]) + rand*math.sqrt(randomFFDIpaths[thread_id,
+                patch, time])*mrsd, 0)
+    else:
+        for patch in range(noPatches):
+            rand = xoroshiro128p_normal_float32(rng_states, thread_id)
+            randomFFDIpaths[thread_id, patch, time + 1] = max(mr * (
+                sampleFFDIs[patch, time + 1] - randomFFDIpaths[thread_id,
+                patch, time]), 0)
 
     """ Update aircraft locations """
     for resource in range(len(aircraftSpeeds)):
@@ -755,13 +779,19 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
 
         size = fireSizes[thread_id][time][fire]
         sizeTemp = size
-        ffdi = ffdis[patch, 0]
+
+        ffdi = randomFFDIpaths[thread_id, patch, time]
         config = fireConfigs[selectedE[fire]]
         success = interpolate1D(ffdi, ffdi_range, exist_success[config - 1])
 
+        if random:
+            grow = True
+        else:
+            grow = False
+
         size = growFire(ffdi, config - 1, ffdi_range, roc_a2_ph_mean,
                         roc_a2_ph_sd, fireSizes[thread_id][time][fire],
-                        rng_states, thread_id, True)
+                        rng_states, thread_id, grow)
 
         accumulatedDamage[thread_id][time+1][patch] += size - sizeTemp
 
@@ -781,7 +811,7 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
     for patch in range(noPatches):
         vegetation = int(patchVegetations[patch])
         ffdi_range = ffdiRanges[vegetation]
-        ffdi = ffdis[patch, 0]
+        ffdi = randomFFDIpaths[thread_id, patch, time]
         initial_size_M = initM[vegetation]
         initial_size_SD = initSD[vegetation]
         initial_success = init_succ[vegetation]
@@ -3379,12 +3409,13 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence, initSizeM,
                 initSizeSD, initSuccess, extSuccess, tankerDists, heliDists,
                 fireConfigsMax, baseConfigsMax, expFiresComp, totalSteps,
-                lookahead, stepSize, accumulatedDamages, randomFFDIpaths,
-                accumulatedHours, fires, initialExtinguished, fireStarts,
-                fireSizes, fireLocations, firePatches, aircraftLocations,
-                aircraftAssignments, controls, regressionX, regressionY,
-                regModels, rSquared, tStatistic, pValue, states, costs2Go,
-                lambdas, method, noCont, mapStates, mapC2G, discount):
+                lookahead, mr, mrsd, stepSize, accumulatedDamages,
+                randomFFDIpaths, accumulatedHours, fires, initialExtinguished,
+                fireStarts, fireSizes, fireLocations, firePatches,
+                aircraftLocations, aircraftAssignments, controls, regressionX,
+                regressionY, regModels, rSquared, tStatistic, pValue, states,
+                costs2Go, lambdas, method, noCont, mapStates, mapC2G,
+                discount):
 
     """ Set global values """
     global noBases
@@ -3452,7 +3483,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
             d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
             d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
-            totalSteps, lookahead, stepSize, accumulatedDamages,
+            totalSteps, lookahead, mr, mrsd, stepSize, accumulatedDamages,
             randomFFDIpaths, accumulatedHours, fires, initialExtinguished,
             fireStarts, fireLocations, firePatches, aircraftLocations,
             aircraftAssignments, controls, d_regressionX, d_regressionY,
@@ -3633,7 +3664,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                 d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
                 d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
                 d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
-                totalSteps, lookahead, stepSize, accumulatedDamages,
+                totalSteps, lookahead, mr, mrsd, stepSize, accumulatedDamages,
                 randomFFDIpaths, accumulatedHours, fires, initialExtinguished,
                 fireStarts, fireSizes, fireLocations, firePatches,
                 aircraftLocations, aircraftAssignments, controls,
@@ -3654,7 +3685,7 @@ def simulateMPCDyn(paths, sampleFFDIs, patchVegetations, patchAreas,
                    configsP, thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
                    occurrence, initSizeM, initSizeSD, initSuccess, extSuccess,
                    tankerDists, heliDists, fireConfigsMax, baseConfigsMax,
-                   expFiresComp, totalSteps, lookahead, stepSize,
+                   expFiresComp, totalSteps, lookahead, mr, mrsd, stepSize,
                    accumulatedDamages, randomFFDIpaths, accumulatedHours,
                    fires, fireSizes, fireLocations, firePatches,
                    aircraftLocations, aircraftAssignments, controls,
@@ -3729,7 +3760,7 @@ def simulateMPCDyn(paths, sampleFFDIs, patchVegetations, patchAreas,
             d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
             d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
             d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
-            totalSteps, lookahead, stepSize, accumulatedDamages,
+            totalSteps, lookahead, mr, mrsd, stepSize, accumulatedDamages,
             randomFFDIpaths, accumulatedHours, fires, fireSizes, fireLocations,
             firePatches, aircraftLocations, aircraftAssignments, controls,
             d_regressionX, d_regressionY, states, costs2Go, method, noControls,
@@ -3749,7 +3780,7 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
                d_rocA2PHSDs, d_occurrence, d_initSizeM, d_initSizeSD,
                d_initSuccess, d_extSuccess, d_tankerDists, d_heliDists,
                d_fireConfigsMax, d_baseConfigsMax, d_expFiresComp, d_lambdas,
-               totalSteps, lookahead, stepSize, accumulatedDamages,
+               totalSteps, lookahead, mr, mrsd, stepSize, accumulatedDamages,
                randomFFDIpaths, accumulatedHours, fires, initialExtinguished,
                fireStarts, fireSizes, fireLocations, firePatches,
                aircraftLocations, aircraftAssignments, controls, d_regressionX,
@@ -3818,7 +3849,7 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
         # Compute the paths in batches to preserve memory (see if we can
         # exploit both GPUs to share the computational load)
         simulateSinglePath[blockspergrid, threadsperblock](
-                batchSize, totalSteps, lookahead, d_sampleFFDIs,
+                batchSize, totalSteps, lookahead, mr, mrsd, d_sampleFFDIs,
                 d_expFiresComp, d_lambdas, d_patchVegetations, d_patchAreas,
                 d_patchLocations, d_baseLocations, d_tankerDists, d_heliDists,
                 d_ffdiRanges, d_rocA2PHMeans, d_rocA2PHSDs, d_occurrence,

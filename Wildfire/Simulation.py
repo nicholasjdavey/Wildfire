@@ -3348,6 +3348,8 @@ class Simulation():
         region = self.model.getRegion()
         totalSteps = self.model.getTotalSteps()
         lookahead = self.model.getLookahead()
+        mr = self.model.getFFDIMR()
+        mrsd = self.model.getFFDISD()
         stepSize = self.model.getStepSize()
         patches = region.getPatches()
         bases = region.getStations()[0]
@@ -3462,6 +3464,7 @@ class Simulation():
         self.tStatistic = [None]*samplePaths
         self.pVal = [None]*samplePaths
         self.regModel = [None]*samplePaths
+        self.randomFFDIs = [None]*samplePaths
 
         for ii in range(samplePaths):
             randCont = numpy.random.randint(6, size=[mcPaths, totalSteps + 1])
@@ -3631,7 +3634,7 @@ class Simulation():
                     configsP, thresholds, ffdiRanges, rocA2PHMeans, rocA2PHSDs,
                     occurrence, initSizeM, initSizeSD, initSuccess, extSuccess,
                     tankerDists, heliDists, fireConfigsMax, baseConfigsMax,
-                    expFiresComp, totalSteps, lookahead, stepSize,
+                    expFiresComp, totalSteps, lookahead, mr, mrsd, stepSize,
                     accumulatedDamages, randomFFDIpaths, accumulatedHours,
                     noFires, initialExtinguished, fireStarts, fireSizes,
                     fireLocations, firePatches, aircraftLocations,
@@ -3654,6 +3657,7 @@ class Simulation():
             self.rSquared[ii] = rSquareds
             self.tStatistic[ii] = tStatistics
             self.pVal[ii] = pVals
+            self.randomFFDIs[ii] = randomFFDIpaths
             self.regModel[ii] = regModels
             self.writeOutROV(ii)
             self.writeOutStatistics(ii)
