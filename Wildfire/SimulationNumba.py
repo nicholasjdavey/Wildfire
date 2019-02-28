@@ -816,22 +816,71 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
         initial_size_SD = initSD[vegetation]
         initial_success = init_succ[vegetation]
 
-        rand = xoroshiro128p_uniform_float32(rng_states, thread_id)
-        scale = (interpolate1D(ffdi, ffdi_range, occurrence[vegetation][time])
-                 * patchAreas[patch])
-        # Bottom up summation for Poisson distribution
-        cumPr = math.exp(-scale) * scale ** (0)
-        factor = 1
-        factorCounter = 1
-        newFires = 0
+        if random:
+            rand = xoroshiro128p_uniform_float32(rng_states, thread_id)
+            scale = (interpolate1D(ffdi, ffdi_range, occurrence[vegetation][time])
+                     * patchAreas[patch])
+            # Bottom up summation for Poisson distribution
+            cumPr = math.exp(-scale) * scale ** (0)
+            factor = 1
+            factorCounter = 1
+            newFires = 0
 
-        while cumPr <= rand:
-            newFires += 1
-            cumPr += math.exp(-scale) * scale ** (newFires) / (factor)
-            factorCounter += 1
-            factor = factor * factorCounter
+            while cumPr <= rand:
+                newFires += 1
+                cumPr += math.exp(-scale) * scale ** (newFires) / (factor)
+                factorCounter += 1
+                factor = factor * factorCounter
 
-        if newFires > 0:
+            if newFires > 0:
+                sizeMean = 0.0
+                sizeSD = 0.0
+                initS = 0.0
+
+                for config in range(len(patchConfigs)):
+                    weight = configWeights[patch, config]
+
+                    if weight > 0.0:
+                        sizeMean += weight * interpolate1D(
+                                ffdi, ffdi_range,
+                                initial_size_M[patchConfigs[config] - 1])
+                        sizeSD += weight * interpolate1D(
+                                ffdi, ffdi_range, initial_size_SD[
+                                        patchConfigs[config] -1])
+                        initS += weight * interpolate1D(
+                                ffdi, ffdi_range, initial_success[
+                                        patchConfigs[config] - 1])
+
+                for fire in range(newFires):
+                    success = True if initS > xoroshiro128p_uniform_float32(
+                            rng_states, thread_id) else False
+                    randVal = xoroshiro128p_normal_float32(rng_states, thread_id)
+                    size = math.exp(sizeMean + randVal * sizeSD)
+
+                    if not cmath.isfinite(size):
+                        size = math.exp(sizeMean + sizeSD ** 2 / 2)
+
+                    accumulatedDamage[thread_id][time+1][patch] += size
+
+                    if not success:
+                        fireSizes[thread_id][time+1][count] = size
+                        fireLocations[thread_id][time + 1][count][0] = (
+                                patchLocations[patch][0])
+                        fireLocations[thread_id][time + 1][count][1] = (
+                                patchLocations[patch][1])
+                        firePatches[thread_id][time + 1][count] = patch
+                        count += 1
+                        count2 += 1
+                    else:
+                        count1 += 1
+                        count2 += 1
+        else:
+            """ We are only doing a 1 step expectation in order to compute the
+            single-period cost (which will be added to the C2G) so we will not
+            actually save the results other than accumulated damage. """
+            noFires = (interpolate1D(ffdi, ffdi_range, occurrence[vegetation][
+                       time]) * patchAreas[patch])
+
             sizeMean = 0.0
             sizeSD = 0.0
             initS = 0.0
@@ -849,30 +898,6 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                     initS += weight * interpolate1D(
                             ffdi, ffdi_range, initial_success[
                                     patchConfigs[config] - 1])
-
-            for fire in range(newFires):
-                success = True if initS > xoroshiro128p_uniform_float32(
-                        rng_states, thread_id) else False
-                randVal = xoroshiro128p_normal_float32(rng_states, thread_id)
-                size = math.exp(sizeMean + randVal * sizeSD)
-
-                if not cmath.isfinite(size):
-                    size = math.exp(sizeMean + sizeSD ** 2 / 2)
-
-                accumulatedDamage[thread_id][time+1][patch] += size
-
-                if not success:
-                    fireSizes[thread_id][time+1][count] = size
-                    fireLocations[thread_id][time + 1][count][0] = (
-                            patchLocations[patch][0])
-                    fireLocations[thread_id][time + 1][count][1] = (
-                            patchLocations[patch][1])
-                    firePatches[thread_id][time + 1][count] = patch
-                    count += 1
-                    count2 += 1
-                else:
-                    count1 += 1
-                    count2 += 1
 
     noFires[thread_id][time + 1] = count
     initialExtinguished[thread_id][time] = count1
