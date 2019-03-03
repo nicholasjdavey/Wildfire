@@ -3470,12 +3470,12 @@ class Simulation():
             randCont = numpy.random.randint(6, size=[mcPaths, totalSteps + 1])
 
             if res > 1:
-                regressionX = numpy.zeros([totalSteps, noControls, res, 3],
+                regressionX = numpy.zeros([totalSteps, noControls, res, 4],
                                           dtype=numpy.float32)
                 regressionY = numpy.zeros([totalSteps, noControls, res, res, res],
                                           dtype=numpy.float32)
             else:
-                regressionX = numpy.zeros([totalSteps, noControls, 10, 1],
+                regressionX = numpy.zeros([totalSteps, noControls, 4, 1],
                                           dtype=numpy.float32)
                 regressionY = numpy.zeros([totalSteps, noControls, 1, 1, 1])
 
@@ -4352,7 +4352,7 @@ class Simulation():
             writer = csv.writer(csvfile, delimiter=',')
 
             rowLists = ([
-                    ['T_' + str(tt) + '_S_' + str(ss+1) for ss in range(10)]
+                    ['T_' + str(tt) + '_S_' + str(ss+1) for ss in range(4)]
                     + ['T_' + str(tt) + '_C2G'] + ['T_' + str(tt) + '_AD']
                 for tt in range(self.model.getTotalSteps())])
 
@@ -4368,7 +4368,7 @@ class Simulation():
                 for tt in range(self.model.getTotalSteps()):
                     row.extend([
                         self.statePaths[sample][ii][tt][ss]
-                        for ss in range(10)])
+                        for ss in range(4)])
                     row.append(self.costs2Go[sample][ii][tt])
                     row.append(self.accumulatedDamages[sample][ii][tt])
 
@@ -4377,7 +4377,7 @@ class Simulation():
         """ ROV Regressions """
         outputfile = outfolder + "/ROV_Regressions.csv"
 
-        if self.regressionsY[0].shape[3] >1:
+        if self.regressionsY[0].shape[4] >1:
             """ We used Kernel regression """
             with open(outputfile, 'w', newline='') as csvfile:
                 writer = csv.writer(csvfile, delimiter=',')
@@ -4396,23 +4396,25 @@ class Simulation():
 
                 writer.writerow(row)
 
-                # Three predictors
+                # Four predictors
                 for r1 in range(res):
                     for r2 in range(res):
                         for r3 in range(res):
-                            row = []
+                            for r4 in range(res):
+                                row = []
 
-                            for tt in range(self.model.getTotalSteps()):
-                                for cc in range(len(self.model.getControls())):
-                                    row.append(self.regressionsX[
-                                            sample][tt, cc, r1, 0])
-                                    row.append(self.regressionsX[
-                                            sample][tt, cc, r2, 1])
-                                    row.append(self.regressionsX[
-                                            sample][tt, cc, r3, 2])
+                                for tt in range(self.model.getTotalSteps()):
+                                    for cc in range(len(
+                                        self.model.getControls())):
+                                        row.append(self.regressionsX[
+                                                sample][tt, cc, r1, 0])
+                                        row.append(self.regressionsX[
+                                                sample][tt, cc, r2, 1])
+                                        row.append(self.regressionsX[
+                                                sample][tt, cc, r3, 2])
 
-                                    row.append(self.regressionsY[
-                                            sample][tt, cc, r1, r2, r3])
+                                        row.append(self.regressionsY[
+                                                sample][tt, cc, r1, r2, r3])
 
                             writer.writerow(row)
 
@@ -4421,8 +4423,9 @@ class Simulation():
             with open(outputfile, 'w', newline='') as csvfile:
                 writer = csv.writer(csvfile, delimiter=',')
 
-                row = ['Time+Control', '1', 'x1', 'x2', 'x3', 'x1^2', 'x1x2', 'x1x3',
-                       'x2^2', 'x2x3', 'x3^2']
+                row = ['Time+Control', '1', 'x1', 'x2', 'x3', 'x4', 'x1^2',
+                       'x1x2', 'x1x3', 'x1x4', 'x2^2', 'x2x3', 'x2x4', 'x3^2',
+                       'x3x4', 'x4^2']
 
                 for tt in range(self.model.getTotalSteps()):
                     for cc in range(len(self.model.getControls())):
@@ -4461,7 +4464,7 @@ class Simulation():
                 writer = csv.writer(csvfile, delimiter=',')
 
                 rowLists = ([
-                        ['T_' + str(tt) + '_S_' + str(ss) for ss in range(3)]
+                        ['T_' + str(tt) + '_S_' + str(ss) for ss in range(4)]
                         + ['T_' + str(tt) + '_C2G']
                     for tt in range(self.model.getTotalSteps())])
 
@@ -4503,7 +4506,7 @@ class Simulation():
             fig.set_size_inches(11.69, 16.53)
 
             """ State 1 and state 2 """
-            ax1 = fig.add_subplot(311)
+            ax1 = fig.add_subplot(321)
 #            ax1.set_prop_cycle(color=[scalarMap.to_rgba(ii)
 #                                      for ii in range(noControls)])
 
@@ -4519,7 +4522,7 @@ class Simulation():
             ax1.legend(loc='upper left')
 
             """ State 1 and state 3 """
-            ax2 = fig.add_subplot(312)
+            ax2 = fig.add_subplot(322)
 
             for c in range(noControls):
                 ax2.scatter(self.mapStates[sample][tt, c][:, 0],
@@ -4532,8 +4535,25 @@ class Simulation():
             ax2.set_ylabel('State_3')
             ax2.legend(loc='upper left')
 
+            """ State 1 and state 4 """
+            ax3 = fig.add_subplot(323)
+
+            for c in range(noControls):
+                ax3.scatter(self.mapStates[sample][tt, c][:, 0],
+                            self.mapStates[sample][tt, c][:, 3],
+                            s=5,
+                            label='c_' + str(c))
+
+            ax3.set_title('State_1 vs State_4')
+            ax3.set_xlabel('State_1')
+            ax3.set_ylabel('State_4')
+            ax3.legend(loc='upper left')
+
+            fig.tight_layout()
+            outputGraphs.savefig(fig)
+
             """ State 2 and state 3 """
-            ax3 = fig.add_subplot(313)
+            ax3 = fig.add_subplot(324)
 
             for c in range(noControls):
                 ax3.scatter(self.mapStates[sample][tt, c][:, 1],
@@ -4549,124 +4569,158 @@ class Simulation():
             fig.tight_layout()
             outputGraphs.savefig(fig)
 
-        outputGraphs.close()
+            """ State 1 and state 4 """
+            ax3 = fig.add_subplot(325)
 
-        """ Plot an projection of a regular grid onto a map for a clean
-        image. We need to slice in the unobserved dimension to be able to
-        project onto a 2D plane. """
-        outputGraphs = pdf.PdfPages(outfolder + "Control_Maps_Clean.pdf")
+            for c in range(noControls):
+                ax3.scatter(self.mapStates[sample][tt, c][:, 1],
+                            self.mapStates[sample][tt, c][:, 3],
+                            s=5,
+                            label='c_' + str(c))
 
-        for tt in range(1, self.model.getTotalSteps() - 1):
-            """ First time step not used. Neither is last as the C2G there is
-            simply computed using the MIP heuristic. """
-            fig, axes = plt.subplots(nrows=5, ncols=3)
-            fig.set_size_inches(11.69, 16.53)
+            ax3.set_title('State_2 vs State_4')
+            ax3.set_xlabel('State_2')
+            ax3.set_ylabel('State_4')
+            ax3.legend(loc='upper left')
 
-            """ State 1 and State 2. 5 Different levels of State 3 """
-            maxX = max([self.mapStates[sample][tt, c][:, 0].max()
-                        for c in range(noControls)])
-            minX = min([self.mapStates[sample][tt, c][:, 0].min()
-                        for c in range(noControls)])
-            maxY = max([self.mapStates[sample][tt, c][:, 1].max()
-                        for c in range(noControls)])
-            minY = min([self.mapStates[sample][tt, c][:, 1].min()
-                        for c in range(noControls)])
-            maxZ = min([self.mapStates[sample][tt, c][:, 2].max()
-                        for c in range(noControls)])
-            minZ = min([self.mapStates[sample][tt, c][:, 2].min()
-                        for c in range(noControls)])
+            fig.tight_layout()
+            outputGraphs.savefig(fig)
 
-            """ State 1 and State 2 """
-            for l in range(1,6):
-                poly_reg = PolynomialFeatures(degree = 2)
+            """ State 3 and state 4 """
+            ax3 = fig.add_subplot(326)
 
-                x1_grid, x2_grid = numpy.meshgrid(
-                    numpy.linspace(minX, maxX, 200),
-                    numpy.linspace(minY, maxY, 200))
+            for c in range(noControls):
+                ax3.scatter(self.mapStates[sample][tt, c][:, 2],
+                            self.mapStates[sample][tt, c][:, 3],
+                            s=5,
+                            label='c_' + str(c))
 
-                predict = numpy.array([numpy.ravel(x1_grid),
-                                       numpy.ravel(x2_grid),
-                                       numpy.ones(40000) * (maxZ - minZ)
-                                       / 6.0 * l]).transpose()
-
-                predict_ = poly_reg.fit_transform(predict)
-
-                yPredict = numpy.zeros([x1_grid.size, noControls])
-
-                for c in range(noControls):
-                    yPredict[:, c] = self.regModel[sample][tt, c].predict(
-                            predict_)
-
-                selectedC = yPredict.argmax(1).reshape(200, 200)
-
-                if (maxX > minX) and (maxY > minY):
-                    axes[l-1, 0].imshow(selectedC,
-                                      extent=[minX, maxX, minY, maxY],
-                                      aspect='auto')
-                    axes[l-1, 0].invert_yaxis()
-
-            """ State 1 and State 3 """
-            for l in range(1,6):
-                poly_reg = PolynomialFeatures(degree = 2)
-
-                x1_grid, x3_grid = numpy.meshgrid(
-                    numpy.linspace(minX, maxX, 200),
-                    numpy.linspace(minZ, maxZ, 200))
-
-                predict = numpy.array([numpy.ravel(x1_grid),
-                                       numpy.ones(40000) * (maxY - minY)
-                                       / 6.0 * l,
-                                       numpy.ravel(x3_grid)]).transpose()
-
-                predict_ = poly_reg.fit_transform(predict)
-
-                yPredict = numpy.zeros([x1_grid.size, noControls])
-
-                for c in range(noControls):
-                    yPredict[:, c] = self.regModel[sample][tt, c].predict(
-                            predict_)
-
-                selectedC = yPredict.argmax(1).reshape(200, 200)
-
-                if (maxX > minX) and (maxZ > minZ):
-                    axes[l-1, 1].imshow(selectedC,
-                                      extent=[minX, maxX, minZ, maxZ],
-                                      aspect='auto')
-                    axes[l-1, 1].invert_yaxis()
-
-            """ State 2 and State 3 """
-            for l in range(1,6):
-                poly_reg = PolynomialFeatures(degree = 2)
-
-                x2_grid, x3_grid = numpy.meshgrid(
-                    numpy.linspace(minY, maxY, 200),
-                    numpy.linspace(minZ, maxZ, 200))
-
-                predict = numpy.array([numpy.ones(40000) * (maxX - minX)
-                                       / 6.0 * l,
-                                       numpy.ravel(x2_grid),
-                                       numpy.ravel(x3_grid)]).transpose()
-
-                predict_ = poly_reg.fit_transform(predict)
-
-                yPredict = numpy.zeros([x2_grid.size, noControls])
-
-                for c in range(noControls):
-                    yPredict[:, c] = self.regModel[sample][tt, c].predict(
-                            predict_)
-
-                selectedC = yPredict.argmax(1).reshape(200, 200)
-
-                if (maxY > minY) and (maxZ > minZ):
-                    axes[l-1, 2].imshow(selectedC,
-                                      extent=[minY, maxY, minZ, maxZ],
-                                      aspect='auto')
-                    axes[l-1, 2].invert_yaxis()
+            ax3.set_title('State_4 vs State_4')
+            ax3.set_xlabel('State_3')
+            ax3.set_ylabel('State_4')
+            ax3.legend(loc='upper left')
 
             fig.tight_layout()
             outputGraphs.savefig(fig)
 
         outputGraphs.close()
+
+#        """ Plot an projection of a regular grid onto a map for a clean
+#        image. We need to slice in the unobserved dimension to be able to
+#        project onto a 2D plane. """
+#        outputGraphs = pdf.PdfPages(outfolder + "Control_Maps_Clean.pdf")
+#
+#        for tt in range(1, self.model.getTotalSteps() - 1):
+#            """ First time step not used. Neither is last as the C2G there is
+#            simply computed using the MIP heuristic. """
+#            fig, axes = plt.subplots(nrows=5, ncols=3)
+#            fig.set_size_inches(11.69, 16.53)
+#
+#            """ State 1 and State 2. 5 Different levels of State 3 """
+#            maxX = max([self.mapStates[sample][tt, c][:, 0].max()
+#                        for c in range(noControls)])
+#            minX = min([self.mapStates[sample][tt, c][:, 0].min()
+#                        for c in range(noControls)])
+#            maxY = max([self.mapStates[sample][tt, c][:, 1].max()
+#                        for c in range(noControls)])
+#            minY = min([self.mapStates[sample][tt, c][:, 1].min()
+#                        for c in range(noControls)])
+#            maxZ = min([self.mapStates[sample][tt, c][:, 2].max()
+#                        for c in range(noControls)])
+#            minZ = min([self.mapStates[sample][tt, c][:, 2].min()
+#                        for c in range(noControls)])
+#
+#            """ State 1 and State 2 """
+#            for l in range(1,6):
+#                poly_reg = PolynomialFeatures(degree = 2)
+#
+#                x1_grid, x2_grid = numpy.meshgrid(
+#                    numpy.linspace(minX, maxX, 200),
+#                    numpy.linspace(minY, maxY, 200))
+#
+#                predict = numpy.array([numpy.ravel(x1_grid),
+#                                       numpy.ravel(x2_grid),
+#                                       numpy.ones(40000) * (maxZ - minZ)
+#                                       / 6.0 * l]).transpose()
+#
+#                predict_ = poly_reg.fit_transform(predict)
+#
+#                yPredict = numpy.zeros([x1_grid.size, noControls])
+#
+#                for c in range(noControls):
+#                    yPredict[:, c] = self.regModel[sample][tt, c].predict(
+#                            predict_)
+#
+#                selectedC = yPredict.argmax(1).reshape(200, 200)
+#
+#                if (maxX > minX) and (maxY > minY):
+#                    axes[l-1, 0].imshow(selectedC,
+#                                      extent=[minX, maxX, minY, maxY],
+#                                      aspect='auto')
+#                    axes[l-1, 0].invert_yaxis()
+#
+#            """ State 1 and State 3 """
+#            for l in range(1,6):
+#                poly_reg = PolynomialFeatures(degree = 2)
+#
+#                x1_grid, x3_grid = numpy.meshgrid(
+#                    numpy.linspace(minX, maxX, 200),
+#                    numpy.linspace(minZ, maxZ, 200))
+#
+#                predict = numpy.array([numpy.ravel(x1_grid),
+#                                       numpy.ones(40000) * (maxY - minY)
+#                                       / 6.0 * l,
+#                                       numpy.ravel(x3_grid)]).transpose()
+#
+#                predict_ = poly_reg.fit_transform(predict)
+#
+#                yPredict = numpy.zeros([x1_grid.size, noControls])
+#
+#                for c in range(noControls):
+#                    yPredict[:, c] = self.regModel[sample][tt, c].predict(
+#                            predict_)
+#
+#                selectedC = yPredict.argmax(1).reshape(200, 200)
+#
+#                if (maxX > minX) and (maxZ > minZ):
+#                    axes[l-1, 1].imshow(selectedC,
+#                                      extent=[minX, maxX, minZ, maxZ],
+#                                      aspect='auto')
+#                    axes[l-1, 1].invert_yaxis()
+#
+#            """ State 2 and State 3 """
+#            for l in range(1,6):
+#                poly_reg = PolynomialFeatures(degree = 2)
+#
+#                x2_grid, x3_grid = numpy.meshgrid(
+#                    numpy.linspace(minY, maxY, 200),
+#                    numpy.linspace(minZ, maxZ, 200))
+#
+#                predict = numpy.array([numpy.ones(40000) * (maxX - minX)
+#                                       / 6.0 * l,
+#                                       numpy.ravel(x2_grid),
+#                                       numpy.ravel(x3_grid)]).transpose()
+#
+#                predict_ = poly_reg.fit_transform(predict)
+#
+#                yPredict = numpy.zeros([x2_grid.size, noControls])
+#
+#                for c in range(noControls):
+#                    yPredict[:, c] = self.regModel[sample][tt, c].predict(
+#                            predict_)
+#
+#                selectedC = yPredict.argmax(1).reshape(200, 200)
+#
+#                if (maxY > minY) and (maxZ > minZ):
+#                    axes[l-1, 2].imshow(selectedC,
+#                                      extent=[minY, maxY, minZ, maxZ],
+#                                      aspect='auto')
+#                    axes[l-1, 2].invert_yaxis()
+#
+#            fig.tight_layout()
+#            outputGraphs.savefig(fig)
+#
+#        outputGraphs.close()
 
         """ Plot the raw data (and regressions) at different times for
         different controls """

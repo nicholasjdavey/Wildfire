@@ -98,10 +98,10 @@ def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
         for tt in range(start, totalSteps):
             """ For all time steps before the end of the day, we must
             simulate. For the end of day, we don't. We just need the
-            termination value """
+            termination value. We need the EXPECTED FFDI path to the end. """
             expectedFFDIPath(randomFFDIpaths[path, :, tt],
                 sampleFFDIs[:, tt:(totalSteps + lookahead + 1)],
-                mr, mrsd, lookahead, expectedFFDI)
+                mr, mrsd, totalSteps + lookahead - tt, expectedFFDI)
 #            expectedFFDI = sampleFFDIs[:, tt:(totalSteps + lookahead + 1)]
 
             expectedDamageExisting(
@@ -145,16 +145,15 @@ def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
 ##                    expectedTemp[1, patch, 1] = sampleFFDIs[patch, tt]
 
             if static < 0:
-#                saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
-#                          maxHours, tankerDists, heliDists, aircraftLocations,
-#                          accumulatedHours, patchLocations, baseLocations,
-#                          ffdiRanges, fires, fireSizes, fireLocations,
-#                          expectedE, expectedP, expFiresComp, configurations,
-#                          configsE, configsP, baseConfigsMax, fireConfigsMax,
-#                          selectedE, weightsP, states, lambdas, thresholds,
-#                          method, stepSize, tt - start, lookahead,
-#                          expectedTemp, path)
-                pass
+                saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
+                          maxHours, tankerDists, heliDists, aircraftLocations,
+                          accumulatedHours, patchLocations, baseLocations,
+                          ffdiRanges, fires, fireSizes, fireLocations,
+                          expectedE, expectedP, expFiresComp, configurations,
+                          configsE, configsP, baseConfigsMax, fireConfigsMax,
+                          selectedE, weightsP, states, lambdas, thresholds,
+                          method, stepSize, tt - start, lookahead,
+                          expectedTemp, path)
 
             if (optimal and (static < 0)):
                 # ROV Optimal Control
@@ -199,6 +198,8 @@ def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
                             pick. This requires computing the state for each
                             control using the assignment heuristic and then the
                             regressions. """
+                            currC2G = 0.0
+
                             assignAircraft(
                                 aircraftAssignments, resourceSpeeds,
                                 resourceTypes, maxHours, aircraftLocations,
@@ -217,33 +218,49 @@ def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
                             # is used to compute the C2G after this time step.
                             # This means that the simulation to the next step
                             # must use expectations
-                            simulateNextStep(
-                                aircraftAssignments, resourceTypes,
-                                resourceSpeeds, aircraftLocations,
-                                accumulatedHours, baseLocations, fires,
-                                initialExtinguished, fireStarts,
-                                patchVegetations, patchLocations, patchAreas,
-                                ffdiRanges, fireLocations, firePatches,
-                                sampleFFDIs, randomFFDIpaths, mr, mrsd,
-                                rocA2PHMeans, rocA2PHSDs, fireSizes, configsE,
-                                configsP, selectedE, weightsP, initSizeM,
-                                initSizeSD, initSuccess, extSuccess,
-                                occurrence[:, start:(totalSteps + lookahead +
-                                1), :], accumulatedDamages, tt - start,
-                                stepSize, rng_states, False, path)
-
-                            """ Single-period expected accumulated damage """
-                            currC2G = 0
-
-                            for patch in range(noPatches):
-                                currC2G += (accumulatedDamages[path, tt + 1,
-                                                               patch]
-                                            - accumulatedDamages[path, tt,
-                                                                 patch])
+#                            simulateNextStep(
+#                                aircraftAssignments, resourceTypes,
+#                                resourceSpeeds, aircraftLocations,
+#                                accumulatedHours, baseLocations, fires,
+#                                initialExtinguished, fireStarts,
+#                                patchVegetations, patchLocations, patchAreas,
+#                                ffdiRanges, fireLocations, firePatches,
+#                                sampleFFDIs, randomFFDIpaths, mr, mrsd,
+#                                rocA2PHMeans, rocA2PHSDs, fireSizes, configsE,
+#                                configsP, selectedE, weightsP, initSizeM,
+#                                initSizeSD, initSuccess, extSuccess,
+#                                occurrence[:, start:(totalSteps + lookahead +
+#                                1), :], accumulatedDamages, tt - start,
+#                                stepSize, rng_states, False, path)
+#
+#                            """ Single-period expected accumulated damage """
+#                            currC2G = 0
+#
+#                            for patch in range(noPatches):
+#                                currC2G += (accumulatedDamages[path, tt + 1,
+#                                                               patch]
+#                                            - accumulatedDamages[path, tt,
+#                                                                 patch])
 
                             """ Get the expected cost 2 go for this control at
                             this time for the updated state at the next time
-                            period """
+                            period. The predictors are the expected damages
+                            incurred by::
+                            1. Fighting existing fires THIS period,
+                            2. Fighting potential fires THIS period,
+                            3. Not fighting existing fires AT ALL this period,
+                            4. Not fighting potential fires AT ALL this period.
+                            It is assumed that in subsequent periods, the fires
+                            produced this period (and fought this period) are
+                            left unchecked. This way, we measure the OVERALL
+                            expected damage reduction of fighting existing and
+                            potential fires according to the control's found
+                            configurations FOR THIS PERIOD ONLY. By measuring
+                            the four dimensions, we can also determine the
+                            relative proximity of aircraft to potential and
+                            existing fires. To do this, the expected damage
+                            computations must look to the end of the horizon.
+                            """
                             if len(regressionX.shape) == 4:
                                 currC2G += interpolateCost2Go(
                                         states, regressionX, regressionY,
@@ -309,63 +326,74 @@ def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
                              accumulatedHours, baseLocations, fires,
                              initialExtinguished, fireStarts, patchVegetations,
                              patchLocations, patchAreas, ffdiRanges,
-                             fireLocations, firePatches, expectedFFDI,
-                             rocA2PHMeans, rocA2PHSDs, fireSizes, configsE,
-                             configsP, selectedE, weightsP, initSizeM,
-                             initSizeSD, initSuccess, extSuccess, occurrence[:,
-                             start:(totalSteps + lookahead + 1), :],
+                             fireLocations, firePatches, sampleFFDIs,
+                             randomFFDIpaths, mr, mrsd, rocA2PHMeans,
+                             rocA2PHSDs, fireSizes, configsE, configsP,
+                             selectedE, weightsP, initSizeM, initSizeSD,
+                             initSuccess, extSuccess, occurrence[:, start:(
+                             totalSteps + lookahead + 1), :],
                              accumulatedDamages, tt - start, stepSize,
                              rng_states, path)
 
-        for tt in range(start, start + 1):
-            """ The cost to go for the prior period will include the expected
-            accumulated damage for that period's control for that period
-            up to now PLUS the C2G from this period onwards, given the updated
-            state expected from running the best control for one period. This
-            is used for computing the regressions in the previous period. As we
-            will have (re-)computed the forward paths up to now, we can just
-            use the remaining accumulated damage to the end period minus the
-            accumulated damage already incurred.
-
-            We also go one extra period here to record the termination value
-            at the end of the final period. """
-
-            costs2Go[path][tt] = 0
-
-            if tt == totalSteps - 1:
-                pass
-                # We can just sum over the future expectation for this period
-                # with the selected assignment. and the following five periods
-                # (nighttime) with no assignment, given that this period's
-                # assignments.
-
-            else:
-                # We need to determine the single period expected damages for
-                # the chosen assignments, which we add to the C2G
-                expectedDamageExisting(
-                    expectedFFDI, firePatches[path][tt - start], fires[path][tt
-                    - start], fireSizes[path][tt - start], patchVegetations,
-                    ffdiRanges, rocA2PHMeans, rocA2PHSDs, extSuccess, configsE,
-                    1, expectedE, rng_states, path, False, 1)
-
-                expectedDamagePotential(
-                    expectedFFDI, patchVegetations, patchAreas, ffdiRanges,
-                    rocA2PHMeans, rocA2PHSDs, occurrence[:, start:(totalSteps
-                    + lookahead + 1), :], initSizeM, initSizeSD, initSuccess,
-                    extSuccess, configsP, tt - start, 1, expectedP,
-                    rng_states, path, False, 1)
-
-            currC2G = 0
-
-            for fire in range(fires[path][tt - start]):
-                currC2G += expectedE[fire, selectedE[fire]]
-
+        """ We need to use the forward path (re-)computation performed here
+        to determine the cost-to-go at the PREVIOUS time step. For this, we
+        just need to compute the accumulated damage from the PREVIOUS time step
+        through to the end. If we are at the first period, we do not need to do
+        this """
+        if start > 0:
             for patch in range(noPatches):
-                for config in range(noConfP):
-                    currC2G += (weightsP[patch, config]
-                                * expectedP[patch, config])
-
-            costs2Go[path][tt] += currC2G
+                costs2Go[path][start-1] = (
+                    accumulatedDamages[path, start - 1, totalSteps + lookahead]
+                    - accumulatedDamages[path, start - 1, start - 1])
+#        for tt in range(start, start + 1):
+#            """ The cost to go for the prior period will include the expected
+#            accumulated damage for that period's control for that period
+#            up to now PLUS the C2G from this period onwards, given the updated
+#            state expected from running the best control for one period. This
+#            is used for computing the regressions in the previous period. As we
+#            will have (re-)computed the forward paths up to now, we can just
+#            use the remaining accumulated damage to the end period minus the
+#            accumulated damage already incurred.
+#
+#            We also go one extra period here to record the termination value
+#            at the end of the final period. """
+#
+#            costs2Go[path][tt] = 0
+#
+#            if tt == totalSteps - 1:
+#                pass
+#                # We can just sum over the future expectation for this period
+#                # with the selected assignment. and the following five periods
+#                # (nighttime) with no assignment, given that this period's
+#                # assignments.
+#
+#            else:
+#                # We need to determine the single period expected damages for
+#                # the chosen assignments, which we add to the C2G
+#                expectedDamageExisting(
+#                    expectedFFDI, firePatches[path][tt - start], fires[path][tt
+#                    - start], fireSizes[path][tt - start], patchVegetations,
+#                    ffdiRanges, rocA2PHMeans, rocA2PHSDs, extSuccess, configsE,
+#                    1, expectedE, rng_states, path, False, 1)
+#
+#                expectedDamagePotential(
+#                    expectedFFDI, patchVegetations, patchAreas, ffdiRanges,
+#                    rocA2PHMeans, rocA2PHSDs, occurrence[:, start:(totalSteps
+#                    + lookahead + 1), :], initSizeM, initSizeSD, initSuccess,
+#                    extSuccess, configsP, tt - start, 1, expectedP,
+#                    rng_states, path, False, 1)
+#
+#            currC2G = 0
+#
+#            for fire in range(fires[path][tt - start]):
+#                currC2G += expectedE[fire, selectedE[fire]]
+#
+#            for patch in range(noPatches):
+#                for config in range(noConfP):
+#                    currC2G += (weightsP[patch, config]
+#                                * expectedP[patch, config])
+#
+#            costs2Go[path][tt] += currC2G
 
 
 @cuda.jit(device=True)
@@ -388,6 +416,10 @@ def expectedDamageExisting(ffdi_path, fire_patches, no_fires, fire_sizes,
                            patch_vegetations, ffdi_ranges, roc_a2_ph_means,
                            roc_a2_ph_sds, ext_success, configs, lookahead,
                            expected, rng_states, thread_id, random, endTime):
+    """ This computes the expected damage FOR THE REMAINING TIME. It applies
+    the control for this period and then no control for the remainder. This
+    allows us to see the effect of doing something now on the remaining time
+    """
 
     for fire in range(no_fires):
         patch = int(fire_patches[fire])
@@ -403,7 +435,7 @@ def expectedDamageExisting(ffdi_path, fire_patches, no_fires, fire_sizes,
             config = configs[c]
 
             for tt in range(lookahead):
-                if tt >= endTime:
+                if tt >= 0:
                     config = 1
 
                 ffdi = ffdi_path[patch, tt]
@@ -425,6 +457,11 @@ def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
                             init_success, ext_success, configs, time,
                             lookahead, expected, rng_states, thread_id,
                             random, endTime):
+    """ This looks at the benefit of fighting new fires THIS PERIOD. The
+    computed damage is for the ENTIRE horizon. Future time steps are
+    treated as nothing being done after this period. This allows us to
+    see the benefit of what we do THIS period on the entire horizon. """
+
 
     for patch in range(len(patch_vegetations)):
         vegetation = int(patch_vegetations[patch])
@@ -443,7 +480,7 @@ def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
             expected[patch, c] = 0.0
 
             for tt in range(lookahead):
-                if tt >= endTime:
+                if tt >= 0:
                     config = 1
                 # Only look at the expected damage of fires started at this
                 # time period to the end of the horizon
@@ -898,6 +935,10 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                     initS += weight * interpolate1D(
                             ffdi, ffdi_range, initial_success[
                                     patchConfigs[config] - 1])
+
+            # Fires created this period
+            accumulatedDamage[thread_id][time+1][patch] += (noFires * math.exp(
+                sizeMean + sizeSD ** 2 / 2))
 
     noFires[thread_id][time + 1] = count
     initialExtinguished[thread_id][time] = count1
@@ -3564,15 +3605,13 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             for control in range(noControls):
 
                 if kernelReg:
-                    xs = numpy.array([states[idx, tt, 0:3]
+                    xs = numpy.array([states[idx, tt, 0:4]
                                       for idx in range(len(controls[:, tt]))
                                       if controls[idx, tt] == control])
 
-                    ys = numpy.array([costs2Go[idx, tt+1]
-                                      + accumulatedDamages[idx, tt+1].sum()
-                                      - accumulatedDamages[idx, tt].sum()
-                                       for idx in range(len(controls[:, tt]))
-                                       if controls[idx, tt] == control])
+                    ys = numpy.array([costs2Go[idx, tt]
+                                      for idx in range(len(controls[:, tt]))
+                                      if controls[idx, tt] == control])
 
                     mapStates[tt, control] = xs
                     mapC2G[tt, control] = ys
