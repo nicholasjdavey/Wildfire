@@ -1051,6 +1051,8 @@ class Simulation():
         region = self.model.getRegion()
         timeSteps = self.model.getTotalSteps()
         lookahead = self.model.getLookahead()
+        mr = self.model.getFFDIMR()
+        mrsd = self.model.getFFDISD()
         stepSize = self.model.getStepSize()
         patches = len(region.getPatches())
         bases = len(region.getStations()[0])
@@ -1062,6 +1064,7 @@ class Simulation():
         configsP = self.model.getUsefulConfigurationsPotential()
         sampleFFDIs = self.model.getSamplePaths()
         method = self.model.getControlMethod()
+        discount = self.model.getDiscountFactor()
 
         # Thresholds/parameters for each control
         lambdas = numpy.array([[
@@ -1368,13 +1371,17 @@ class Simulation():
                 """ If not MPC, we need to know the initial assignments of
                 aircraft based on the ENTIRE horizon """
                 if static:
-                    expectedFFDI = sampleFFDIs[ii]
+                    expectedFFDI = self.expectedFFDIPath(
+                        randomFFDIpaths[run, :, 0], sampleFFDIs[ii], mr, mrsd,
+                        timeSteps + lookahead)
+
                     expDamageExist = {
                             (jj, configsE[kk] - 1):
                             self.expectedDamageExisting(
                                     activeFires[jj], expectedFFDI,
                                     configsE[kk], 0,
-                                    self.model.getTotalSteps() + lookahead)
+                                    self.model.getTotalSteps() + lookahead,
+                                    discount)
                             for jj in range(len(activeFires))
                             for kk in range(len(configsE))}
 
@@ -1382,7 +1389,8 @@ class Simulation():
                             (jj, configsP[kk] - 1):
                             self.expectedDamagePotential(
                                     jj, expectedFFDI, configsP[kk], 0,
-                                    self.model.getTotalSteps() + lookahead)
+                                    self.model.getTotalSteps() + lookahead,
+                                    discount)
                             for jj in range(patches)
                             for kk in range(len(configsP))}
 
@@ -1444,7 +1452,9 @@ class Simulation():
                         expectedFFDI = FFDISamples.sum(0)/len(samplePaths2)
 
                     else:
-                        expectedFFDI = sampleFFDIs[ii]
+                        expectedFFDI = self.expectedFFDIPath(
+                            randomFFDIpaths[run, :, tt], sampleFFDIs[ii], mr,
+                            mrsd, timeSteps + lookahead - tt)
 
                     """ Compute the new assignments. If static, only fire
                     assignments are computed here. Otherwise, we also compute
@@ -3258,7 +3268,16 @@ class Simulation():
         dist = 2 * 6371 * math.asin(c)
         return dist
 
-    def expectedDamageExisting(self, fire, ffdiPath, configID, time, look):
+    def expectedFFDIPath(startFFDIs, ffdiMeans, mr, mrsd, lookahead):
+        expectedFFDI = numpy.zeros(startFFDIs.shape)
+        expectedFFDI[:, 0] = startFFDIs
+
+        for tt in range(lookahead):
+            expectedFFDI[:, tt+1] = max(((ffdiMeans[:, tt] - expectedFFDI[:, tt])
+                * mr + expectedFFDI[:, tt]), 0)
+
+    def expectedDamageExisting(self, fire, ffdiPath, configID, time, look,
+                               discount):
         damage = 0
         fireTemp = copy.copy(fire)
         patch = fire.getPatchID()
@@ -3277,11 +3296,12 @@ class Simulation():
             size = fireTemp.getSize()
             growth = size - sizeOld
 
-            damage += growth * (1 - success) ** (tt)
+            damage += growth * (1 - success) ** (tt) / ((1 + discount) ** tt)
 
         return damage
 
-    def expectedDamagePotential(self, patchID, ffdiPath, configID, time, look):
+    def expectedDamagePotential(self, patchID, ffdiPath, configID, time, look,
+                                discount):
         damage = 0
         patch = self.model.getRegion().getPatches()[patchID]
         vegetation = patch.getVegetation()
@@ -3309,7 +3329,7 @@ class Simulation():
 
             size = math.exp(sizeM + sizeSD ** 2 / 2)
 
-            damage += occ * size
+            damage += occ * size / ((1 + discount) ** (tt))
 
             for t2 in range(tt, look):
                 ffdi = ffdiPath[patchID, t2 + time]
@@ -3335,7 +3355,7 @@ class Simulation():
                 growth = size - sizeOld
 
                 damage += ((occ * growth * (1 - success2) ** (t2 - tt)) *
-                           (1 - success))
+                           (1 - success)) / ((1 + discount) ** (tt))
 
             return damage * patch.getArea()
 

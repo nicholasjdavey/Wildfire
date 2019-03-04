@@ -109,14 +109,14 @@ def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
                     - start], fireSizes[path][tt - start], patchVegetations,
                     ffdiRanges, rocA2PHMeans, rocA2PHSDs, extSuccess, configsE,
                     lookahead, expectedE, rng_states, path, False, totalSteps -
-                    tt)
+                    tt, discount)
 
             expectedDamagePotential(
                     expectedFFDI, patchVegetations, patchAreas, ffdiRanges,
                     rocA2PHMeans, rocA2PHSDs, occurrence[:, start:(totalSteps +
                     lookahead + 1), :], initSizeM, initSizeSD, initSuccess,
                     extSuccess, configsP, tt - start, lookahead, expectedP,
-                    rng_states, path, False, totalSteps - tt)
+                    rng_states, path, False, totalSteps - tt, discount)
 
 #            if path == 2 and tt == 11:
 #                for fire in range(fires[path][tt]):
@@ -413,7 +413,7 @@ def expectedFFDIPath(randomFFDIpath, meanFFDIs, mr, sd, lookahead,
     # the FFDI at the previous time period)
     for tt in range(lookahead):
         expectedFFDI[:, tt+1] = max(((meanFFDIs[:, tt] - expectedFFDI[:, tt])
-            * mr + expectedFFDI[:, tt] + math.sqrt(expectedFFDI[:, tt])), 0)
+            * mr + expectedFFDI[:, tt]), 0)
 
 
 #@jit(nopython=True, fastmath=True)
@@ -421,7 +421,8 @@ def expectedFFDIPath(randomFFDIpath, meanFFDIs, mr, sd, lookahead,
 def expectedDamageExisting(ffdi_path, fire_patches, no_fires, fire_sizes,
                            patch_vegetations, ffdi_ranges, roc_a2_ph_means,
                            roc_a2_ph_sds, ext_success, configs, lookahead,
-                           expected, rng_states, thread_id, random, endTime):
+                           expected, rng_states, thread_id, random, endTime,
+                           discount):
     """ This computes the expected damage FOR THE REMAINING TIME. It applies
     the control for this period and then no control for the remainder. This
     allows us to see the effect of doing something now on the remaining time
@@ -440,10 +441,13 @@ def expectedDamageExisting(ffdi_path, fire_patches, no_fires, fire_sizes,
             sizeTemp = size
             config = configs[c]
 
+            damage = 0
+
             for tt in range(lookahead):
                 if tt >= 0:
                     config = 1
 
+                sizeOld = size
                 ffdi = ffdi_path[patch, tt]
                 success = interpolate1D(ffdi, ffdi_range, ext_succ[config - 1])
                 growth = growFire(ffdi, config - 1, ffdi_range, roc_a2_ph_mean,
@@ -452,8 +456,10 @@ def expectedDamageExisting(ffdi_path, fire_patches, no_fires, fire_sizes,
 
                 sizeTemp += growth
                 size += growth * (1 - success) ** (tt)
+                damage += (size - sizeOld) / ((1 + discount) ** (tt))
 
-            expected[fire, c] = size - fire_sizes[fire]
+            expected[fire, c] = damage
+#            expected[fire, c] = size - fire_sizes[fire]
 
 
 @cuda.jit(device=True)
@@ -462,7 +468,7 @@ def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
                             occurrence, init_size_m, init_size_sd,
                             init_success, ext_success, configs, time,
                             lookahead, expected, rng_states, thread_id,
-                            random, endTime):
+                            random, endTime, discount):
     """ This looks at the benefit of fighting new fires THIS PERIOD. The
     computed damage is for the ENTIRE horizon. Future time steps are
     treated as nothing being done after this period. This allows us to
@@ -503,7 +509,7 @@ def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
 
                 # Add the damage caused by fires formed this period but
                 # extinguished immediately
-                damage += occ * sizeTemp
+                damage += occ * sizeTemp / ((1 + discount) ** (tt))
 
                 # Now add the damage caused by fires that escape initial
                 # attack success
@@ -518,7 +524,7 @@ def expectedDamagePotential(ffdi_path, patch_vegetations, patch_areas,
                     sizeTemp += growth
 
                     damage += (occ * growth * (1 - success2) ** (t2 - tt) *
-                               (1 - success))
+                               (1 - success)) / ((1 + discount) ** (tt))
 
             expected[patch, c] = damage * patch_areas[patch]
 
@@ -3572,7 +3578,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
 
                 # We are just storing them here. They are not used as we use
                 # The MIP runs to determine the best control at the end time.
-                xs = numpy.array([states[idx, tt, 0:3]
+                xs = numpy.array([states[idx, tt, 0:4]
                                   for idx in range(len(controls[:, tt]))
                                   if controls[idx, tt] == control])
 
@@ -3635,17 +3641,20 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                     tempGrid = numpy.meshgrid(
                         numpy.linspace(min(xs[:, 0]), max(xs[:, 0], 50)),
                         numpy.linspace(min(xs[:, 1]), max(xs[:, 1], 50)),
-                        numpy.linspace(min(xs[:, 2]), max(xs[:, 2], 50)))
+                        numpy.linspace(min(xs[:, 2]), max(xs[:, 2], 50)),
+                        numpy.linspace(min(xs[:, 3]), max(xs[:, 3], 50)))
 
                     regressionY[tt][control] = regModels[tt, control].predict(
                         numpy.array([tempGrid[0].flatten(),
                                      tempGrid[1].flatten(),
-                                     tempGrid[2].flatten()]).transpose())
+                                     tempGrid[2].flatten(),
+                                     tempGrid[3].flatten()]).transpose())
 
                     regressionX[tt, control, :, :, :] = numpy.array([
                         numpy.linspace(min(xs[0]), max(xs[0], 50)),
                         numpy.linspace(min(xs[1]), max(xs[1], 50)),
-                        numpy.linspace(min(xs[2]), max(xs[2], 50))])
+                        numpy.linspace(min(xs[2]), max(xs[2], 50)),
+                        numpy.linspace(min(xs[3]), max(xs[3], 50))])
 
                     """ Push the regressions back onto the GPU for reuse in the
                     forward path recomputations """
@@ -3702,7 +3711,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
             for control in range(noControls):
                 """ The following is just for record-keeping purposes with
                 regards to state. Cost-to-go is still important. """
-                xs = numpy.array([states[idx, tt, 0:3]
+                xs = numpy.array([states[idx, tt, 0:4]
                                   for idx in range(len(controls[:, tt]))
                                   if controls[idx, tt] == control])
 
