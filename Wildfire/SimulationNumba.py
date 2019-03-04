@@ -341,10 +341,16 @@ def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
         through to the end. If we are at the first period, we do not need to do
         this """
         if start > 0:
-            for patch in range(noPatches):
-                costs2Go[path][start-1] = (
-                    accumulatedDamages[path, start - 1, totalSteps + lookahead]
-                    - accumulatedDamages[path, start - 1, start - 1])
+            costs2Go[path][start] = 0
+
+            # We discount the future damages by the discount factor. This allows
+            # the algorithm to place more weight on more immediate damage.
+            for tt in range(start, totalSteps + lookahead - 1):
+                for patch in range(noPatches):
+                    costs2Go[path][start] += ((
+                        accumulatedDamages[path, tt + 1, patch]
+                        - accumulatedDamages[path, tt, patch]) /
+                        (1 + discount) ** (tt - start))
 #        for tt in range(start, start + 1):
 #            """ The cost to go for the prior period will include the expected
 #            accumulated damage for that period's control for that period
@@ -3651,7 +3657,7 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                                 regressionY[tt, control, :, :, :]))
 
                 else:
-                    xs = numpy.array([states[idx, tt, 0:3]
+                    xs = numpy.array([states[idx, tt, 0:4]
                                       for idx in range(len(controls[:, tt]))
                                       if controls[idx, tt] == control])
                     """ Values for regression are the costs to go at future
