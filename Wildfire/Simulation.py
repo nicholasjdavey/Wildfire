@@ -1364,15 +1364,19 @@ class Simulation():
                 windRegimes = numpy.zeros([timeSteps+1+lookahead])
                 windRegimes[0] = region.getWindRegime()
                 accumulatedDamage = numpy.zeros([timeSteps+1, patches])
-                randomFFDIpaths = numpy.zeros([mcPaths, timeSteps + 1,
-                                               patches], dtype=numpy.float32)
+
+                if self.model.getAlgo() in [4, 5]:
+                    randomFFDIpaths = numpy.zeros([mcPaths, timeSteps + 1,
+                                                   patches],
+                                                   dtype=numpy.float32)
+
                 accumulatedHours = numpy.zeros([timeSteps+1, len(resources)])
 
                 """ If not MPC, we need to know the initial assignments of
                 aircraft based on the ENTIRE horizon """
                 if static:
                     expectedFFDI = self.expectedFFDIPath(
-                        randomFFDIpaths[run, :, 0], sampleFFDIs[ii], mr, mrsd,
+                        FFDI[0], sampleFFDIs[ii], mr, mrsd,
                         timeSteps + lookahead)
 
                     expDamageExist = {
@@ -1453,8 +1457,8 @@ class Simulation():
 
                     else:
                         expectedFFDI = self.expectedFFDIPath(
-                            randomFFDIpaths[run, :, tt], sampleFFDIs[ii], mr,
-                            mrsd, timeSteps + lookahead - tt)
+                            FFDI[tt], sampleFFDIs[ii][:, tt::], mr, mrsd,
+                            timeSteps + lookahead - tt)
 
                     """ Compute the new assignments. If static, only fire
                     assignments are computed here. Otherwise, we also compute
@@ -1465,7 +1469,7 @@ class Simulation():
                             (jj, configsE[kk] - 1):
                             self.expectedDamageExisting(
                                     activeFires[jj], expectedFFDI,
-                                    configsE[kk], tt, lookahead)
+                                    configsE[kk], tt, lookahead, discount)
                             for jj in range(len(activeFires))
                             for kk in range(len(configsE))}
 
@@ -1473,7 +1477,7 @@ class Simulation():
                             (jj, configsP[kk] - 1):
                             self.expectedDamagePotential(
                                     jj, expectedFFDI, configsP[kk], tt,
-                                    lookahead)
+                                    lookahead, discount)
                             for jj in range(patches)
                             for kk in range(len(configsP))}
 
@@ -1491,7 +1495,7 @@ class Simulation():
                             if tt == timeSteps - 1:
                                 pass
                             else:
-                                [s1, s2, s3] = self.computeState(
+                                [s1, s2, s3, s4] = self.computeState(
                                     assignmentsPath, resourcesPath,
                                     expDamageExist, expDamagePoten,
                                     activeFires, configsP, configsE,
@@ -1505,7 +1509,7 @@ class Simulation():
                                         # expectations
                                         poly_reg = PolynomialFeatures(degree=2)
                                         predict_ = poly_reg.fit_transform(
-                                                numpy.array([s1, s2, s3])
+                                                numpy.array([s1, s2, s3, s4])
                                                 .reshape(1, -1))
                                         currC2G = (self.regModel[ii][tt, c]
                                                    .predict(predict_))
@@ -1628,7 +1632,8 @@ class Simulation():
                                 temperatureMax, windRegimes, windNS, windEW,
                                 FFDI, tt)
                     else:
-                        FFDI[tt + 1] = sampleFFDIs[ii][:, tt + 1]
+                        FFDI[tt + 1] = self.updateFFDI(
+                            FFDI[tt], sampleFFDIs[ii][:, tt + 1], mr, mrsd)
 
                 # Store the output results
                 self.finalDamageMaps[ii][run] = accumulatedDamage
@@ -3233,6 +3238,15 @@ class Simulation():
 
         """ Return incremental damage for region """
         return damage
+
+    def updateFFDI(self, ffdiCurr, sampleFFDIs, mr, mrsd):
+
+        ffdiNew = numpy.zeros(ffdiCurr.shape)
+
+        for patch in range(len(ffdiCurr)):
+            rand = numpy.random.normal(0, mrsd)
+            ffdiNew[patch] =  max(mr * (sampleFFDIs[patch] - ffdiCurr[patch])
+                + rand * math.sqrt(ffdiCurr[patch]), 0)
 
     def copyNonCplexComponents(self, tempModel, copyModel):
         """ This routine only copies components that are immutable """

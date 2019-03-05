@@ -747,7 +747,6 @@ def simulateNextStep(aircraftAssignments, aircraftTypes, aircraftSpeeds,
                 patch, time])*mrsd, 0)
     else:
         for patch in range(noPatches):
-            rand = xoroshiro128p_normal_float32(rng_states, thread_id)
             randomFFDIpaths[thread_id, patch, time + 1] = max(mr * (
                 sampleFFDIs[patch, time + 1] - randomFFDIpaths[thread_id,
                 patch, time]), 0)
