@@ -1469,7 +1469,8 @@ class Simulation():
                             (jj, configsE[kk] - 1):
                             self.expectedDamageExisting(
                                     activeFires[jj], expectedFFDI,
-                                    configsE[kk], tt, lookahead, discount)
+                                    configsE[kk], tt, self.model.getTotalSteps()
+                                    + lookahead - tt, discount)
                             for jj in range(len(activeFires))
                             for kk in range(len(configsE))}
 
@@ -1477,7 +1478,27 @@ class Simulation():
                             (jj, configsP[kk] - 1):
                             self.expectedDamagePotential(
                                     jj, expectedFFDI, configsP[kk], tt,
-                                    lookahead, discount)
+                                    self.model.getTotalSteps() + lookahead - tt,
+                                    discount)
+                            for jj in range(patches)
+                            for kk in range(len(configsP))}
+
+                    expDamageExistNext = {
+                            (jj, configsE[kk] - 1):
+                            self.expectedDamageExisting(
+                                    activeFires[jj], expectedFFDI,
+                                    configsE[kk], tt+1,
+                                    self.model.getTotalSteps() + lookahead - tt
+                                    - 1, discount)
+                            for jj in range(len(activeFires))
+                            for kk in range(len(configsE))}
+
+                    expDamagePotenNext = {
+                            (jj, configsP[kk] - 1):
+                            self.expectedDamagePotential(
+                                    jj, expectedFFDI, configsP[kk], tt,
+                                    self.model.getTotalSteps() + lookahead - tt
+                                    -1 , discount)
                             for jj in range(patches)
                             for kk in range(len(configsP))}
 
@@ -1495,15 +1516,25 @@ class Simulation():
                             if tt == timeSteps - 1:
                                 pass
                             else:
-                                [s1, s2, s3, s4] = self.computeState(
-                                    assignmentsPath, resourcesPath,
-                                    expDamageExist, expDamagePoten,
-                                    activeFires, configsP, configsE,
-                                    expectedFFDI, accumulatedHours, method,
-                                    tt + 1)
-
                                 if tt > 0:
                                     for c in range(noControls):
+                                        [patchConfigs, fireConfigs] = (
+                                        self.assignAircraft(
+                                                assignmentsPath, expDamageExist,
+                                                expDamagePoten, activeFires,
+                                                resourcesPath, expectedFFDI, tt
+                                                + 1, bestControl, method,
+                                                staticAfter=static))
+
+                                        [s1, s2, s3, s4] = self.computeState(
+                                            assignmentsPath, resourcesPath,
+                                            expDamageExist, expDamagePoten,
+                                            expDamageExistNext,
+                                            expDamagePotenNext, activeFires,
+                                            configsP, configsE, expectedFFDI,
+                                            patchConfigs, fireConfigs,
+                                            accumulatedHours, method, tt + 1)
+
                                         # Use the current states to interpolate
                                         # the data representing the
                                         # expectations
@@ -2714,14 +2745,16 @@ class Simulation():
 
         elif dummy == 1:
             # Assign only to cover existing fires (state vals 3 + 4)
+            # This is to determine the best savings possible for fighting
+            # existing fires only. We don't use it for operational
+            # decisions.
 #            if method == 1:
 #                fw = max([tempModel.lambdas[c][0]
 #                          for c in tempModel.lambdas.keys()])
 #                fw = max(fw, 0.95)
 #            else:
 #                fw = 0.95
-            fw = 0.95
-
+            fw = 1
             bw = 1 - fw
             maxF = math.inf
             maxB = math.inf
@@ -2824,7 +2857,7 @@ class Simulation():
         """ Expected number of fires for patch N over horizon """
         look = (self.model.getLookahead() + self.model.getTotalSteps()
                 if static and timeStep == 0
-                else self.model.getLookahead())
+                else 1)
 
         tempModel.no_N = {
                 n:
@@ -4913,48 +4946,54 @@ class Simulation():
 
     def computeState(self, assignmentsPath, resourcesPath, expDamageExist,
                      expDamagePoten, activeFires, configsP, configsE,
-                     expectedFFDI, aircraftHours, method, time):
+                     expectedFFDI, patchConfigs, fireConfigs, aircraftHours,
+                     method, time):
 
         """ STATES - USED """
-        """ 1. Expected potential damage (no relocation, no existing) """
-        """ Or weighted cover without relocation """
-        [patchConfigs, fireConfigs] = self.assignAircraft(
-                assignmentsPath, expDamageExist, expDamagePoten, activeFires,
-                resourcesPath, expectedFFDI, time, 1, method, False, 1)
-
+        """ 1. Expected damage from existing fires with no attack now """
         s1 = 0
+
+        for fire in range(len(activeFires)):
+            s1 += expDamageExist[fire, 0]
+
+        """ 2. Expected damage from potential fires with no attack now """
+        s2 = 0
+
+        for patch in range(len(self.model.getRegion().getPatches())):
+            s2 += expDamagePoten[patch, 0]
+
+        """ 3. Expected damage from existing fires, this control"""
+        s3 = 0
 
         for patch in range(len(self.model.getRegion().getPatches())):
             for config in range(len(patchConfigs[0])):
-                s1 += (patchConfigs[patch][config]
+                s3 += (patchConfigs[patch][config]
                        * expDamagePoten[patch, configsP[config]-1])
 
-        """ 2. Expected existing damage (no suppression) """
-        s2 = 0
-
-        for fire in range(len(activeFires)):
-            s2 += expDamageExist[fire, 0]
-
-        """ 3. Expected potential  (relocate to existing, no existing) """
-        """ Relocate to existing. Remainder cover potential. """
-        """ Or weighted cover with relocation to existing """
-        """ Or weighted cover of potential with relocation to existing """
-        [patchConfigs, fireConfigs] = self.assignAircraft(
-                assignmentsPath, expDamageExist, expDamagePoten, activeFires,
-                resourcesPath, expectedFFDI, time, 1, method, False, 2)
-
-        """ STATES - UNUSED/INFORMATION """
-        """ 4. Expected existing (relocate to existing) (NOT USED YET) """
+        """ 4. Expected damage from potential fires now, this control """
         s4 = 0
 
         for fire in range(len(activeFires)):
             s4 += expDamageExist[fire, fireConfigs[fire]]
 
+#        """ NOT USED """
+#        """ 5. Lowest potential damage for following period with this control
+#        """
+#        s5 = 0
+#
+#        for patch in range(len(self.model.getRegion().getPatches())):
+#            for config in range(len(patchConfigs[0])):
+#                s5 += (patchConfigs[patch][config]
+#                       * expDamagePoten[patch, configsP[config]-1])
+#
+#        """ 6. Lowest existing damage for following period with this control
+#        """
+
         # Now check the expected damage from potential fires if expected fires
         # are ignored.
-        [patchConfigs, fireConfigs] = self.assignAircraft(
-                assignmentsPath, expDamageExist, expDamagePoten, activeFires,
-                resourcesPath, expectedFFDI, time, 1, method, False, 3)
+#        [patchConfigs, fireConfigs] = self.assignAircraft(
+#                assignmentsPath, expDamageExist, expDamagePoten, activeFires,
+#                resourcesPath, expectedFFDI, time, 1, method, False, 3)
 
 #        # Do a dummy single period simulation
 #        _ = self.simulateSinglePeriod(
@@ -4962,12 +5001,12 @@ class Simulation():
 #                activeFires, accumulatedDamage, accumulatedHours,
 #                patchConfigs, fireConfigs, FFDI[time], time)
 
-        s3 = 0
-
-        for patch in range(len(self.model.getRegion().getPatches())):
-            for config in range(len(patchConfigs[0])):
-                s3 += (patchConfigs[patch][config]
-                       * expDamagePoten[patch, configsP[config]-1])
+#        s3 = 0
+#
+#        for patch in range(len(self.model.getRegion().getPatches())):
+#            for config in range(len(patchConfigs[0])):
+#                s3 += (patchConfigs[patch][config]
+#                       * expDamagePoten[patch, configsP[config]-1])
 
 #        # Aircraft hours state
 #        s1 = sum([self.relocationModel.maxHours[r] - aircraftHours[time, r]
@@ -4983,7 +5022,7 @@ class Simulation():
 #        s3 = sum([expDamageExist[m, fireConfigs[m]]
 #                  for m in self.relocationModel.M])
 
-        return [s1, s2, s3]
+        return [s1, s2, s3, s4]
 
     def interpolateC2G(self, regressionX, regressionY, stateVals, control,
                        time):

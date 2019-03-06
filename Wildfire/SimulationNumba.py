@@ -41,7 +41,7 @@ global epsilon
 
 @cuda.jit
 def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
-                       expFiresComp, lambdas, patchVegetations, patchAreas,
+                       expFiresCompM, lambdas, patchVegetations, patchAreas,
                        patchLocations, baseLocations, tankerDists, heliDists,
                        ffdiRanges, rocA2PHMeans, rocA2PHSDs, occurrence,
                        initSizeM, initSizeSD, initSuccess, extSuccess,
@@ -86,6 +86,8 @@ def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
         weightsP = cuda.local.array((noPatches, noConfP), dtype=float32)
         selectedE = cuda.local.array(noFiresMax, dtype=int32)
         expectedFFDI = cuda.local.array((noPatches, lookahead), dtype=float32)
+        expectedFires = cuda.local.array((noPatches), dtype=float32)
+        expFiresComp = cuda.local.array((noBases, 4), dtype=float32)
 
         for ii in range(noFiresMax):
             for jj in range(noConfE):
@@ -144,16 +146,37 @@ def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
 ##                    expectedTemp[1, patch, 0] = expectedFFDI[patch, 0]
 ##                    expectedTemp[1, patch, 1] = sampleFFDIs[patch, tt]
 
-            if static < 0:
-                saveState(aircraftAssignments, resourceTypes, resourceSpeeds,
-                          maxHours, tankerDists, heliDists, aircraftLocations,
-                          accumulatedHours, patchLocations, baseLocations,
-                          ffdiRanges, fires, fireSizes, fireLocations,
-                          expectedE, expectedP, expFiresComp, configurations,
-                          configsE, configsP, baseConfigsMax, fireConfigsMax,
-                          selectedE, weightsP, states, lambdas, thresholds,
-                          method, stepSize, tt - start, lookahead,
-                          expectedTemp, path)
+            # Expected fires for each patch at this time step
+            for patch in range(noPatches):
+                expectedFires[patch] = (interpolate1D(randomFFDIpaths[path,
+                    patch, tt], ffdiRanges[patchVegetations[patch]],
+                    occurrence[patchVegetations[patch]]) * patchAreas[patch])
+
+            # Expected visible fires for each component for each base
+            for base in range(noBases):
+                expFiresComp[base, 0] = 0
+
+                for patch in range(noPatches):
+                    expFiresComp[base, 0] += expectedFires[patch] * (
+                        tankerDists[patch, base] <= thresholds[0])
+
+                expFiresComp[base, 2] = 0
+
+                for patch in range(noPatches):
+                    expFiresComp[base, 2] += expectedFires[patch] * (
+                        tankerDists[patch, base] > thresholds[0])
+
+                expFiresComp[base, 1] = 0
+
+                for patch in range(noPatches):
+                    expFiresComp[base, 1] += expectedFires[patch] * (
+                        heliDists[patch, base] <= thresholds[0])
+
+                expFiresComp[base, 3] = 0
+
+                for patch in range(noPatches):
+                    expFiresComp[base, 3] += expectedFires[patch] * (
+                        heliDists[patch, base] > thresholds[0])
 
             if (optimal and (static < 0)):
                 # ROV Optimal Control
@@ -261,6 +284,20 @@ def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
                             existing fires. To do this, the expected damage
                             computations must look to the end of the horizon.
                             """
+
+                            saveState(aircraftAssignments, resourceTypes,
+                                      resourceSpeeds, maxHours, tankerDists,
+                                      heliDists, aircraftLocations,
+                                      accumulatedHours, patchLocations,
+                                      baseLocations, ffdiRanges, fires,
+                                      fireSizes, fireLocations, expectedE,
+                                      expectedP, expFiresComp, configurations,
+                                      configsE, configsP, baseConfigsMax,
+                                      fireConfigsMax, selectedE, weightsP,
+                                      states, lambdas, thresholds, method,
+                                      stepSize, tt - start, lookahead,
+                                      expectedTemp, path, control, True)
+
                             if len(regressionX.shape) == 4:
                                 currC2G += interpolateCost2Go(
                                         states, regressionX, regressionY,
@@ -283,6 +320,17 @@ def simulateSinglePath(paths, totalSteps, lookahead, mr, mrsd, sampleFFDIs,
                     bestControl = int(noControls*xoroshiro128p_uniform_float32(
                         rng_states, path))
                     controls[path][tt] = bestControl
+
+                    saveState(
+                        aircraftAssignments, resourceTypes, resourceSpeeds,
+                        maxHours, tankerDists, heliDists, aircraftLocations,
+                        accumulatedHours, patchLocations, baseLocations,
+                        ffdiRanges, fires, fireSizes, fireLocations,
+                        expectedE, expectedP, expFiresComp, configurations,
+                        configsE, configsP, baseConfigsMax, fireConfigsMax,
+                        selectedE, weightsP, states, lambdas, thresholds,
+                        method, stepSize, tt - start, lookahead, expectedTemp,
+                        path, bestControl, False)
 
                 else:
                     if optimal:
@@ -574,21 +622,48 @@ def interpolate1D(xval, xrange, yrange):
 @cuda.jit(device=True)
 def calculateCost2Go(states, regressionX, time, path, control):
 
+#    returnVal = (regressionX[time][control][0][0]
+#                 + regressionX[time][control][1][0] * states[path][time][0]
+#                 + regressionX[time][control][2][0] * states[path][time][1]
+#                 + regressionX[time][control][3][0] * states[path][time][2]
+#                 + regressionX[time][control][4][0] * states[path][time][0]
+#                     ** 2
+#                 + regressionX[time][control][5][0] * states[path][time][0]
+#                     * states[path][time][1]
+#                 + regressionX[time][control][6][0] * states[path][time][0]
+#                     * states[path][time][2]
+#                 + regressionX[time][control][7][0] * states[path][time][1]
+#                     ** 2
+#                 + regressionX[time][control][8][0] * states[path][time][1]
+#                     * states[path][time][2]
+#                 + regressionX[time][control][9][0] * states[path][time][2]
+#                     ** 2)
+
+    # Do for a 4 variable 2nd order polynomial
     returnVal = (regressionX[time][control][0][0]
                  + regressionX[time][control][1][0] * states[path][time][0]
                  + regressionX[time][control][2][0] * states[path][time][1]
                  + regressionX[time][control][3][0] * states[path][time][2]
-                 + regressionX[time][control][4][0] * states[path][time][0]
-                     ** 2
+                 + regressionX[time][control][4][0] * states[path][time][3]
                  + regressionX[time][control][5][0] * states[path][time][0]
-                     * states[path][time][1]
-                 + regressionX[time][control][6][0] * states[path][time][0]
-                     * states[path][time][2]
-                 + regressionX[time][control][7][0] * states[path][time][1]
                      ** 2
-                 + regressionX[time][control][8][0] * states[path][time][1]
+                 + regressionX[time][control][6][0] * states[path][time][0]
+                     * states[path][time][1]
+                 + regressionX[time][control][7][0] * states[path][time][0]
                      * states[path][time][2]
-                 + regressionX[time][control][9][0] * states[path][time][2]
+                 + regressionX[time][control][8][0] * states[path][time][0]
+                     * states[path][time][3]
+                 + regressionX[time][control][9][0] * states[path][time][1]
+                     ** 2
+                 + regressionX[time][control][10][0] * states[path][time][1]
+                     * states[path][time][2]
+                 + regressionX[time][control][11][0] * states[path][time][1]
+                     * states[path][time][3]
+                 + regressionX[time][control][12][0] * states[path][time][2]
+                     ** 2
+                 + regressionX[time][control][13][0] * states[path][time][2]
+                     * states[path][time][3]
+                 + regressionX[time][control][14][0] * states[path][time][3]
                      ** 2)
 
     return returnVal
@@ -3151,47 +3226,70 @@ def saveState(resourceAssignments, resourceTypes, resourceSpeeds, maxHours,
               fireLocations, expectedE, expectedP, expFiresComp,
               configurations, configsE, configsP, baseConfigsMax,
               fireConfigsMax, selectedE, weightsP, states, lambdas, thresholds,
-              method, stepSize, time, lookahead, expectedTemp, thread_id):
+              method, stepSize, time, lookahead, expectedTemp, thread_id,
+              control, recomp):
 
     global noAircraft
     global noPatches
     global noConfigs
-    statesTemp = cuda.local.array(4, dtype=float32)
-    updateBases = cuda.local.array(noBases, dtype=b1)
-    baseConfigsPossible = cuda.local.array(noConfigs, dtype=int32)
-    configNos = cuda.local.array(4, dtype=int32)
+    global noConfP
 
-    """ STATES - USED """
-    """ 1. Expected potential damage (no relocation, no existing) """
-    """ Or weighted cover without relocation """
-    states[thread_id, time, 0] = potentialNoRelocation(
-            configNos, tankerCovers, heliCovers, resourceTypes,
-            aircraftLocations, baseLocations, updateBases, configurations,
-            configsP, baseConfigsPossible, expFiresComp, expectedP,
-            resourceAssignments, math.inf, time, lookahead, thread_id)
+    if not recomp:
+        """ 1. Expected existing damage (no suppression) """
+        states[thread_id, time, 0] = existingNoSuppression(expectedE, fires[
+            thread_id, time])
 
-    """ 2. Expected existing damage (no suppression) """
-    states[thread_id, time, 1] = existingNoSuppression(expectedE, fires[
-        thread_id, time])
+        """ 2. Expected potential damage (no suppression) """
+        states[thread_id, time, 1] = potentialNoSuppression(expectedP,
+            noPatches, time)
 
-    statesRelocate(
-        resourceAssignments, resourceSpeeds, resourceTypes, maxHours,
-        aircraftLocations, accumulatedHours, baseLocations, tankerCovers,
-        heliCovers, fires, fireSizes, fireLocations, ffdiRanges, configNos,
-        configurations, configsE, configsP, baseConfigsMax, fireConfigsMax,
-        thresholds, expFiresComp, expectedE, expectedP, updateBases,
-        baseConfigsPossible, selectedE, weightsP, time, stepSize, lookahead,
-        thread_id, lambdas, method, expectedTemp, 1, math.inf, statesTemp)
+    else:
+        """ Expected damage from existing, this control """
+        states[thread_id, time, control * 2 + 2] = 0
 
-    """ 3. Expected potential damage (relocate to existing, no existing) """
-    """ Relocate as much to existing as needed. Remainder cover potential. """
-    """ Or weighted cover with relocation to existing """
-    """ Or weighted cover of potential with relocation to existing """
-    states[thread_id, time, 2] = statesTemp[0]
+        for fire in range(fires[thread_id, time]):
+            states[thread_id, time, control * 2 + 2] += (
+                expectedE[selectedE[fire]])
 
-    """ STATES - UNUSED/INFORMATION """
-    """ 4. Expected existing damage (relocate to existing) (NOT USED YET) """
-    states[thread_id, time, 3] = statesTemp[1]
+        """ Expected damage from potential, this control """
+        for patch in range(fires[thread_id, time]):
+            for config in range(noConfP):
+                states[thread_id, time, control * 2 + 3] += (
+                    expectedP[patch, config] * weightsP[patch, config])
+
+#
+#    statesTemp = cuda.local.array(4, dtype=float32)
+#    updateBases = cuda.local.array(noBases, dtype=b1)
+#    baseConfigsPossible = cuda.local.array(noConfigs, dtype=int32)
+#    configNos = cuda.local.array(4, dtype=int32)
+#
+#    """ STATES - USED """
+#    """ 1. Expected potential damage (no relocation, no existing) """
+#    """ Or weighted cover without relocation """
+#    states[thread_id, time, 0] = potentialNoRelocation(
+#            configNos, tankerCovers, heliCovers, resourceTypes,
+#            aircraftLocations, baseLocations, updateBases, configurations,
+#            configsP, baseConfigsPossible, expFiresComp, expectedP,
+#            resourceAssignments, math.inf, time, lookahead, thread_id)
+#
+#    statesRelocate(
+#        resourceAssignments, resourceSpeeds, resourceTypes, maxHours,
+#        aircraftLocations, accumulatedHours, baseLocations, tankerCovers,
+#        heliCovers, fires, fireSizes, fireLocations, ffdiRanges, configNos,
+#        configurations, configsE, configsP, baseConfigsMax, fireConfigsMax,
+#        thresholds, expFiresComp, expectedE, expectedP, updateBases,
+#        baseConfigsPossible, selectedE, weightsP, time, stepSize, lookahead,
+#        thread_id, lambdas, method, expectedTemp, 1, math.inf, statesTemp)
+#
+#    """ 3. Expected potential damage (relocate to existing, no existing) """
+#    """ Relocate as much to existing as needed. Remainder cover potential. """
+#    """ Or weighted cover with relocation to existing """
+#    """ Or weighted cover of potential with relocation to existing """
+#    states[thread_id, time, 2] = statesTemp[0]
+#
+#    """ STATES - UNUSED/INFORMATION """
+#    """ 4. Expected existing damage (relocate to existing) (NOT USED YET) """
+#    states[thread_id, time, 3] = statesTemp[1]
 
 #    """ 5. Expected potential damage (relocate to potential) (NOT USED YET) """
 #    """ Relocate as much to potential as needed. Remainder cover existing. """
@@ -3286,6 +3384,16 @@ def existingNoSuppression(expectedE, noFires):
 
     for fire in range(noFires):
         stateVal += expectedE[fire, 0]
+
+    return stateVal
+
+
+@cuda.jit(device=True)
+def potentialNoSuppression(expectedP, noPatches):
+    stateVal = 0
+
+    for patch in range(noPatches):
+        stateVal += expectedP[patch, 0]
 
     return stateVal
 
@@ -3665,7 +3773,8 @@ def simulateROV(paths, sampleFFDIs, patchVegetations, patchAreas,
                                 regressionY[tt, control, :, :, :]))
 
                 else:
-                    xs = numpy.array([states[idx, tt, 0:4]
+                    xs = numpy.array([states[idx, tt, [0, 1, control * 2 + 2,
+                                                       control * 2 + 3]]
                                       for idx in range(len(controls[:, tt]))
                                       if controls[idx, tt] == control])
                     """ Values for regression are the costs to go at future
