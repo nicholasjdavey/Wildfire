@@ -1360,7 +1360,7 @@ class Simulation():
                 windEW = numpy.zeros([timeSteps+1+lookahead, regionSize])
                 windEW[0] = region.getWindE()
                 FFDI = numpy.zeros([timeSteps+1+lookahead, regionSize])
-                FFDI[0] = region.getDangerIndex()
+                FFDI[0, :] = sampleFFDIs[ii][:, 0].transpose()
                 windRegimes = numpy.zeros([timeSteps+1+lookahead])
                 windRegimes[0] = region.getWindRegime()
                 accumulatedDamage = numpy.zeros([timeSteps+1, patches])
@@ -1405,8 +1405,8 @@ class Simulation():
                                     expectedFFDI, 0, 0, method, static))
 
                     self.fixBaseAssignments(assignmentsPath[0])
-                    print(assignmentsPath[0])
-                    print(assignmentsPath[1])
+#                    print(assignmentsPath[0])
+#                    print(assignmentsPath[1])
 
                 for tt in range(timeSteps):
                     if len(sampleFFDIs) == 0:
@@ -1474,6 +1474,9 @@ class Simulation():
                             for jj in range(len(activeFires))
                             for kk in range(len(configsE))}
 
+#                    print(expectedFFDI)
+#                    print(expDamageExist)
+
                     expDamagePoten = {
                             (jj, configsP[kk] - 1):
                             self.expectedDamagePotential(
@@ -1482,6 +1485,8 @@ class Simulation():
                                     discount)
                             for jj in range(patches)
                             for kk in range(len(configsP))}
+
+#                    print(expDamagePoten)
 
                     expDamageExistNext = {
                             (jj, configsE[kk] - 1):
@@ -3135,8 +3140,8 @@ class Simulation():
 
 #        self.relocationModel.write('LP.lp')
         """ SOLVE THE MODEL """
-        print(tempModel.constraintIdxStarts)
-        print(tempModel.decisionVarsIdxStarts)
+#        print(tempModel.constraintIdxStarts)
+#        print(tempModel.decisionVarsIdxStarts)
         tempModel.solve()
 
         """ UPDATE THE RESOURCE ASSIGNMENTS IN THE SYSTEM """
@@ -3275,11 +3280,17 @@ class Simulation():
     def updateFFDI(self, ffdiCurr, sampleFFDIs, mr, mrsd):
 
         ffdiNew = numpy.zeros(ffdiCurr.shape)
+        # We use the same uncertainty parameter across the region. This is an
+        # alternative to correlated uncertainty, which is a little more complex
+        # to implement. Wilks uses this but for simplicity we don't as we are
+        # more concerned with the overall ROV method.
+        rand = numpy.random.normal(0, mrsd)
 
         for patch in range(len(ffdiCurr)):
-            rand = numpy.random.normal(0, mrsd)
             ffdiNew[patch] =  max(mr * (sampleFFDIs[patch] - ffdiCurr[patch])
-                + rand * math.sqrt(ffdiCurr[patch]), 0)
+                + ffdiCurr[patch] + rand * math.sqrt(ffdiCurr[patch]), 0)
+
+        return ffdiNew
 
     def copyNonCplexComponents(self, tempModel, copyModel):
         """ This routine only copies components that are immutable """
@@ -3315,13 +3326,16 @@ class Simulation():
         dist = 2 * 6371 * math.asin(c)
         return dist
 
-    def expectedFFDIPath(startFFDIs, ffdiMeans, mr, mrsd, lookahead):
-        expectedFFDI = numpy.zeros(startFFDIs.shape)
+    def expectedFFDIPath(self, startFFDIs, ffdiMeans, mr, mrsd, lookahead):
+        expectedFFDI = numpy.zeros(ffdiMeans.shape)
         expectedFFDI[:, 0] = startFFDIs
 
         for tt in range(lookahead):
-            expectedFFDI[:, tt+1] = max(((ffdiMeans[:, tt] - expectedFFDI[:, tt])
-                * mr + expectedFFDI[:, tt]), 0)
+            expectedFFDI[:, tt+1] = [max(((ffdiMeans[patch, tt] -
+                expectedFFDI[patch, tt]) * mr + expectedFFDI[patch, tt]), 0)
+                for patch in range(len(startFFDIs))]
+
+        return expectedFFDI
 
     def expectedDamageExisting(self, fire, ffdiPath, configID, time, look,
                                discount):
@@ -3332,7 +3346,7 @@ class Simulation():
         size = fireTemp.getSize()
 
         for tt in range(look):
-            ffdi = ffdiPath[patch, tt + time]
+            ffdi = ffdiPath[patch, tt]
 
             success = numpy.interp(ffdi,
                                    vegetation.getFFDIRange(),
@@ -3356,7 +3370,7 @@ class Simulation():
         for tt in range(look):
             # Only look at the expected damage of fires started at this time
             # period to the end of the rolling horizon
-            ffdi = ffdiPath[patchID, tt + time]
+            ffdi = ffdiPath[patchID, tt]
 
             occ = numpy.interp(ffdi,
                                vegetation.getFFDIRange(),
@@ -3379,7 +3393,7 @@ class Simulation():
             damage += occ * size / ((1 + discount) ** (tt))
 
             for t2 in range(tt, look):
-                ffdi = ffdiPath[patchID, t2 + time]
+                ffdi = ffdiPath[patchID, t2]
                 success2 = numpy.interp(ffdi,
                                         vegetation.getFFDIRange(),
                                         vegetation.getExtendedSuccess()[

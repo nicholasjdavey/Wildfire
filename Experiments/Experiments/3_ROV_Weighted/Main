@@ -59,23 +59,20 @@ Vegetation 5              : Experiments/Input_Data/Regions/Region_Provinces/Prob
 ## CONTROLS
 # Our two control parameters are lambda_1 and lambda_2 where
 # lambda_1 : 0 <= lambda_1 <= 1/infinity (Assignment 4 OR Method 2/Other Assignments OR Method 1)
-# lambda_1 : 0 <= lambda_2 <= 1/infinity (Assignment 4/Other Methods)
+# lambda_2 : 0 <= lambda_2 <= 1/infinity (Assignment 4/Other Methods)
 # lambda_1 = 0 forces the program to relocate to existing fires
 # lambda_1 = 1 forces the program to relocate to cover in case of future fires
 # 0 <= lambda_1 <= 1 is a trade-off between the two
-# lambda_2 = 0 forces the program to keep aircraft where they are/max relocation time
-# lambda_2 = 1 forces the program to ignore relocation costs/max relocation time
-# 0 <= lambda_2 <= 1/infinity is (a trade-off between the two/max relocation time)
+# lambda_2 = 0 forces the program to keep aircraft where they are/max relocation
+# lambda_2 = 1 forces the program to ignore relocation costs/max relocation
+# 0 <= lambda_2 <= 1/infinity is (a trade-off between the two/max relocation)
 # Therefore, our control options are coordinate pairs of (lambda_1,lambda_2)
 # that lie in: 1. the unit square ([0,1]^2) OR 2. ([0,1]*[0,infinity]):
-Number of Control Options : 6
-#                 lambda_1 (E vs. P / Max Fire)   lambda_2 (D vs. Reloc/(Max Reloc / Max Base))
-Control 1       :              0.33                    0.33
-Control 2       :              2.00                    0.33
-Control 3       :              0.33                    1.00
-Control 4       :              2.00                    1.00
-Control 5       :              0.33                    8.00
-Control 6       :              2.00                    8.00
+Number of Control Options : 3
+#                 lambda_1 (E vs. P / Max Fire)   lambda_2 (Max Reloc / Max Base)
+Control 1       :              0.5                     8
+Control 2       :              0.99                    8
+Control 3       :              0.01                    8
 
 ## EXPERIMENTAL CONTROLS (MULTIPLIERS AND PARAMETERS)
 # Separate different multipliers by comma (',')
@@ -87,7 +84,7 @@ Time Steps                                                      : 15
 Step Size (Hours)                                               : 1
 Daylight Hours Per Day                                          : 15
 ROV Paths                                                       : 100000
-Relocation LP Method (1=MaxCover, 2=PMedian, 3=Asgn3, 4=Asgn4)  : 3
+Relocation LP Method (1=MaxCover, 2=PMedian, 3=Assignment)      : 3
 Lookahead                                                       : 3
 Cover Time (minutes)                                            : 20
 Monte Carlo Paths                                               : 100000
@@ -99,6 +96,8 @@ Use Sample Paths                                                : 1
 Runs                                                            : 20
 Fire Threshold Distance (for close)                             : 0.33
 Max Fire Threshold Distance (for far)                           : 1
-Control Method, Assignment (1=Thresholds, 2=Weight+Threshold)   : 1
+Control Method, Assignment (1=Thresholds, 2=Weight+Threshold)   : 2
 Plot Maps                                                       : 0
 ROV Resolution (1 -> Polynomial Reg.  >1 -> Kernel Reg)         : 1
+FFDI Mean Reversion                                             : 0.3
+FFDI Standard Deviation (for lognormal dist.)                   : 0.3
