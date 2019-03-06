@@ -4020,9 +4020,12 @@ def simulateMC(paths, d_sampleFFDIs, d_patchVegetations, d_patchAreas,
         d_aircraftLocations = cuda.to_device(numpy.ascontiguousarray(
                 aircraftLocations[batchStart:batchEnd,
                                   start:(totalSteps+1), :]))
+
+        print(aircraftLocations.shape)
+        print(aircraftAssignments.shape)
         d_aircraftAssignments = cuda.to_device(numpy.ascontiguousarray(
                 aircraftAssignments[batchStart:batchEnd,
-                                    start:(totalSteps+1), :]))
+                                    start:(totalSteps+1), :, :]))
         d_controls = cuda.to_device(numpy.ascontiguousarray(
                 controls[batchStart:batchEnd, start:(totalSteps+1)]))
         d_states = cuda.to_device(numpy.ascontiguousarray(

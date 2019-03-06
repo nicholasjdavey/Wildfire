@@ -3594,6 +3594,8 @@ class Simulation():
                     [resource.getBase() + 1, 0]
                     for resource in self.model.getRegion().getResources()
                 ]]*mcPaths
+
+            print(aircraftAssignments.shape)
             initialExtinguished = numpy.zeros([mcPaths, totalSteps + 1],
                                   dtype=numpy.int32)
             fireStarts = numpy.zeros([mcPaths, totalSteps + 1],
