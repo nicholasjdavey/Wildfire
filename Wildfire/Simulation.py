@@ -44,6 +44,7 @@ class Simulation():
         self.assignmentModel = None
         self.relocationModel = None
         self.realisedAssignments = []
+        self.aircraftPositions = []
         self.realisedFires = []
         self.realisedStarts = []
         self.initialExtinguished = []
@@ -135,6 +136,12 @@ class Simulation():
 
     def setRealisedAssignments(self, ra):
         self.realisedAssignments = ra
+
+    def getAircraftPositions(self):
+        return self.aircraftPositions
+
+    def setAircraftPositions(self, p):
+        self.aircraftPositions = p
 
     def getRealisedFires(self):
         return self.realisedFires
@@ -1192,6 +1199,7 @@ class Simulation():
         self.finalDamageMaps = [None]*samplePaths
         self.expectedDamages = [None]*samplePaths
         self.realisedAssignments = [None]*samplePaths
+        self.aircraftPositions = [None]*samplePaths
         self.realisedFires = [None]*samplePaths
         self.realisedFFDIs = [None]*samplePaths
         self.aircraftHours = [None]*samplePaths
@@ -1207,6 +1215,7 @@ class Simulation():
             self.finalDamageMaps[ii] = [None]*runs
             self.expectedDamages[ii] = [None]*runs
             self.realisedAssignments[ii] = [None]*runs
+            self.aircraftPositions[ii] = [None]*runs
             self.realisedFires[ii] = [None]*runs
             self.realisedFFDIs[ii] = [None]*runs
             self.aircraftHours[ii] = [None]*runs
@@ -1343,6 +1352,10 @@ class Simulation():
                 self.finalDamageMaps[ii][run][0] = numpy.zeros([patches])
                 self.aircraftHours[ii][run] = numpy.zeros([timeSteps + 1,
                                                            len(resources)])
+                self.aircraftPositions[ii][run] = numpy.zeros(
+                    [timeSteps + 1, len(resources), 2])
+                self.aircraftPositions[ii][run][0, :, :] = numpy.array(
+                    [aircraft.getLocation() for aircraft in resources])
 
                 rain = numpy.zeros([timeSteps+1+lookahead, regionSize])
                 rain[0] = region.getRain()
@@ -1487,6 +1500,7 @@ class Simulation():
                             for kk in range(len(configsP))}
 
 #                    print(expDamagePoten)
+#                    sys.exit()
 
                     expDamageExistNext = {
                             (jj, configsE[kk] - 1):
@@ -1625,8 +1639,8 @@ class Simulation():
                     else:
                         bestControl = 0
 
-#                    print(self.relocationModel.decisionVarsIdxStarts)
-#                    print(self.relocationModel.constraintIdxStarts)
+                    print(self.relocationModel.decisionVarsIdxStarts)
+                    print(self.relocationModel.constraintIdxStarts)
                     if bestControl < noControls:
                         [patchConfigs, fireConfigs] = (
                                 self.assignAircraft(
@@ -1635,6 +1649,8 @@ class Simulation():
                                         resourcesPath, expectedFFDI, tt + 1,
                                         bestControl, method,
                                         staticAfter=static))
+                        self.relocationModel.write('LP.lp')
+                        sys.exit()
                     else:
                         print("Control Idx too high")
                         print(bestControl)
@@ -1645,20 +1661,22 @@ class Simulation():
 #                            expDamagePoten, activeFires, configsP,
 #                            configsE, expectedFFDI, accumulatedHours,
 #                            method, tt + 1)
-                    # Save the active fires to the path history
-                    self.realisedFires[ii][run][tt + 1] = copy.copy(
-                            activeFires)
 
                     # Simulate the fire growth, firefighting success and the
                     # new positions of each resources
                     damage += self.simulateSinglePeriod(
                             assignmentsPath, resourcesPath, firesPath,
                             activeFires, accumulatedDamage, accumulatedHours,
-                            patchConfigs, fireConfigs, FFDI[tt], tt)
+                            patchConfigs, fireConfigs, FFDI[tt], ii, run, tt)
 
                     self.aircraftHours[ii][run][tt + 1] = numpy.array([
                             resourcesPath[r].getFlyingHours()
                             for r in range(len(
+                                    self.model.getRegion().getResources()))])
+
+                    self.aircraftPositions[ii][run][tt + 1] = numpy.array(
+                            [resourcesPath[r].getLocation()
+                             for r in range(len(
                                     self.model.getRegion().getResources()))])
 
                     # Simulate the realised weather for the next time step
@@ -2844,9 +2862,11 @@ class Simulation():
         """ Now set the parameters and respective coefficients """
         """ Expected damage increase of each fire under each config """
         tempModel.D1_MK = expDamageExist
+#        print(numpy.array([value for (key, value) in sorted(expDamageExist.items())]).reshape(len(tempModel.M), lenKE))
 
         """ Expected damage increase of each patch under each config """
         tempModel.D2_NK = expDamagePoten
+#        print(numpy.array([value for (key, value) in sorted(expDamagePoten.items())]).reshape(lenN, lenKP))
 
         """ Travel times between base B and patch N for component C"""
         tempModel.d4_BNC = {
@@ -2944,6 +2964,8 @@ class Simulation():
                          for n in tempModel.N]))
                 for c in tempModel.C
                 for b in tempModel.B}
+
+        print(numpy.array([value for (key, value) in sorted(tempModel.no_CB.items())]).reshape(lenC, lenB))
 
         """////////////////////////////////////////////////////////////////////
         ///////////////////// OBJECTIVE VALUE COEFFICIENTS ////////////////////
@@ -3184,19 +3206,18 @@ class Simulation():
         fireConfigs = [configsM[m].index(1) for m in tempModel.M]
 
         assignmentsPath[timeStep] = assignments.astype(int)
+        print(assignments)
+        print(configsN)
 
         return [configsN, fireConfigs]
 
     def simulateSinglePeriod(self, assignmentsPath, resourcesPath,
                              firesPath, activeFires, accumulatedDamage,
                              accumulatedHours, patchConfigs, fireConfigs, ffdi,
-                             tt):
+                             sample, run, tt):
         """ This routine updates the state of the system given decisions """
         damage = 0
         patches = self.model.getRegion().getPatches()
-
-        """ Fight existing fires """
-        inactiveFires = []
 
         """ First, compute the hours flown by each aircraft this period.
         If relocating, then it is the travel time between bases.
@@ -3222,6 +3243,7 @@ class Simulation():
 
             resource.setLocation(newLoc)
             accumulatedHours[tt+1, r] = accumulatedHours[tt, r] + travTime
+            resource.setFlyingHours(resource.getFlyingHours() + travTime)
 
         """ Next, carry over the accumulated damage from the previous
         period"""
@@ -3231,34 +3253,16 @@ class Simulation():
         for fire in range(len(activeFires)):
             sizeOld = activeFires[fire].getSize()
 
-            extinguished = activeFires[fire].growFire(
-                    self.model,
+            activeFires[fire].growFire(self.model,
                     ffdi[activeFires[fire].getPatchID()],
-                    fireConfigs[fire] + 1,
-                    random=True)
+                    fireConfigs[fire] + 1, random=True)
 
             sizeCurr = max(activeFires[fire].getSize(), sizeOld)
-
-            if extinguished:
-                # Extinguish fire and remove from list of active fires
-                inactiveFires.append(fire)
 
             """ Update damage map for area burned for existing fires """
             accumulatedDamage[tt + 1, activeFires[fire].getPatchID()] += (
                     sizeCurr - sizeOld)
             damage += sizeCurr - sizeOld
-
-        """ Remove fires that are now contained """
-        newFires = []
-        for fire in range(len(activeFires)):
-            if fire not in inactiveFires:
-                newFires.append(activeFires[fire])
-
-        """ Update existing fires """
-        activeFires.clear()
-
-        for fire in newFires:
-            activeFires.append(fire)
 
         """ New fires """
         for patch in range(len(self.model.getRegion().getPatches())):
@@ -3273,6 +3277,15 @@ class Simulation():
 
                 if not(fire.getInitialSuccess()):
                     activeFires.append(fire)
+
+        """ Save the fires encountered this period to the path history """
+        self.realisedFires[sample][run][tt] = copy.deepcopy(activeFires)
+
+        """ Update existing fires for next period based on those that were not
+        extinguished """
+        for fire in activeFires:
+            if fire.getExtinguished():
+                activeFires.remove(fire)
 
         """ Return incremental damage for region """
         return damage
@@ -3594,8 +3607,6 @@ class Simulation():
                     [resource.getBase() + 1, 0]
                     for resource in self.model.getRegion().getResources()
                 ]]*mcPaths
-
-            print(aircraftAssignments.shape)
             initialExtinguished = numpy.zeros([mcPaths, totalSteps + 1],
                                   dtype=numpy.int32)
             fireStarts = numpy.zeros([mcPaths, totalSteps + 1],
@@ -4206,7 +4217,8 @@ class Simulation():
                     for fire in range(len(
                             self.realisedFires[sample][run][tt])):
                         writer.writerow(
-                                [str(fire+1),
+                                [self.realisedFires[sample][run][tt][fire]
+                                 .getID(),
                                  self.realisedFires[sample][run][tt][fire]
                                  .getInitialSize(),
                                  self.realisedFires[sample][run][tt][fire]

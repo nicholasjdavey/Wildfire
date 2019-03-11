@@ -11,6 +11,7 @@ from datetime import datetime
 
 class Fire():
     # Class for managing fires
+    fires = 0
 
     def __init__(self):
         # Constructs an instance
@@ -19,11 +20,22 @@ class Fire():
         self.start = datetime.now()
         self.end = datetime.now()
         self.initialSize = 0.0
-        self.initialSuccess = False
         self.finalSize = 0.0
         self.responseEncoding = ""
         self.respondingStations = []
         self.patchID = 0
+        self.id = Fire.fires
+        self.extinguished = False
+        Fire.fires += 1
+
+    def getID(self):
+        return self.id
+
+    def getExtinguished(self):
+        return self.extinguished
+
+    def setExtinguished(self, e):
+        self.extinguished = e
 
     # All locations assumed at centre of grid cells for simplicity
     def getLocation(self):
@@ -55,12 +67,6 @@ class Fire():
 
     def setInitialSize(self, i):
         self.initialSize = i
-
-    def getInitialSuccess(self):
-        return self.initialSuccess
-
-    def setInitialSuccess(self, i):
-        self.initialSuccess = i
 
     def getFinalSize(self):
         return self.finalSize
@@ -102,19 +108,27 @@ class Fire():
                                vegetation.getFFDIRange(),
                                vegetation.getExtendedSuccess()[configID])
 
-        radCurr = (math.sqrt(self.size*10000/math.pi))
-        randNo = numpy.random.rand()
+        # Radial growth
+#        radCurr = (math.sqrt(self.size*10000/math.pi))
+#
+#        if random:
+#            radNew = radCurr + math.exp(grMean + grSD * numpy.random.rand())
+#        else:
+#            radNew = radCurr + math.exp(grMean + grSD ** 2 / 2)
 
+#        # The fire is simply a growing circle. The front progresses from the
+#        # circumference radially. The growth rate pulled from the vegetation
+#        # object is in m/hr, so we must convert this to a new size given the
+#        # current size. Therefore, the current size's radius must be found
+#        # first.
+#        self.size = (math.pi * radNew**2)/10000
+
+        # Area growth
         if random:
-            radNew = radCurr + math.exp(grMean + grSD * numpy.random.rand())
+            self.size += math.exp(grMean + grSD * numpy.random.rand())
         else:
-            radNew = radCurr + math.exp(grMean + grSD ** 2 / 2)
+            self.size += math.exp(grMean + grSD ** 2 / 2)
 
-        # The fire is simply a growing circle. The front progresses from the
-        # circumference radially. The growth rate pulled from the vegetation
-        # object is in m/hr, so we must convert this to a new size given the
-        # current size. Therefore, the current size's radius must be found
-        # first.
-        self.size = (math.pi * radNew**2)/10000
-
-        return (True if randNo <= success else False)
+        # Has fire been extinguished
+        randNo = numpy.random.rand()
+        self.extinguished = True if randNo <= success else False

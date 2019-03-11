@@ -121,7 +121,7 @@ class Patch():
             fire.setSize(size)
             fire.setInitialSize(size)
             fire.setFinalSize(size)
-            fire.setInitialSuccess(success)
+            fire.setExtinguished(success)
             fire.setPatchID(self.patchID)
             newFiresList.append(fire)
 
