@@ -247,12 +247,13 @@ class Simulation():
             2: self.simulateROV,
             3: self.simulateMPC,
             4: self.simulateMPC,
-            5: self.simulateMPC
+            5: self.simulateMPC,
+            6: self.simulateStochasticMPC
             }
 
         algo = self.model.getAlgo()
 
-        if not(algo == 0):
+        if algo not in [0, 6]:
             self.buildLPModel()
 
         prog = switch.get(algo)
@@ -274,17 +275,18 @@ class Simulation():
             4: self.buildAssignment1
         }
 
-        self.buildModelBase()
-
         lpModel = self.model.getNestedOptMethod()
-        prog = switch.get(lpModel)
-        prog()
+
+        if lpModel < 5:
+            self.buildModelBase()
+            prog = switch.get(lpModel)
+            prog()
 
     def buildModelBase(self):
         """ Builds an assignment model to reuse for computing relocations. It
         does not contain any fires. Rather, it is copied each time it is needed
         and fires are added. The copied model is solved to give the required
-        assignments"""
+        assignments. This is for the purely deterministic modesl."""
 
         """ First copy the relocation model """
         bases = self.model.getRegion().getStations()[0]
@@ -304,6 +306,8 @@ class Simulation():
                      range(len(self.model.getRegion().getResources()))]
         cplxMod.B = [ii for ii in
                      range(len(self.model.getRegion().getStations()[0]))]
+        cplxMod.BB = [ii for ii in range(len(self.model.getRegion()
+                      .getIntermediateBases()[0]))]
         lenB = len(cplxMod.B)
         cplxMod.N = [ii for ii in
                      range(len(self.model.getRegion().getPatches()))]
@@ -314,6 +318,9 @@ class Simulation():
         cplxMod.KE = [cplxMod.K[ii-1] for ii in configsE]
         cplxMod.C = [1, 2, 3, 4]
         cplxMod.M = []
+        cplxMod.V = []
+        cplxMod.R0 = []
+        cplxMod.I = []
         cplxMod.M_All = [ii for ii in cplxMod.M]
 
         """ PARAMETERS """
@@ -363,7 +370,7 @@ class Simulation():
                 for c in cplxMod.C
                 for m in cplxMod.M}
 
-        """ Distances between base B and patch N"""
+        """ Distances between base B and patch N """
         cplxMod.d3_BN = {
                 (b, n): self.geoDist(patches[n].getCentroid(),
                                      bases[b].getLocation())
@@ -1080,6 +1087,9 @@ class Simulation():
             for ii in range(len(self.model.getControls()))],
             dtype=numpy.float32)
 
+        # Reconfigure network of bases
+        self.configureRegion()
+
         # We need to set up a number of input arrays if we are using GPU-based
         # methods
         if self.model.getAlgo() in [4, 5]:
@@ -1411,6 +1421,7 @@ class Simulation():
                             for jj in range(patches)
                             for kk in range(len(configsP))}
 
+                    """ This NEVER uses a schedule """
                     [patchConfigs, fireConfigs] = (
                             self.assignAircraft(
                                     assignmentsPath, expDamageExist,
@@ -1418,8 +1429,6 @@ class Simulation():
                                     expectedFFDI, 0, 0, method, static))
 
                     self.fixBaseAssignments(assignmentsPath[0])
-#                    print(assignmentsPath[0])
-#                    print(assignmentsPath[1])
 
                 for tt in range(timeSteps):
                     if len(sampleFFDIs) == 0:
@@ -1476,31 +1485,46 @@ class Simulation():
                     """ Compute the new assignments. If static, only fire
                     assignments are computed here. Otherwise, we also compute
                     relocations """
-                    """ The expected damages are for the rolling horizon, not
-                    the full horizon """
-                    expDamageExist = {
-                            (jj, configsE[kk] - 1):
-                            self.expectedDamageExisting(
-                                    activeFires[jj], expectedFFDI,
-                                    configsE[kk], tt, self.model.getTotalSteps()
-                                    + lookahead - tt, discount)
-                            for jj in range(len(activeFires))
-                            for kk in range(len(configsE))}
+                    """ The expected damages are for the remaining horizon
+                    given actions NOW and nothing after. """
+                    if self.model.getNestedOptMethod() == 5:
+                        expDamageExist = {
+                                (jj, configsE[kk] - 1, t2):
+                                self.expectedDamageExisting(
+                                        activeFires[jj], expectedFFDI,
+                                        configsE[kk], t2, self.model.getTotalSteps()
+                                        + lookahead - t2, discount)
+                                for jj in range(len(activeFires))
+                                for kk in range(len(configsE))
+                                for t2 in range(tt, self.model.getTotalSteps())}
 
-#                    print(expectedFFDI)
-#                    print(expDamageExist)
+                        expDamagePoten = {
+                                (jj, configsP[kk] - 1, t2):
+                                self.expectedDamagePotential(
+                                        jj, expectedFFDI, configsP[kk], t2,
+                                        self.model.getTotalSteps() + lookahead - t2,
+                                        discount)
+                                for jj in range(patches)
+                                for kk in range(len(configsP))
+                                for t2 in range(tt, self.model.getTotalSteps())}
+                    else:
+                        expDamageExist = {
+                                (jj, configsE[kk] - 1):
+                                self.expectedDamageExisting(
+                                        activeFires[jj], expectedFFDI,
+                                        configsE[kk], tt, self.model.getTotalSteps()
+                                        + lookahead - tt, discount)
+                                for jj in range(len(activeFires))
+                                for kk in range(len(configsE))}
 
-                    expDamagePoten = {
-                            (jj, configsP[kk] - 1):
-                            self.expectedDamagePotential(
-                                    jj, expectedFFDI, configsP[kk], tt,
-                                    self.model.getTotalSteps() + lookahead - tt,
-                                    discount)
-                            for jj in range(patches)
-                            for kk in range(len(configsP))}
-
-#                    print(expDamagePoten)
-#                    sys.exit()
+                        expDamagePoten = {
+                                (jj, configsP[kk] - 1):
+                                self.expectedDamagePotential(
+                                        jj, expectedFFDI, configsP[kk], tt,
+                                        self.model.getTotalSteps() + lookahead - tt,
+                                        discount)
+                                for jj in range(patches)
+                                for kk in range(len(configsP))}
 
                     expDamageExistNext = {
                             (jj, configsE[kk] - 1):
@@ -1639,18 +1663,26 @@ class Simulation():
                     else:
                         bestControl = 0
 
-                    print(self.relocationModel.decisionVarsIdxStarts)
-                    print(self.relocationModel.constraintIdxStarts)
+#                    print(self.relocationModel.decisionVarsIdxStarts)
+#                    print(self.relocationModel.constraintIdxStarts)
                     if bestControl < noControls:
-                        [patchConfigs, fireConfigs] = (
-                                self.assignAircraft(
+                        if self.model.getNestedOptMethod() == 5:
+                            [patchConfigs, fireConfigs, schedule] = (
+                                self.solveModelSchedule(
                                         assignmentsPath, expDamageExist,
                                         expDamagePoten, activeFires,
-                                        resourcesPath, expectedFFDI, tt + 1,
-                                        bestControl, method,
-                                        staticAfter=static))
-                        self.relocationModel.write('LP.lp')
-                        sys.exit()
+                                        resourcesPath, expectedFFDI, tt + 1))
+
+                        else:
+                            [patchConfigs, fireConfigs] = (
+                                    self.assignAircraft(
+                                            assignmentsPath, expDamageExist,
+                                            expDamagePoten, activeFires,
+                                            resourcesPath, expectedFFDI,
+                                            tt + 1, bestControl, method,
+                                            staticAfter=static))
+#                        self.relocationModel.write('LP.lp')
+#                        sys.exit()
                     else:
                         print("Control Idx too high")
                         print(bestControl)
@@ -2965,7 +2997,7 @@ class Simulation():
                 for c in tempModel.C
                 for b in tempModel.B}
 
-        print(numpy.array([value for (key, value) in sorted(tempModel.no_CB.items())]).reshape(lenC, lenB))
+#        print(numpy.array([value for (key, value) in sorted(tempModel.no_CB.items())]).reshape(lenC, lenB))
 
         """////////////////////////////////////////////////////////////////////
         ///////////////////// OBJECTIVE VALUE COEFFICIENTS ////////////////////
@@ -3210,6 +3242,551 @@ class Simulation():
         print(configsN)
 
         return [configsN, fireConfigs]
+
+    def solveModelSchedule(self, assignmentsPath, expDamageExist,
+                           expDamagePoten, activeFires, resourcesPath,
+                           ffdiPath, start):
+        """ Builds a schedule-based assignment model to reuse for computing
+        relocations. As the schedule must be updated at each time step, this
+        has to be rebuilt at every time step. """
+
+        """ First copy important parameters """
+        resources = self.model.getRegion().getResources()
+        bases = self.model.getRegion().getStations()[0]
+        interBases = self.model.getRegion().getIntermediateBases()[0]
+        patches = self.model.getRegion().getPatches()
+        interFires = self.computeIntermediateFires(activeFires)
+
+        """ Node positions """
+        # Bases (Fixed)
+        nodeLocs = [bases[b].getLocation() for b in range(len(bases))]
+
+        # Intermediate Bases between Bases and Fires (Fixed)
+        nodeLocs += [interBases[b].getLocation()
+                     for b in range(len(interBases))]
+
+        # Fires (Fixed)
+        nodeLocs += [activeFires[f].getLocation()
+                     for f in range(len(activeFires))]
+
+        # Intermediate, Aircraft to Fires (Temporary)
+        nodeLocs += [interFires[f].getLocation()
+                     for f in range(len(interFires))]
+
+        # Initial Aircraft Locations (Temporary)
+        nodeLocs += [resourcesPath[r].getLocation()
+                     for r in range(len(resources))]
+
+        cplxMod = cplex.Cplex()
+        cplxMod.objective.set_sense(cplxMod.objective.sense.minimize)
+
+        configsP = (self.model.getUsefulConfigurationsPotential()
+                    if self.model.getNestedOptMethod() > 2
+                    else [0])
+        configsE = (self.model.getUsefulConfigurationsExisting()
+                    if self.model.getNestedOptMethod() > 2
+                    else [0])
+
+        """ INDEXED SETS AND LIST LENGTHS """
+        # We progressively append the different classes of nodes
+        noNodes = 0
+        cplxMod.C = [1, 2, 3, 4]
+        cplxMod.R = [ii for ii in range(len(resources))]
+
+        cplxMod.B = [ii for ii in
+                     range(noNodes, len(bases) + len(interBases))]
+        noNodes = len(bases)
+
+        cplxMod.BB = [ii for ii in range(noNodes, noNodes + len(interBases))]
+        noNodes += len(interBases)
+
+        cplxMod.M = [ii for ii in range(noNodes, noNodes + len(activeFires))]
+        noNodes += len(activeFires)
+
+        cplxMod.I = [ii for ii in range(noNodes, noNodes + len(interFires))]
+        noNodes += len(interFires)
+
+        cplxMod.R0 = [ii for ii in
+                      range(noNodes, noNodes + len(resources))]
+        noNodes += len(resources)
+
+        cplxMod.V = [ii for ii in range(noNodes)]
+
+        cplxMod.N = [ii for ii in
+                     range(len(self.model.getRegion().getPatches()))]
+
+        cplxMod.T = [ii for ii in
+                     range(self.model.getTotalSteps())]
+
+        cplxMod.Ts = [ii for ii in
+                      range(start, self.model.getTotalSteps())]
+
+        cplxMod.K = [ii for ii in range(len(self.model.getConfigurations()))]
+        cplxMod.KP = [cplxMod.K[ii-1] for ii in configsP]
+        cplxMod.KE = [cplxMod.K[ii-1] for ii in configsE]
+        cplxMod.C = [1, 2, 3, 4]
+
+        """ PARAMETERS """
+
+        """ Control Parameters """
+        cplxMod.lambdas = {
+                ii+1:
+                (self.model.getControls()[ii].getLambda1(),
+                 self.model.getControls()[ii].getLambda2())
+                for ii in range(len(self.model.getControls()))}
+
+        cplxMod.thresholds = [
+                self.model.getBaseThreshold(), self.model.getFireThreshold()]
+
+        """ Cumulative flying hours """
+        cplxMod.G_R = {
+                r: resourcesPath[r].getFlyingHours()
+                for r in cplxMod.R}
+
+        """ Max flying hours """
+        cplxMod.Gmax_R = {
+                r: self.model.getRegion().getResources()[r].getMaxDailyHours()
+                for r in cplxMod.R}
+
+        """ Number of aircraft required for component C of configuration K """
+        cplxMod.Q_KC = {
+                (k, c): self.model.getConfigurations()[k+1][c-1]
+                for k in cplxMod.K
+                for c in cplxMod.C}
+
+        """ Travel time between node V1 and node V2 for component C """
+        cplxMod.d1_VVC = {
+                (v1, v2, c):
+                 (self.geoDist(nodeLocs[v1], nodeLocs[v2]) /
+                  (self.model.getResourceTypes()[0].getSpeed() if c in [1, 3]
+                   else self.model.getResourceTypes()[1].getSpeed()))
+                for v1 in cplxMod.V
+                for v2 in cplxMod.V
+                for c in [1, 2, 3, 4]}
+
+        """ Travel times between base B (or intermediate node) and patch N for
+        component C """
+        cplxMod.d2_VNC = {
+                (v, n, c):
+                 (self.geoDist(patches[n].getCentroid(),
+                               nodeLocs[v].getLocation()) /
+                  (self.model.getResourceTypes()[0].getSpeed() if c in [1, 3]
+                   else self.model.getResourceTypes()[1].getSpeed()))
+                for v in cplxMod.B
+                for n in cplxMod.N
+                for c in [1, 2, 3, 4]}
+
+        """ Whether arc distance V1->V2 can be travelled in 1 hour for aircraft
+        in component C """
+        cplxMod.d1_VVC1H = {
+                (v1, v2, c): 1 if cplxMod.d1_VVC[v1, v2, c] <= 1 else 0
+                for v1 in cplxMod.V
+                for v2 in cplxMod.V
+                for c in [1, 2, 3, 4]}
+
+        """ Whether arc distance V1->V2 satisfies component C. This is actually
+        only used for fighting fires. """
+        cplxMod.d1_VVCS = {
+                (v1, v2, c):
+                (1 if (((c == 1 or c == 3) and cplxMod.d1_VVC[v1, v2, c] <=
+                            cplxMod.thresholds[0])
+                       or (c == 2 or c == 4 and
+                           cplxMod.VVC[v1, v2, c] > cplxMod.thresholds[0] and
+                           cplxMod.VVC[v1, v2, c] <= cplxMod.thresholds[1]))
+                   else 0)
+                for v1 in cplxMod.V
+                for v2 in cplxMod.V
+                for c in [1, 2, 3, 4]}
+
+        """ Whether base/patch distace B-N satisfies component C """
+        cplxMod.d2_VNCT = {
+                (v, n, c):
+                 (1 if (((c == 1 or c == 3) and cplxMod.d2_VNC[v, n, c] <=
+                            cplxMod.thresholds[0])
+                       or (c == 2 or c == 4 and
+                           cplxMod.VNC[v, n, c] > cplxMod.thresholds[0] and
+                           cplxMod.VNC[v, n, c] <= cplxMod.thresholds[1]))
+                   else 0)
+                for v in cplxMod.B
+                for n in cplxMod.N
+                for c in [1, 2, 3, 4]}
+
+        """ Expected number of fires for patch N at each future time step """
+        cplxMod.no_NT = {
+                (n, t):
+                numpy.interp(ffdiPath[n, t - start],
+                             self.model.getRegion().getPatches()[n].
+                             getVegetation().getFFDIRange(),
+                             self.model.getRegion().getPatches()[n].
+                             getVegetation().getOccurrence()[t]) *
+                     self.model.getRegion().getPatches()[n].getArea()
+                for n in cplxMod.N
+                for t in cplxMod.Ts}
+
+        """ Expected number of fires visible by base B for component C """
+        cplxMod.no_CB = {
+                (c, v):
+                    max(1,
+                        sum([cplxMod.no_NT[n, t]
+                             if (((c == 1 or c == 3)
+                                  and cplxMod.d2_VNC[v, n, c] <=
+                                      cplxMod.thresholds[0])
+                                 or (c == 2 or c == 4
+                                     and cplxMod.d2_VNC[v, n, c] >
+                                         cplxMod.thresholds[0]
+                                     and cplxMod.d2_VNC[v, n, c] <=
+                                         cplxMod.thresholds[1]))
+                             else 0
+                             for n in cplxMod.N]))
+                for c in cplxMod.C
+                for v in cplxMod.B
+                for t in cplxMod.Ts}
+
+        """////////////////////////////////////////////////////////////////////
+        /////////////////////////// DECISION VARIABLES ////////////////////////
+        ////////////////////////////////////////////////////////////////////"""
+        cplxMod.decisionVars = {}
+        cplxMod.decisionVarsIdxStarts = {}
+        totalVars = 0
+
+        """ Patch configuration covers """
+        cplxMod.decisionVars["Delta_NKT"] = [
+                "Delta_NKT_N" + str(n) + "_K" + str(k) + "_T" + str(t)
+                for n in cplxMod.N
+                for k in cplxMod.KP
+                for t in cplxMod.Ts]
+        cplxMod.decisionVarsIdxStarts["Delta_NKT"] = totalVars
+        totalVars += len(cplxMod.decisionVarsIdxStarts["Delta_NKT"])
+
+        cplxMod.variables.add(
+                ub=[1]*len(cplxMod.decisionVarsIdxStarts["Delta_NKT"]),
+                lb=[0]*len(cplxMod.decisionVarsIdxStarts["Delta_NKT"]))
+
+        """ Fire configuration covers """
+        cplxMod.decisionVars["Delta_MKT"] = [
+                "Delta_MKT_M" + str(m) + "_K" + str(k) + "_T" + str(t)
+                for m in cplxMod.M
+                for k in cplxMod.K
+                for t in cplxMod.Ts]
+        cplxMod.decisionVarsIdxStarts["Delta_MKT"] = totalVars
+        totalVars += len(cplxMod.decisionVarsIdxStarts["Delta_MKT"])
+
+        cplxMod.variables.add(
+                types=([cplxMod.variables.type.binary] *
+                       len(cplxMod.decisionVars["Delta_MKT"])))
+
+        """ Aircraft arc traversals at each time """
+        cplxMod.decisionVars["A_RVVT"] = [
+                "A_RVVT_T" + str(r) + "_V1" + str(v1) + "_V2" + str(v2)
+                + "_T" + str(t)
+                for r in cplxMod.R
+                for v1 in cplxMod.V
+                for v2 in cplxMod.V
+                for t in cplxMod.T]
+        cplxMod.decisionVarsIdxStarts["A_RVVT"] = totalVars
+        totalVars += len(cplxMod.decisionVarsIdxStarts["A_RVVT"])
+
+        cplxMod.variables.add(
+                types=([cplxMod.variables.type.binary] *
+                       len(cplxMod.decisionVars["A_RVVT"])))
+
+        """ Set lengths """
+        lenR = len(cplxMod.R)
+        lenB = len(cplxMod.B)
+        lenBB = len(cplxMod.BB)
+        lenM = len(cplxMod.M)
+        lenI = len(cplxMod.I)
+        lenV = len(cplxMod.V)
+        lenTs = len(cplxMod.Ts)
+        lenN = len(cplxMod.N)
+        lenKP = len(cplxMod.KP)
+        lenKE = len(cplxMod.KE)
+        lenC = len(cplxMod.C)
+
+        startDeltaMKT = cplxMod.decisionVarsIdxStarts["Delta_MKT"]
+        startDeltaNKT = cplxMod.decisionVarsIdxStarts["Delta_NKT"]
+        startARVVT = cplxMod.decisioNVarsIdxStarts["A_RVVT"]
+
+        """////////////////////////////////////////////////////////////////////
+        ////////////////// OBJECTIVE FUNCTION COEFFICIENTS ////////////////////
+        ////////////////////////////////////////////////////////////////////"""
+        """ Initial expected damage increase of each fire under each config """
+        cplxMod.DE_MKT = expDamageExist
+
+        """ Init expected damage increase of each patch under each config """
+        cplxMod.DP_NKT = expDamagePoten
+
+        if len(cplxMod.M) > 0:
+            cplxMod.objective.set_linear(list(zip(
+                    [startDeltaMKT + m*lenKE*lenTs + k*lenTs + t
+                     for m in cplxMod.M
+                     for k in range(len(cplxMod.KE))
+                     for t in cplxMod.Ts],
+                    [cplxMod.DE_MKT[m, k, t]
+                     for m in cplxMod.M
+                     for k in range(len(cplxMod.KE))
+                     for t in cplxMod.Ts])))
+
+        cplxMod.objective.set_linear(list(zip(
+                [startDeltaNKT + n*lenKP*lenTs + k*lenTs + t
+                 for n in cplxMod.N
+                 for k in range(len(cplxMod.KP))
+                 for t in cplxMod.Ts],
+                [cplxMod.DP_NKT[n, k, t]
+                 for n in cplxMod.N
+                 for k in range(len(cplxMod.KP))
+                 for t in cplxMod.Ts])))
+
+        """////////////////////////////////////////////////////////////////////
+        //////////////////////////// CONSTRAINTS //////////////////////////////
+        ////////////////////////////////////////////////////////////////////"""
+        cplxMod.constraintNames = {}
+        cplxMod.constraintIdxStarts = {}
+        totalConstraints = 0
+
+        """ Makes sure that a particular aircraft configuration at fire m at
+        time t can only be satisfied if the correct number of aircraft to
+        satisfy each component c in configuration k are coming into the fire
+        node from all other nodes, v """
+        cplxMod.constraintNames["C_1"] = [
+                "C_1_K" + str(k+1) + "_C" + str(c) + "_M" + str(m) + "_T"
+                + str(t)
+                for k in cplxMod.KE
+                for c in cplxMod.C
+                for m in cplxMod.M
+                for t in cplxMod.Ts]
+        cplxMod.constraintIdxStarts["C_1"] = totalConstraints
+        totalConstraints += len(cplxMod.constraintNames["C_1"])
+
+        varIdxs = {
+                (k, c, m, t):
+                [startDeltaMKT + m*lenKE*lenTs + k*lenTs + t]
+                + [startARVVT + r*lenV*lenV*lenTs + v*lenV*lenTs
+                   + m*lenTs + t
+                   for r in cplxMod.R
+                   for v in cplxMod.V]
+                for k in range(len(cplxMod.KE))
+                for c in cplxMod.C
+                for m in cplxMod.M
+                for t in cplxMod.Ts}
+
+        varCoeffs = {
+                (k, c, m, t):
+                [cplxMod.Q_KC[cplxMod.K[k], c]]
+                + [-cplxMod.d1_VVCS[v, m, c]
+                   for r in cplxMod.R
+                   for v in cplxMod.V]
+                for k in range(len(cplxMod.KE))
+                for c in cplxMod.C
+                for m in cplxMod.M
+                for t in cplxMod.Ts}
+
+        cplxMod.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[k, c, m, t],
+                                val=varCoeffs[k, c, m, t])
+                        for k in range(len(cplxMod.KE))
+                        for c in cplxMod.C
+                        for m in cplxMod.M
+                        for t in cplxMod.Ts],
+                senses=["L"]*len(varIdxs),
+                rhs=[0]*len(varIdxs))
+
+        """ Makes sure that a particular aircraft configuration at patch n at
+        time t can only be satisfied if the correct number of aircraft to
+        satisfy each component c in configuration k are coming into each
+        relevant base, b from all other nodes, v """
+        cplxMod.constraintNames["C_2"] = [
+                "C_2_K" + str(k+1) + "_C" + str(c) + "_N" + str(n) + "_T"
+                + str(t)
+                for k in cplxMod.KP
+                for c in cplxMod.C
+                for n in cplxMod.N
+                for t in cplxMod.Ts]
+        cplxMod.constraintIdxStarts["C_2"] = totalConstraints
+        totalConstraints += len(cplxMod.constraintNames["C_2"])
+
+        varIdxs = {
+                (k, c, n, t):
+                [startDeltaNKT + n*lenKP*lenTs + k*lenTs + t]
+                + [startARVVT + r*lenV*lenV*lenTs + v*lenV*lenTs
+                   + b*lenTs + t
+                   for r in cplxMod.R
+                   for v in cplxMod.V
+                   for b in cplxMod.B]
+                for k in range(len(cplxMod.KP))
+                for c in cplxMod.C
+                for n in cplxMod.N
+                for t in cplxMod.Ts}
+
+        varCoeffs = {
+                (k, c, n, t):
+                [cplxMod.Q_KC[cplxMod.K[k], c]]
+                + [-cplxMod.d2_VNCT[v, n, c] / cplxMod.no_CB[c, b]
+                   for r in cplxMod.R
+                   for v in cplxMod.V
+                   for b in cplxMod.B]
+                for k in range(len(cplxMod.KP))
+                for c in cplxMod.C
+                for n in cplxMod.N
+                for t in cplxMod.Ts}
+
+        cplxMod.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[k, c, n, t],
+                                val=varCoeffs[k, c, n, t])
+                        for k in range(len(cplxMod.KP))
+                        for c in cplxMod.C
+                        for n in cplxMod.N
+                        for t in cplxMod.Ts],
+                senses=["L"]*len(varIdxs),
+                rhs=[0]*len(varIdxs))
+
+        """ Ensures that an aircraft can only traverse a single arc at each
+        time step """
+        cplxMod.constraintNames["C_3"] = [
+                "C_3_R" + str(r) + "_T" + str(t)
+                for r in cplxMod.R
+                for t in cplxMod.Ts]
+        cplxMod.constraintIdxStarts["C_3"] = totalConstraints
+        totalConstraints += len(cplxMod.constraintIdxStarts["C_3"])
+
+        varIdxs = {
+                (r, t):
+                [startARVVT + r*lenV*lenV*lenTs + v1*lenV*lenTs + v2*lenTs
+                 for v1 in cplxMod.V
+                 for v2 in cplxMod.V]
+                for r in cplxMod.R
+                for t in cplxMod.Ts}
+
+        varCoeffs = {
+                (r, t):
+                [1 for v1 in cplxMod.V for v2 in cplxMod.V]
+                for r in cplxMod.R
+                for t in cplxMod.Ts}
+
+        cplxMod.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[r, t],
+                                val=varCoeffs[r, t])
+                        for r in cplxMod.R
+                        for t in cplxMod.Ts],
+                senses=["L"]*len(varIdxs),
+                rhs=[0]*len(varIdxs))
+
+        """ Ensures that each fire at each time step can only be assigned a
+        single configuration """
+        cplxMod.constraintNames["C_4"] = [
+                "C_4_M" + str(m) + "_T" + str(t)
+                for m in cplxMod.M
+                for t in cplxMod.Ts]
+        cplxMod.constraintIdxStarts["C_4"] = totalConstraints
+        totalConstraints += len(cplxMod.constraintNames["C_4"])
+
+        varIdxs = {
+                (m, t):
+                [startDeltaMKT + m*lenKE*lenTs + k*lenTs + t
+                 for k in range(len(cplxMod.KE))]
+                for m in cplxMod.M
+                for t in cplxMod.Ts}
+
+        varCoeffs = {
+                (m, t):
+                [1 for k in range(len(cplxMod.KE))]
+                for m in cplxMod.M
+                for t in cplxMod.Ts}
+
+        cplxMod.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[m, t],
+                                val=varCoeffs[m, t])
+                        for m in cplxMod.M
+                        for t in cplxMod.Ts],
+                senses=["E"]*len(varIdxs),
+                rhs=[1]*len(varIdxs))
+
+        """ Ensures that sum of aircraft configuration weightings at each
+        patch at each time step is 1 """
+        cplxMod.constraintNames["C_5"] = [
+                "C_5_N" + str(n) + "_T" + str(t)
+                for n in cplxMod.N
+                for t in cplxMod.Ts]
+        cplxMod.constraintIdxStarts["C_5"] = totalConstraints
+        totalConstraints += len(cplxMod.constraintNames["C_5"])
+
+        varIdxs = {
+                (n, t):
+                [startDeltaNKT + n*lenKP*lenTs + k*lenTs + t
+                 for k in range(len(cplxMod.KP))]
+                for n in cplxMod.N
+                for t in cplxMod.Ts}
+
+        varCoeffs = {
+                (n, t):
+                [1 for k in range(len(cplxMod.KP))]
+                for n in cplxMod.N
+                for t in cplxMod.Ts}
+
+        cplxMod.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[n, t],
+                                val=varCoeffs[n, t])
+                        for n in cplxMod.N
+                        for t in cplxMod.Ts],
+                senses=["E"]*len(varIdxs),
+                rhs=[1]*len(varIdxs))
+
+        """ Constraint 6 - Aircraft starting positions enforced """
+        """ This is simply an upper bound setting on variables """
+        cplxMod.variables.set_upper_bounds([
+                (cplxMod.decisionVarsIdxStarts["A_RVVT"]
+                 + r*lenV*lenV*lenTs + v1*lenV*lenTs + v2*lenTs,
+                 1 if v1 == (noNodes - len(resources) + r) else 0)
+                for r in cplxMod.R
+                for v1 in cplxMod.V
+                for v2 in cplxMod.V])
+
+        """ Maintains flows to and from each node """
+        cplxMod.constraintNames["C_7"] = [
+                "C_7_V" + str(v) + "_T" + str(t)
+                for v in cplxMod.V
+                for t in range(s, max(cplxMod.Ts))]
+
+# Check these
+        """Ensures that the maximum number of flying hours are not exceeded"""
+        cplxMod.constraintNames["C_9"] = [
+                "C_9_K" + str(r)
+                for r in cplxMod.R]
+        cplxMod.constraintIdxStarts["C_9"] = totalConstraints
+        totalConstraints = totalConstraints + len(
+                cplxMod.constraintNames["C_9"])
+
+        varIdxs = {(r): [startXRB + r*lenB + b for b in cplxMod.B]
+                   for r in cplxMod.R}
+
+        varCoeffs = {(r): [cplxMod.d1_RB[r, b] + r*lenB + b for b in cplxMod.B]
+                     for r in cplxMod.R}
+
+        cplxMod.linear_constraints.add(
+                lin_expr=[
+                        cplex.SparsePair(
+                                ind=varIdxs[r],
+                                val=varCoeffs[r])
+                        for r in cplxMod.R],
+                senses=["L"]*len(cplxMod.R),
+                rhs=[cplxMod.Gmax_R[r] - cplxMod.G_R[r]
+                     for r in cplxMod.R])
+
+        """ Save the relocation model to the instance """
+        self.relocationModel = cplxMod
+
+    def configureRegion(self):
+        return region
 
     def simulateSinglePeriod(self, assignmentsPath, resourcesPath,
                              firesPath, activeFires, accumulatedDamage,
@@ -5133,6 +5710,60 @@ class Simulation():
 
         # Get average FFDI of all other patches, weighted by distance from this
         pass
+
+    def buildAdjacencyMatrix(self, closeness):
+        adjacency = copy.copy(closeness)
+
+        """ First, complete the connections """
+        changed = 1
+
+        while changed:
+            changed = 0
+
+            """ Iterate over all elements and check for possible additions """
+            for ii in range(0, closeness.shape[0]):
+                for jj in range(0, closeness.shape[0]):
+                    if closeness[ii,jj] and ii != jj:
+                        for kk in range(0, closeness.shape[0]):
+                            if kk != ii:
+                                if closeness[jj,kk] == 1:
+                                    if closeness[ii,kk] == 0:
+                                        closeness[ii,kk] = 1
+                                        closeness[kk,ii] = 1
+                                        changed = 1
+
+
+        [adjacency, order] = self.blockDiagonalAdjacency(adjacency)
+
+def blockDiagonalAdjacency(self, matrix):
+    """ This only works for symmetric matrices """
+    matNew = copy.copy(matrix)
+    blocks = 0
+    blockStarts = [0]
+    ii = 0
+    newBlock = 0
+    while ii < matNew.shape[0]:
+        row = matNew[ii]
+        if row[blockStarts[blocks]] != 1:
+            newBlock = 1
+            jj = ii
+            while jj+1 < matrix.shape[0] or newBlock:
+                jj += 1
+                if matrix[jj, blockStarts[blocks]] == 1:
+                    newBlock = 0
+            if not newBlock:
+                print("got here")
+                tempRow = copy.copy(matrix[jj])
+                matrix[jj] = matrix[ii]
+                matrix[ii] = tempRow
+            else:
+                blocks += 1
+                blockStarts[blocks] = ii
+        else:
+            matNew[ii] = row
+        ii += 1
+        return matNew
+
 
     @staticmethod
     def computeFFDI(temp, rh, wind, df):
