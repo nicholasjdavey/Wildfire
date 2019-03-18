@@ -291,6 +291,7 @@ class Simulation():
         """ First copy the relocation model """
         bases = self.model.getRegion().getStations()[0]
         patches = self.model.getRegion().getPatches()
+        resources = self.model.getRegion().getResources()
 
         cplxMod = cplex.Cplex()
 
@@ -306,8 +307,6 @@ class Simulation():
                      range(len(self.model.getRegion().getResources()))]
         cplxMod.B = [ii for ii in
                      range(len(self.model.getRegion().getStations()[0]))]
-        cplxMod.BB = [ii for ii in range(len(self.model.getRegion()
-                      .getIntermediateBases()[0]))]
         lenB = len(cplxMod.B)
         cplxMod.N = [ii for ii in
                      range(len(self.model.getRegion().getPatches()))]
@@ -318,9 +317,6 @@ class Simulation():
         cplxMod.KE = [cplxMod.K[ii-1] for ii in configsE]
         cplxMod.C = [1, 2, 3, 4]
         cplxMod.M = []
-        cplxMod.V = []
-        cplxMod.R0 = []
-        cplxMod.I = []
         cplxMod.M_All = [ii for ii in cplxMod.M]
 
         """ PARAMETERS """
@@ -377,15 +373,24 @@ class Simulation():
                 for b in cplxMod.B
                 for n in cplxMod.N}
 
+        """ 1 if resource R can satisfy component C of configurations """
+        cplxMod.type_RC = {
+                (r, c):
+                    (1 if resources[r].getType() == "A" and c in [1, 3]
+                       or resources[r].getType() == "H" and c in [2, 4]
+                    else 0)
+                for r in cplxMod.R
+                for c in cplxMod.C}
+
         """ Whether base B satisfies component C for patch N """
         cplxMod.d3_BCN = {
                 (b, c, n):
                 (1
-                    if (((c == 1 or c == 3) and cplxMod.d3_BN[b, n] <=
-                            cplxMod.thresholds[0])
-                        or (c == 2 or c == 4
-                            and cplxMod.d3_BN[b, n] > cplxMod.thresholds[0]
-                            and cplxMod.d3_BN[b, n] <= cplxMod.thresholds[1]))
+                    if (((c == 1 or c == 2) and (cplxMod.d3_BN[b, n] <=
+                            cplxMod.thresholds[0]))
+                        or (c == 3 or c == 4 and
+                            (cplxMod.d3_BN[b, n] > cplxMod.thresholds[0] and
+                             cplxMod.d3_BN[b, n] <= cplxMod.thresholds[1])))
                     else 0)
                 for b in cplxMod.B
                 for c in cplxMod.C
@@ -758,8 +763,9 @@ class Simulation():
 
         varCoeffs = {
                 (k, c, n):
-                [-self.relocationModel.d3_BCN[b, c, n] /
-                 self.relocationModel.no_CB[c, b]
+                [-self.relocationModel.d3_BCN[b, c, n]
+                * self.relocationModel.type_RC[r, c]
+                 / self.relocationModel.no_CB[c, b]
                  for r in self.relocationModel.R
                  for b in self.relocationModel.B]
                 + [self.relocationModel.Q_KC[self.relocationModel.KP[k], c]]
@@ -903,8 +909,9 @@ class Simulation():
 
         varCoeffs = {
                 (k, c, n):
-                [-self.relocationModel.d3_BCN[b, c, n] /
-                 self.relocationModel.no_CB[c, b]
+                [-self.relocationModel.d3_BCN[b, c, n]
+                * self.relocationModel.type_RC[r, c]
+                 / self.relocationModel.no_CB[c, b]
                  for r in self.relocationModel.R
                  for b in self.relocationModel.B]
                 + [self.relocationModel.Q_KC[self.relocationModel.KP[k], c]]
@@ -1968,10 +1975,10 @@ class Simulation():
                 (c, b):
                 max(1,
                     sum([tempModel.no_N[n]
-                         if (((c == 1 or c == 3)
+                         if (((c == 1 or c == 2)
                               and tempModel.d4_BNC[b, n, c] <=
                                   tempModel.thresholds[0])
-                             or (c == 2 or c == 4
+                             or (c == 3 or c == 4
                                  and tempModel.d4_BNC[b, n, c] >
                                  tempModel.thresholds[0]
                                  and tempModel.d4_BNC[b, n, c] <=
@@ -2501,15 +2508,25 @@ class Simulation():
                      for t in range(look)])
                 for n in tempModel.N}
 
+        """ 1 if resource R can satisfy component C of configurations """
+        tempModel.type_RC = {
+                (r, c):
+                    (1 if resourcesPath[r].getType() == "A" and c in [1, 3]
+                       or resourcesPath[r].getType() == "H" and c in [2, 4]
+                    else 0)
+                for r in tempModel.R
+                for c in tempModel.C}
+
         """ Whether resource R satisfies component C for fire M """
         tempModel.d2_RCM = {
                 (r, c, m):
                 (1
-                    if (((c == 1 or c == 3) and tempModel.d2_RM[r, m] <=
-                            tempModel.thresholds[0])
-                        or (c == 2 or c == 4 and
-                            tempModel.d2_RM[r, m] > tempModel.thresholds[0] and
-                            tempModel.d2_RM[r, m] <= tempModel.thresholds[1]))
+                    if (((c == 1 or c == 2) and (tempModel.d2_RM[r, m] <=
+                            tempModel.thresholds[0])*tempModel.type_RC[r, c])
+                        or (c == 3 or c == 4 and
+                            (tempModel.d2_RM[r, m] > tempModel.thresholds[0] and
+                             tempModel.d2_RM[r, m] <= tempModel.thresholds[1])
+                            *tempModel.type_RC[r, c]))
                     else 0)
                 for r in tempModel.R
                 for c in tempModel.C
@@ -2519,11 +2536,11 @@ class Simulation():
         tempModel.d3_BCN = {
                 (b, c, n):
                 (1
-                    if (((c == 1 or c == 3) and tempModel.d3_BN[b, n] <=
-                            tempModel.thresholds[0])
-                        or (c == 2 or c == 4 and
-                            tempModel.d3_BN[b, n] > tempModel.thresholds[0] and
-                            tempModel.d3_BN[b, n] <= tempModel.thresholds[1]))
+                    if (((c == 1 or c == 2) and (tempModel.d3_BN[b, n] <=
+                            tempModel.thresholds[0]))
+                        or (c == 3 or c == 4 and
+                            (tempModel.d3_BN[b, n] > tempModel.thresholds[0] and
+                             tempModel.d3_BN[b, n] <= tempModel.thresholds[1])))
                     else 0)
                 for b in tempModel.B
                 for c in tempModel.C
@@ -2534,10 +2551,10 @@ class Simulation():
                 (c, b):
                 max(1,
                     sum([tempModel.no_N[n]
-                         if (((c == 1 or c == 3)
+                         if (((c == 1 or c == 2)
                               and tempModel.d4_BNC[b, n, c] <=
                                   tempModel.thresholds[0])
-                             or (c == 2 or c == 4
+                             or (c == 3 or c == 4
                                  and tempModel.d4_BNC[b, n, c] >
                                      tempModel.thresholds[0]
                                  and tempModel.d4_BNC[b, n, c] <=
@@ -2932,11 +2949,12 @@ class Simulation():
         tempModel.d2_RCM = {
                 (r, c, m):
                 (1
-                    if (((c == 1 or c == 3) and tempModel.d2_RM[r, m] <=
-                            tempModel.thresholds[0])
-                        or (c == 2 or c == 4 and
-                            tempModel.d2_RM[r, m] > tempModel.thresholds[0] and
-                            tempModel.d2_RM[r, m] <= tempModel.thresholds[1]))
+                    if (((c == 1 or c == 2) and (tempModel.d2_RM[r, m] <=
+                            tempModel.thresholds[0])*tempModel.type_RC[r, c])
+                        or (c == 3 or c == 4 and
+                            (tempModel.d2_RM[r, m] > tempModel.thresholds[0] and
+                             tempModel.d2_RM[r, m] <= tempModel.thresholds[1])
+                            *tempModel.type_RC[r, c]))
                     else 0)
                 for r in tempModel.R
                 for c in tempModel.C
@@ -2984,10 +3002,10 @@ class Simulation():
                 (c, b):
                 max(1,
                     sum([tempModel.no_N[n]
-                         if (((c == 1 or c == 3)
+                         if (((c == 1 or c == 2)
                               and tempModel.d4_BNC[b, n, c] <=
                                   tempModel.thresholds[0])
-                             or (c == 2 or c == 4
+                             or (c == 3 or c == 4
                                  and tempModel.d4_BNC[b, n, c] >
                                      tempModel.thresholds[0]
                                  and tempModel.d4_BNC[b, n, c] <=
@@ -3354,6 +3372,15 @@ class Simulation():
                 for k in cplxMod.K
                 for c in cplxMod.C}
 
+        """ 1 if resource R can satisfy component C of configurations """
+        cplxMod.type_RC = {
+                (r, c):
+                    (1 if resourcesPath[r].getType() == "A" and c in [1, 3]
+                       or resourcesPath[r].getType() == "H" and c in [2, 4]
+                    else 0)
+                for r in cplxMod.R
+                for c in cplxMod.C}
+
         """ Travel time between node V1 and node V2 for component C """
         cplxMod.d1_VVC = {
                 (v1, v2, c):
@@ -3388,9 +3415,9 @@ class Simulation():
         only used for fighting fires. """
         cplxMod.d1_VVCS = {
                 (v1, v2, c):
-                (1 if (((c == 1 or c == 3) and cplxMod.d1_VVC[v1, v2, c] <=
+                (1 if (((c == 1 or c == 2) and cplxMod.d1_VVC[v1, v2, c] <=
                             cplxMod.thresholds[0])
-                       or (c == 2 or c == 4 and
+                       or (c == 3 or c == 4 and
                            cplxMod.VVC[v1, v2, c] > cplxMod.thresholds[0] and
                            cplxMod.VVC[v1, v2, c] <= cplxMod.thresholds[1]))
                    else 0)
@@ -3401,9 +3428,9 @@ class Simulation():
         """ Whether base/patch distace B-N satisfies component C """
         cplxMod.d2_VNCT = {
                 (v, n, c):
-                 (1 if (((c == 1 or c == 3) and cplxMod.d2_VNC[v, n, c] <=
+                 (1 if (((c == 1 or c == 2) and cplxMod.d2_VNC[v, n, c] <=
                             cplxMod.thresholds[0])
-                       or (c == 2 or c == 4 and
+                       or (c == 3 or c == 4 and
                            cplxMod.VNC[v, n, c] > cplxMod.thresholds[0] and
                            cplxMod.VNC[v, n, c] <= cplxMod.thresholds[1]))
                    else 0)
@@ -3428,10 +3455,10 @@ class Simulation():
                 (c, v):
                     max(1,
                         sum([cplxMod.no_NT[n, t]
-                             if (((c == 1 or c == 3)
+                             if (((c == 1 or c == 2)
                                   and cplxMod.d2_VNC[v, n, c] <=
                                       cplxMod.thresholds[0])
-                                 or (c == 2 or c == 4
+                                 or (c == 3 or c == 4
                                      and cplxMod.d2_VNC[v, n, c] >
                                          cplxMod.thresholds[0]
                                      and cplxMod.d2_VNC[v, n, c] <=
@@ -3753,9 +3780,36 @@ class Simulation():
 
         """ Maintains flows to and from each node """
         cplxMod.constraintNames["C_7"] = [
-                "C_7_V" + str(v) + "_T" + str(t)
+                "C_7_R" +str(r) + "_V" + str(v) + "_T" + str(t)
+                for r in cplxMod.R
                 for v in cplxMod.V
-                for t in range(s, max(cplxMod.Ts))]
+                for t in range(start+1, max(cplxMod.Ts))]
+        cplxMod.constraintIdxStarts["C_7"] = totalConstraints
+        totalConstraints += len(cplxMod.constraintNames["C_7"])
+
+        varIdxs = {
+                (v, t):
+                [startARVVT + r*lenV*lenV*lenTs + v1*lenV*lenTs
+                 + v*lenTs + t-1
+                 for v1 in cplxMod.V]
+                + [startARVVT + r*lenV*lenV*lenTs + v*lenV*lenTs
+                 + v1*lenTs + t
+                 for v1 in cplxMod.V]
+                for r in cplxMod.R
+                for v in cplxMod.V
+                for t in range(start+1, max(cplxMod.Ts))}
+
+        varCoeffs = {
+                (v, t):
+                [cplxMod.d1_VVC1H[v1, v, 1] if cplxMod.type_RC[r]
+                 else cplxMod.d1_VVC1H[v1, v, 2]
+                 for v1 in cplxMod.V]
+                + [cplxMod.d1_VVC1H[v, v1, 1] if cplxMod.type_RC[r]
+                   else cplxMod.d1_VVC1H[v, v1, 2]
+                   for v1 in cplxMod.V]
+                for r in cplxMod.R
+                for v in cplxMod.V
+                for t in range(start+1, max(cplxMod.Ts))}
 
 # Check these
         """Ensures that the maximum number of flying hours are not exceeded"""
@@ -3903,6 +3957,7 @@ class Simulation():
                 copyModel.constraintIdxStarts)
         tempModel.constraintNames = copy.copy(copyModel.constraintNames)
         tempModel.d3_BN = copyModel.d3_BN
+        tempModel.type_RC = copyModel.type_RC
         tempModel.d3_BCN = copyModel.d3_BCN
         tempModel.thresholds = copyModel.thresholds
 
