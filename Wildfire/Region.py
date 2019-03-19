@@ -6,6 +6,7 @@ Created on Sun Dec 10 23:10:43 2017
 """
 
 import numpy
+import copy
 
 
 class Region():
@@ -47,6 +48,7 @@ class Region():
         self.airTankers = []
         self.helicopters = []
         self.firetrucks = []
+        self.intermediateBases = []
         self.assignments_0 = numpy.empty([0, 0])
         self.name = ""
         self.expectedDamagePotential = numpy.empty([0, 0])
@@ -238,6 +240,12 @@ class Region():
     def setFiretrucks(self, f):
         self.firetrucks = f
 
+    def getIntermediateBases(self):
+        return self.intermediateBases
+
+    def setIntermediateBases(self, b):
+        self.intermediateBases = b
+
     def getAssignments(self):
         return self.assignments_0
 
@@ -279,3 +287,67 @@ class Region():
 
     def setExpDP(self, d):
         self.expectedDamagePotential = d
+
+    def configureRegion(self, simulation):
+        self.intermediateBases = []
+        pass
+
+    def configureIntermediateFires(self, simulation, resources):
+        interFires = []
+        interFiresR0 = []
+        return [interFires, interFiresR0]
+
+    @staticmethod
+    def buildAdjacencyMatrix(closeness):
+        adjacency = copy.copy(closeness)
+
+        """ First, complete the connections """
+        changed = 1
+
+        while changed:
+            changed = 0
+
+            """ Iterate over all elements and check for possible additions """
+            for ii in range(0, closeness.shape[0]):
+                for jj in range(0, closeness.shape[0]):
+                    if closeness[ii,jj] and ii != jj:
+                        for kk in range(0, closeness.shape[0]):
+                            if kk != ii:
+                                if closeness[jj,kk] == 1:
+                                    if closeness[ii,kk] == 0:
+                                        closeness[ii,kk] = 1
+                                        closeness[kk,ii] = 1
+                                        changed = 1
+
+
+        [adjacency, order] = Region.blockDiagonalAdjacency(adjacency)
+
+    @staticmethod
+    def blockDiagonalAdjacency(matrix):
+        """ This only works for symmetric matrices """
+        matNew = copy.copy(matrix)
+        blocks = 0
+        blockStarts = [0]
+        ii = 0
+        newBlock = 0
+        while ii < matNew.shape[0]:
+            row = matNew[ii]
+            if row[blockStarts[blocks]] != 1:
+                newBlock = 1
+                jj = ii
+                while jj+1 < matrix.shape[0] or newBlock:
+                    jj += 1
+                    if matrix[jj, blockStarts[blocks]] == 1:
+                        newBlock = 0
+                if not newBlock:
+                    print("got here")
+                    tempRow = copy.copy(matrix[jj])
+                    matrix[jj] = matrix[ii]
+                    matrix[ii] = tempRow
+                else:
+                    blocks += 1
+                    blockStarts[blocks] = ii
+            else:
+                matNew[ii] = row
+            ii += 1
+            return matNew
