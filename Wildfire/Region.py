@@ -6,6 +6,7 @@ Created on Sun Dec 10 23:10:43 2017
 """
 
 import math
+from AirStrip import AirStrip
 import numpy
 import copy
 
@@ -299,34 +300,262 @@ class Region():
 
         speedMin = min(speeds)
 
-        """ Get connectivity of airbases alone """
-        connectivity = [[0]*len(bases)]*len(bases)
+        """ Find un-connected sub-graphs and progressively create connecting
+        nodes if needed. """
 
-        for ii in range(len(bases)):
-            for jj in range(ii, len(bases)):
-                connected = (
-                    1
-                    if (Region.geoDist(bases[ii].getLocation(),
-                                bases[jj].getLocation())
-                        / speedMin < 1.0)
-                    else 0)
+        while True:
+            """ Get connectivity of airbases alone """
+            connectivity = [[0]*len(bases)]*len(bases)
 
-                if connected:
-                    connectivity[ii, jj] = 1
-                    connectivity[jj, ii] = 1
+            for ii in range(len(bases)):
+                for jj in range(ii, len(bases)):
+                    connected = (
+                        1
+                        if (Region.geoDist(bases[ii].getLocation(),
+                                    bases[jj].getLocation())
+                            / speedMin < 1.0)
+                        else 0)
 
-        """ Find un-connected sub-graphs """
-        [connectivity, order] = Region.buildAdjacencyMatrix(connectivity)
+                    if connected:
+                        connectivity[ii, jj] = 1
+                        connectivity[jj, ii] = 1
 
-        """ Build intermediate nodes to complete connections (if needed) """
-        self.intermediateBases = Region.buildIntermediateBases(
-                connectivity, order)
+            [connectivity, order] = Region.buildAdjacencyMatrix(connectivity)
 
+            connected = (True if sum(connectivity) == connectivity.size
+                         else False)
 
-    def configureIntermediateFires(self, simulation, resources):
+            if connected:
+                break
+
+            """ Build intermediate nodes to complete connections (if needed) """
+            intermediateNew = Region.buildIntermediateBases(connectivity,
+                                                            order, bases,
+                                                            speedMin)
+
+            bases.extend(intermediateNew)
+            self.intermediateBases.extend(intermediateNew)
+
+    def configureIntermediateFires(self, simulation, activeFires, resources):
+        """ We only connect to bases within a 1 hr travel distance or the
+        nearest base outside this distance via intermediate nodes. We do not
+        consider other possible routes to add. Again, like the base config,
+        we can develop more advanced techniques later. """
         interFires = []
         interFiresR0 = []
-        return [interFires, interFiresR0]
+        interFiresR0ACs = []
+
+        resourceTypes = simulation.getModel().getResourceTypes()
+        speeds = [resourceTypes[ii].getSpeed()
+                  for ii in enumerate(resourceTypes)]
+
+        speedMin = min(speeds)
+
+        bases = self.stations[0] + self.intermediateBases
+
+        covers = numpy.zeros([len(activeFires), len(bases)])
+        distances = numpy.zeros([len(activeFires), len(bases)])
+
+        """ First, let's build intermediate bases from bases to fires (if
+        needed) """
+        for ii in range(covers.shape[0]):
+            for jj in range(covers.shape[1]):
+                distances[ii, jj] = (
+                        Region.geoDist(activeFires[ii].getLocation(),
+                        bases[jj].getLocation()) / speedMin)
+                distances[jj, ii] = distances[ii, jj]
+
+                if (distances[ii, jj] <= 1):
+                    covers[ii, jj] = 1
+                    covers[jj, ii] = 1
+
+            if sum(covers[ii, :]) == 0:
+                """ Need to create intermediate nodes """
+                newNodes = math.ceil(distances[ii, :].max())
+                idx = distances[ii, :].argmax()
+
+                for jj in range(newNodes):
+                    xNew = (bases[idx].getLocation()[0]
+                            + (jj + 1) * (bases[idx].getLocation()[0]
+                                          - activeFires[ii].getLocation()[0])
+                            / (newNodes + 1))
+
+                    yNew = (bases[idx].getLocation()[1]
+                            + (jj + 1) * (bases[idx].getLocation()[1]
+                                          - activeFires[ii].getLocation()[1])
+                            / (newNodes + 1))
+
+                    interFire = AirStrip()
+                    interFire.setLocation(numpy.array([xNew, yNew]))
+                    interFire.setMaxTankers(math.inf)
+                    interFire.setMaxHelicopters(math.inf)
+                    interFires.append(interFire)
+
+        """ Now, let's build intermediate bases from fires to initial
+        aircraft positions (if needed). We will endeavour to create at least
+        one direct path to an aircraft for each fire. """
+        covers = numpy.zeros([len(activeFires), len(resources)])
+        distances = numpy.zeros([len(activeFires), len(resources)])
+
+        for ii in range(covers.shape[0]):
+            for jj in range(covers.shape[1]):
+                distances[ii, jj] = (
+                        Region.geoDist(activeFires[ii].getLocation(),
+                        resources[jj].getLocation()) / speedMin)
+                distances[jj, ii] = distances[ii, jj]
+
+                if (distances[ii, jj] <= 1):
+                    covers[ii, jj] = 1
+                    covers[jj, ii] = 1
+
+            if sum(covers[ii, :]) == 0:
+                """ Need to create intermediate nodes """
+                newNodes = math.ceil(distances[ii, :].min())
+                idx = distances[ii, :].argmax()
+
+                for jj in range(newNodes):
+                    xNew = (resources[idx].getLocation()[0]
+                            + (jj + 1) * (resources[idx].getLocation()[0]
+                                          - activeFires[ii].getLocation()[0])
+                            / (newNodes + 1))
+
+                    yNew = (resources[idx].getLocation()[1]
+                            + (jj + 1) * (resources[idx].getLocation()[1]
+                                          - activeFires[ii].getLocation()[1])
+                            / (newNodes + 1))
+
+                    interFireR0 = AirStrip()
+                    interFireR0.setLocation(numpy.array([xNew, yNew]))
+                    interFireR0.setMaxTankers(math.inf)
+                    interFireR0.setMaxHelicopters(math.inf)
+                    interFiresR0.append(interFireR0)
+                    """ This base should only be accessible by this aircraft
+                    """
+                    interFiresR0ACs.append(idx)
+
+        """ Now, let's build intermediate bases from aircraft to bases (if
+        needed). We will endeavour to create at least one direct path from an
+        aircraft to a base. """
+        covers = numpy.zeros([len(resources), len(bases)])
+        distances = numpy.zeros([len(resources), len(bases)])
+
+        for ii in range(covers.shape[0]):
+            for jj in range(covers.shape[1]):
+                distances[ii, jj] = (
+                        Region.geoDist(bases[jj].getLocation(),
+                        resources[ii].getLocation()) / speedMin)
+                distances[jj, ii] = distances[ii, jj]
+
+                if (distances[ii, jj] <= 1):
+                    covers[ii, jj] = 1
+                    covers[jj, ii] = 1
+
+            if sum(covers[ii, :]) == 0:
+                """ Need to create intermediate nodes """
+                newNodes = math.ceil(distances[ii, :].min())
+                idx = distances[ii, :].argmax()
+
+                for jj in range(newNodes):
+                    xNew = (bases[idx].getLocation()[0]
+                            + (jj + 1) * (bases[idx].getLocation()[0]
+                                          - resources[ii].getLocation()[0])
+                            / (newNodes + 1))
+
+                    yNew = (bases[idx].getLocation()[1]
+                            + (jj + 1) * (bases[idx].getLocation()[1]
+                                          - resources[ii].getLocation()[1])
+                            / (newNodes + 1))
+
+                    interFireR0 = AirStrip()
+                    interFireR0.setLocation(numpy.array([xNew, yNew]))
+                    interFireR0.setMaxTankers(math.inf)
+                    interFireR0.setMaxHelicopters(math.inf)
+                    interFiresR0.append(interFireR0)
+                    """ This base should only be accessible by this aircraft
+                    """
+                    interFiresR0ACs.append(idx)
+
+        """ Now let's build the temporary nodes between fires and initial
+        aircraft positions """
+        return [interFires, interFiresR0, interFiresR0ACs]
+
+    @staticmethod
+    def buildIntermediateBases(self, connectivity, order, bases, speedMin):
+        """ At the moment, we only have a very rudimentary, inefficient method
+        to connect nodes. A more advanced technique can be introduced later for
+        more strategic new nodes. For now, just introduce good bases when
+        creating the input data. """
+        intermediateNew = Region.buildIntermeidateBase(connectivity,
+                                                       order, bases, speedMin)
+
+        return intermediateNew
+
+    @staticmethod
+    def buildIntermediateBase(self, connectivity, order, bases, speedMin):
+        """ In the interests of time, all we want to do here is to connect the
+        nearby clusters of points to other clusters by only one intermediate
+        path. Better networks can be built via better designs at a later
+        stage. """
+        clusters = 1
+        starts = [0]
+        clusterPoints = [[]]
+
+        for ii in range(connectivity.shape[0]):
+            if connectivity[ii, starts[-1]] != 1:
+                clusters += 1
+                starts.append(ii)
+                clusterPoints.append([])
+                clusterPoints[-1].append(order[ii])
+            else:
+                clusterPoints[-1].append(order[ii])
+
+        clusterMinDists = [[math.inf]*clusters]*clusters
+        clusterMinPairs = [[None]*clusters]*clusters
+
+        minOverall = math.inf
+        minPair = []
+
+        for ii in range(1, clusters):
+            for jj in range(ii, clusters):
+                minDist = math.inf
+
+                for b1 in clusterPoints[ii]:
+                    for b2 in clusterPoints[jj]:
+                        dist = Region.geoDist(bases[ii].getLocation(),
+                                              bases[jj].getLocation())
+
+                        if dist < minDist:
+                            minDist = dist
+                            clusterMinPairs[ii, jj] = [b1, b2]
+                            clusterMinPairs[jj, ii] = [b2, b1]
+
+                            if dist < minOverall:
+                                minPair = [ii, jj]
+                                minOverall = dist
+
+                clusterMinDists[ii, jj] = minDist
+                clusterMinDists[jj, ii] = minDist
+
+        """ Use the new pair to build (an) intermediate node(s) """
+        newNodes =  math.ceil(minOverall / speedMin)
+
+        for ii in range(newNodes):
+            xNew = (bases[minPair[0]].getLocation()[0]
+                    + (ii + 1) * (bases[minPair[1]].getLocation()[0]
+                                  - bases[minPair[0]].getLocation()[0])
+                    / (newNodes + 1))
+
+            yNew = (bases[minPair[0]].getLocation()[1]
+                    + (ii + 1) * (bases[minPair[1]].getLocation()[1]
+                                  - bases[minPair[0]].getLocation()[1])
+                    / (newNodes + 1))
+
+            intermediateNode = AirStrip()
+            intermediateNode.setLocation(numpy.array([xNew, yNew]))
+            intermediateNode.setMaxTankers(math.inf)
+            intermediateNode.setMaxHelicopters(math.inf)
+
+        return [intermediateNode]
 
     @staticmethod
     def buildAdjacencyMatrix(closeness):
@@ -410,7 +639,3 @@ class Region():
         c = math.sqrt(a)
         dist = 2 * 6371 * math.asin(c)
         return dist
-
-    @staticmethod
-    def buildIntermediateBases(connected, order):
-        """ For now this just builds a single bridging node between

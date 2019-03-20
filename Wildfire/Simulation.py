@@ -1692,8 +1692,8 @@ class Simulation():
                     # new positions of each resource
                     if self.model.getNestedOptMethod() == 6:
                         damage += self.simulateSinglePeriodSchedule(
-                                nodeLocs, resourcesPath, firesPath,
-                                activeFires, accumulatedDamage,
+                                nodeLocs, assignmentsPath, resourcesPath,
+                                firesPath, activeFires, accumulatedDamage,
                                 accumulatedHours, patchConfigs, fireConfigs,
                                 FFDI[tt], ii, run, tt)
                     else:
@@ -3267,8 +3267,8 @@ class Simulation():
         bases = self.model.getRegion().getStations()[0]
         interBases = self.model.getRegion().getIntermediateBases()[0]
         patches = self.model.getRegion().getPatches()
-        [interFires, interFiresR0] = (
-            self.configureIntermediateFires(activeFires), resourcesPath)
+        [interFires, interFiresR0, interFiresR0ACs] = (
+            self.configureIntermediateFires(activeFires, resourcesPath))
         configsE = self.model.getUsefulConfigurationsExisting()
         configsP = self.model.getUsefulConfigurationsPotential()
         lookahead = self.model.getLookahead()
@@ -3311,7 +3311,7 @@ class Simulation():
         nodeLocs += [interFires[f].getLocation()
                      for f in range(len(interFires))]
 
-        # Intermediate, Aircraft to Fires (Temporary)
+        # Intermediate, Aircraft to Fires/Bases (Temporary)
         nodeLocs += [interFiresR0[f].getLocation()
                      for f in range(len(interFiresR0))]
 
@@ -3889,7 +3889,8 @@ class Simulation():
                 for v in cplxMod.I}
 
         varCoeffs = {
-                (r, v): [1 for v1 in cplxMod.V for t in cplxMod.Ts]
+                (r, v): [1 if interFiresR0ACs[v] == r else 0
+                         for v1 in cplxMod.V for t in cplxMod.Ts]
                 for r in cplxMod.R
                 for v in cplxMod.I}
 
@@ -3994,12 +3995,13 @@ class Simulation():
     def configureIntermediateFires(self, activeFires, resources):
         """ Builds the temporary intermediate nodes """
         return self.model.getRegion().configureIntermediateFires(self,
-            resources)
+            activeFires, resources)
 
-    def simulateSinglePeriodSchedule(self, nodeLocs, resourcesPath, firesPath,
-                                     activeFires, accumulatedDamage,
-                                     accumulatedHours, patchConfigs,
-                                     fireConfigs, ffdi, sample, run, tt):
+    def simulateSinglePeriodSchedule(self, nodeLocs, assignmentsPath,
+                                     resourcesPath, firesPath, activeFires,
+                                     accumulatedDamage, accumulatedHours,
+                                     patchConfigs, fireConfigs, ffdi, sample,
+                                     run, tt):
         """ This routine updates the state of the system given the updated
         schedule and nodes """
         damage = 0
@@ -4009,7 +4011,7 @@ class Simulation():
         If relocating, then it is the travel time between bases.
         If fighting fires, it is the full hour."""
         for r, resource in enumerate(resourcesPath):
-            assignment = resourcesPath[tt + 1][r][0] - 1
+            assignment = assignmentsPath[tt + 1][r][0] - 1
             oldLoc = resource.getLocation()
             newLoc = nodeLocs[assignment]
 
