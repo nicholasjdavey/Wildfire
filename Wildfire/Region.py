@@ -5,6 +5,7 @@ Created on Sun Dec 10 23:10:43 2017
 @author: davey
 """
 
+import math
 import numpy
 import copy
 
@@ -289,8 +290,38 @@ class Region():
         self.expectedDamagePotential = d
 
     def configureRegion(self, simulation):
-        self.intermediateBases = []
-        pass
+        """ First, get the speed of the slowest aircraft type """
+        resourceTypes = simulation.getModel().getResourceTypes()
+        bases = len(self.getStations()[0])
+
+        speeds = [resourceTypes[ii].getSpeed()
+                  for ii in enumerate(resourceTypes)]
+
+        speedMin = min(speeds)
+
+        """ Get connectivity of airbases alone """
+        connectivity = [[0]*len(bases)]*len(bases)
+
+        for ii in range(len(bases)):
+            for jj in range(ii, len(bases)):
+                connected = (
+                    1
+                    if (Region.geoDist(bases[ii].getLocation(),
+                                bases[jj].getLocation())
+                        / speedMin < 1.0)
+                    else 0)
+
+                if connected:
+                    connectivity[ii, jj] = 1
+                    connectivity[jj, ii] = 1
+
+        """ Find un-connected sub-graphs """
+        [connectivity, order] = Region.buildAdjacencyMatrix(connectivity)
+
+        """ Build intermediate nodes to complete connections (if needed) """
+        self.intermediateBases = Region.buildIntermediateBases(
+                connectivity, order)
+
 
     def configureIntermediateFires(self, simulation, resources):
         interFires = []
@@ -299,28 +330,33 @@ class Region():
 
     @staticmethod
     def buildAdjacencyMatrix(closeness):
+        """ Ready output array """
         adjacency = copy.copy(closeness)
 
         """ First, complete the connections """
-        changed = 1
+        explored = numpy.zeros(closeness.shape)
+        changed = True
 
+        """ Progressively check for connections """
         while changed:
             changed = 0
 
             """ Iterate over all elements and check for possible additions """
             for ii in range(0, closeness.shape[0]):
                 for jj in range(0, closeness.shape[0]):
-                    if closeness[ii,jj] and ii != jj:
+                    if adjacency[ii, jj] and ii != jj and not explored[ii, jj]:
+                        explored[ii, jj] = 1
                         for kk in range(0, closeness.shape[0]):
                             if kk != ii:
-                                if closeness[jj,kk] == 1:
-                                    if closeness[ii,kk] == 0:
-                                        closeness[ii,kk] = 1
-                                        closeness[kk,ii] = 1
+                                if adjacency[jj,kk] == 1:
+                                    if adjacency[ii,kk] == 0:
+                                        adjacency[ii,kk] = 1
+                                        adjacency[kk,ii] = 1
                                         changed = 1
 
-
         [adjacency, order] = Region.blockDiagonalAdjacency(adjacency)
+
+        return [adjacency, order]
 
     @staticmethod
     def blockDiagonalAdjacency(matrix):
@@ -328,26 +364,53 @@ class Region():
         matNew = copy.copy(matrix)
         blocks = 0
         blockStarts = [0]
+        orders = [ii for ii in range(0, matrix.shape[0])]
         ii = 0
         newBlock = 0
+
         while ii < matNew.shape[0]:
             row = matNew[ii]
+
             if row[blockStarts[blocks]] != 1:
                 newBlock = 1
                 jj = ii
-                while jj+1 < matrix.shape[0] or newBlock:
+                while jj+1 < matrix.shape[0] and newBlock:
                     jj += 1
-                    if matrix[jj, blockStarts[blocks]] == 1:
+                    if matNew[jj, blockStarts[blocks]] == 1:
                         newBlock = 0
+
                 if not newBlock:
-                    print("got here")
-                    tempRow = copy.copy(matrix[jj])
-                    matrix[jj] = matrix[ii]
-                    matrix[ii] = tempRow
+                    """ Pivot rows """
+                    tempRow = copy.copy(matNew[jj])
+                    matNew[jj] = matNew[ii]
+                    matNew[ii] = tempRow
+                    tempCol = copy.copy(matNew[:, jj])
+                    matNew[:, jj] = matNew[:, ii]
+                    matNew[:, ii] = tempCol
+                    idx = copy.copy(orders[jj])
+                    orders[jj] = orders[ii]
+                    orders[ii] = idx
                 else:
                     blocks += 1
-                    blockStarts[blocks] = ii
+                    blockStarts.append(ii)
             else:
                 matNew[ii] = row
+
             ii += 1
-            return matNew
+
+        return [matNew, orders]
+
+    @staticmethod
+    def geoDist(x1d, x2d):
+        x1 = [x1d[0] * math.pi/180, x1d[1] * math.pi/180]
+        x2 = [x2d[0] * math.pi/180, x2d[1] * math.pi/180]
+        a = (math.sin(0.5 * (x2[1] - x1[1])) ** 2
+             + math.cos(x1[0]) * math.cos(x2[0])
+             * math.sin(0.5 * (x2[0] - x1[0])) ** 2)
+        c = math.sqrt(a)
+        dist = 2 * 6371 * math.asin(c)
+        return dist
+
+    @staticmethod
+    def buildIntermediateBases(connected, order):
+        """ For now this just builds a single bridging node between

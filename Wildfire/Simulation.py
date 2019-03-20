@@ -1661,7 +1661,7 @@ class Simulation():
 #                    print(self.relocationModel.constraintIdxStarts)
                     if bestControl < noControls:
                         if self.model.getNestedOptMethod() == 6:
-                            [patchConfigs, fireConfigs, nodeLocs, schedule] = (
+                            [patchConfigs, fireConfigs, nodeLocs] = (
                                 self.solveModelSchedule(
                                         assignmentsPath, expDamageExist,
                                         expDamagePoten, activeFires,
@@ -1692,7 +1692,7 @@ class Simulation():
                     # new positions of each resource
                     if self.model.getNestedOptMethod() == 6:
                         damage += self.simulateSinglePeriodSchedule(
-                                nodeLocs, schedule, resourcesPath, firesPath,
+                                nodeLocs, resourcesPath, firesPath,
                                 activeFires, accumulatedDamage,
                                 accumulatedHours, patchConfigs, fireConfigs,
                                 FFDI[tt], ii, run, tt)
@@ -3996,13 +3996,74 @@ class Simulation():
         return self.model.getRegion().configureIntermediateFires(self,
             resources)
 
-    def simulateSinglePeriodSchedule(self, nodeLocs, schedule,resourcesPath,
-                                     firesPath, activeFires, accumulatedDamage,
+    def simulateSinglePeriodSchedule(self, nodeLocs, resourcesPath, firesPath,
+                                     activeFires, accumulatedDamage,
                                      accumulatedHours, patchConfigs,
                                      fireConfigs, ffdi, sample, run, tt):
         """ This routine updates the state of the system given the updated
         schedule and nodes """
         damage = 0
+        patches = self.model.getRegion().getPatches()
+
+        """ First, compute the hours flown by each aircraft this period.
+        If relocating, then it is the travel time between bases.
+        If fighting fires, it is the full hour."""
+        for r, resource in enumerate(resourcesPath):
+            assignment = resourcesPath[tt + 1][r][0] - 1
+            oldLoc = resource.getLocation()
+            newLoc = nodeLocs[assignment]
+
+            """ With this method, all nodes can be covered within an hour so
+            the aircraft location is simply updated to the next assignment
+            location """
+            travTime = min(
+                    numpy.linalg.norm(newLoc - oldLoc)/resource.getSpeed(),
+                    self.model.getStepSize())
+
+            resource.setLocation(nodeLocs[assignment])
+            accumulatedHours[tt+1, r] = accumulatedHours[tt, r] + travTime
+
+        """ Next, carry over the accumulated damage from the previous
+        period"""
+        accumulatedDamage[tt + 1, :] = accumulatedDamage[tt, :]
+
+        """ Fight existing fires """
+        for fire in range(len(activeFires)):
+            sizeOld = activeFires[fire].getSize()
+
+            activeFires[fire].growFire(self.model,
+                    ffdi[activeFires[fire].getPatchID()],
+                    fireConfigs[fire] + 1, random=True)
+
+            sizeCurr = max(activeFires[fire].getSize(), sizeOld)
+
+            """ Update damage map for area burned for existing fires """
+            accumulatedDamage[tt + 1, activeFires[fire].getPatchID()] += (
+                    sizeCurr - sizeOld)
+            damage += sizeCurr - sizeOld
+
+        """ New fires """
+        for patch in range(len(self.model.getRegion().getPatches())):
+            nfPatch = patches[patch].newFires(self.model, ffdi[patch], tt,
+                                              patchConfigs[patch])
+
+            for fire in nfPatch:
+                damage += fire.getSize()
+                accumulatedDamage[tt + 1, patch] += fire.getSize()
+
+                if not(fire.getInitialSuccess()):
+                    activeFires.append(fire)
+
+        """ Save the fires encountered this period to the path history """
+        self.realisedFires[sample][run][tt] = copy.deepcopy(activeFires)
+
+        """ Update existing fires for next period based on those that were not
+        extinguished """
+        for fire in activeFires:
+            if fire.getExtinguished():
+                activeFires.remove(fire)
+
+        """ Return incremental damage for region """
         return damage
 
     def simulateSinglePeriod(self, assignmentsPath, resourcesPath,
