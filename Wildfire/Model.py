@@ -75,6 +75,7 @@ class Model():
         self.shape = None
         self.plot = False
         self.resolution = 1
+        self.expDMethod = 1
 
     def getShape(self):
         return self.shape
@@ -93,6 +94,12 @@ class Model():
 
     def setROVResolution(self, r):
         self.resolution = r
+
+    def getExpDMethod(self):
+        return self.expDMethod
+
+    def setExpDMethod(self, m):
+        self.expDMethod = m
 
     def getFFDIMR(self):
         return self.ffdiMR
@@ -526,6 +533,9 @@ class Model():
         self.ffdiSD = float(contents[91 + noAircraft + noLandcraft
                                      + noVegetations + noControls]
                                      .split(":")[1].strip())
+        self.expDMethod = int(contents[92 + noAircraft + noLandcraft
+                                       + noVegetations + noControls]
+                                       .split(":")[1].strip())
 
         self.variableParameters = varParams
 

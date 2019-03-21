@@ -241,7 +241,7 @@ class Simulation():
 
     def simulate(self):
 
-        switch = {
+        switch1 = {
             0: self.samplePaths,
             1: self.simulateMPC,
             2: self.simulateROV,
@@ -251,12 +251,23 @@ class Simulation():
             6: self.simulateStochasticMPC
             }
 
+        lpModel = self.model.getNestedOptMethod()
         algo = self.model.getAlgo()
 
-        if algo not in [0, 6]:
-            self.buildLPModel()
+        """ If the static method is used, we cannot create a schedule from it
+        so we have to make sure lpMethod 5 is not used. In this case, we use
+        a simple assignment method. """
+        if algo == 3 and lpModel == 5:
+            self.model.nestedOptMethod = 3
 
-        prog = switch.get(algo)
+        if lpModel not in [0, 5]:
+            self.buildLPModel(lpModel)
+        else:
+            """ We can't do a static relocation with a schedule. We must use a
+            standard assignment method. """
+            self.buildLPModel(3)
+
+        prog = switch1.get(algo)
 
         if algo == 3:
             prog(True)
@@ -267,15 +278,14 @@ class Simulation():
     /////////////////////// CPLEX Models Used in Program //////////////////////
     ////////////////////////////////////////////////////////////////////////"""
 
-    def buildLPModel(self):
+    def buildLPModel(self, lpModel):
+
         switch = {
             1: self.buildMaxCover,
             2: self.buildPMedian,
             3: self.buildAssignment2,
             4: self.buildAssignment1
         }
-
-        lpModel = self.model.getNestedOptMethod()
 
         if lpModel < 5:
             self.buildModelBase()
@@ -373,6 +383,18 @@ class Simulation():
                 for b in cplxMod.B
                 for n in cplxMod.N}
 
+        """ Travel time between base B and patch N for component C """
+        cplxMod.d3_BCNT = {
+                (b, c, n): (self.geoDist(patches[n].getCentroid(),
+                                         bases[b].getLocation()) /
+                            (self.model.getResourceTypes()[0].getSpeed()
+                             if c in [1, 3]
+                             else self.model.getResourceTypes()[1]
+                                 .getSpeed()))
+                for b in cplxMod.B
+                for c in cplxMod.C
+                for n in cplxMod.N}
+
         """ 1 if resource R can satisfy component C of configurations """
         cplxMod.type_RC = {
                 (r, c):
@@ -386,11 +408,11 @@ class Simulation():
         cplxMod.d3_BCN = {
                 (b, c, n):
                 (1
-                    if (((c == 1 or c == 2) and (cplxMod.d3_BN[b, n] <=
+                    if (((c == 1 or c == 2) and (cplxMod.d3_BCNT[b, c, n] <=
                             cplxMod.thresholds[0]))
                         or (c == 3 or c == 4 and
-                            (cplxMod.d3_BN[b, n] > cplxMod.thresholds[0] and
-                             cplxMod.d3_BN[b, n] <= cplxMod.thresholds[1])))
+                            (cplxMod.d3_BCNT[b, c, n] > cplxMod.thresholds[0] and
+                             cplxMod.d3_BCNT[b, c, n] <= cplxMod.thresholds[1])))
                     else 0)
                 for b in cplxMod.B
                 for c in cplxMod.C
@@ -1416,7 +1438,7 @@ class Simulation():
                                 activeFires[jj], expectedFFDI,
                                 configsE[kk], 0,
                                 self.model.getTotalSteps() + lookahead,
-                                discount)
+                                discount, True)
                         for jj in range(len(activeFires))
                         for kk in range(len(configsE))}
 
@@ -1425,7 +1447,7 @@ class Simulation():
                         self.expectedDamagePotential(
                                 jj, expectedFFDI, configsP[kk], 0,
                                 self.model.getTotalSteps() + lookahead,
-                                discount)
+                                discount, True)
                         for jj in range(patches)
                         for kk in range(len(configsP))}
 
@@ -1491,20 +1513,22 @@ class Simulation():
                             FFDI[tt], sampleFFDIs[ii][:, tt::], mr, mrsd,
                             timeSteps + lookahead - tt)
 
+                    expDMethod = self.model.getExpDMethod()
+
                     """ Compute the new assignments. If static, only fire
                     assignments are computed here. Otherwise, we also compute
                     relocations. If building a schedule, we do this within the
                     assignment routine as the model needs to be modified. """
                     """ The expected damages are for the remaining horizon
                     given actions NOW and nothing after. """
-                    if self.model.getNestedOptMethod() != 6:
+                    if self.model.getNestedOptMethod() != 5:
                         expDamageExist = {
                                 (jj, configsE[kk] - 1):
                                 self.expectedDamageExisting(
                                         activeFires[jj], expectedFFDI,
                                         configsE[kk], tt,
                                         self.model.getTotalSteps() + lookahead
-                                        - tt, discount)
+                                        - tt, discount, expDMethod)
                                 for jj in range(len(activeFires))
                                 for kk in range(len(configsE))}
 
@@ -1513,7 +1537,7 @@ class Simulation():
                                 self.expectedDamagePotential(
                                         jj, expectedFFDI, configsP[kk], tt,
                                         self.model.getTotalSteps() + lookahead
-                                        - tt, discount)
+                                        - tt, discount, expDMethod)
                                 for jj in range(patches)
                                 for kk in range(len(configsP))}
 
@@ -1523,7 +1547,7 @@ class Simulation():
                                         activeFires[jj], expectedFFDI,
                                         configsE[kk], tt+1,
                                         self.model.getTotalSteps() + lookahead
-                                        - tt - 1, discount)
+                                        - tt - 1, discount, expDMethod)
                                 for jj in range(len(activeFires))
                                 for kk in range(len(configsE))}
 
@@ -1532,7 +1556,7 @@ class Simulation():
                                 self.expectedDamagePotential(
                                         jj, expectedFFDI, configsP[kk], tt+1,
                                         self.model.getTotalSteps() + lookahead
-                                        - tt - 1 , discount)
+                                        - tt - 1 , discount, expDMethod)
                                 for jj in range(patches)
                                 for kk in range(len(configsP))}
 
@@ -1837,6 +1861,12 @@ class Simulation():
         }
 
         lpModel = self.model.getNestedOptMethod()
+
+        if lpModel not in [0, 5]:
+            """ We cannot use a schedule here. We must change to an assignment
+            problem. """
+            lpModel = 3
+
         prog = switch.get(lpModel)
         return prog(assignmentsPath, expDamageExist, expDamagePoten,
                     activeFires, resourcesPath, ffdiPath, timeStep, control,
@@ -2526,20 +2556,6 @@ class Simulation():
                 for r in tempModel.R
                 for c in tempModel.C
                 for m in tempModel.M}
-
-        """ Whether base B satisfies component C for patch N """
-        tempModel.d3_BCN = {
-                (b, c, n):
-                (1
-                    if (((c == 1 or c == 2) and (tempModel.d3_BN[b, n] <=
-                            tempModel.thresholds[0]))
-                        or (c == 3 or c == 4 and
-                            (tempModel.d3_BN[b, n] > tempModel.thresholds[0] and
-                             tempModel.d3_BN[b, n] <= tempModel.thresholds[1])))
-                    else 0)
-                for b in tempModel.B
-                for c in tempModel.C
-                for n in tempModel.N}
 
         """ Expected number of fires visible by base B for component C """
         tempModel.no_CB = {
@@ -3252,6 +3268,7 @@ class Simulation():
 
         assignmentsPath[timeStep] = assignments.astype(int)
         print(assignments)
+        print(configsM)
         print(configsN)
 
         return [configsN, fireConfigs]
@@ -3274,13 +3291,18 @@ class Simulation():
         lookahead = self.model.getLookahead()
         discount = self.model.getDiscountFactor()
 
-        """ Compute the expected damage parameters """
+        """ Compute the expected damage parameters for all configs at all
+        nodes for all future time steps. The config is only applied for the
+        respective time step for which the damage is being computed. We do this
+        as we only care about the effect of doing something at THAT period
+        alone."""
         expDamageExist = {
                 (jj, configsE[kk] - 1, t2):
                 self.expectedDamageExisting(
                         activeFires[jj], ffdiPath,
                         configsE[kk], t2, self.model.getTotalSteps()
-                        + lookahead - t2, discount)
+                        + lookahead - t2, discount, False) / (
+                        (1 + discount) ** (t2 - start))
                 for jj in range(len(activeFires))
                 for kk in range(len(configsE))
                 for t2 in range(start, self.model.getTotalSteps())}
@@ -3290,7 +3312,8 @@ class Simulation():
                 self.expectedDamagePotential(
                         jj, ffdiPath, configsP[kk], t2,
                         self.model.getTotalSteps() + lookahead - t2,
-                        discount)
+                        discount, False) / (
+                        (1 + discount) ** (t2 - start))
                 for jj in range(patches)
                 for kk in range(len(configsP))
                 for t2 in range(start, self.model.getTotalSteps())}
@@ -3444,8 +3467,8 @@ class Simulation():
                 (1 if (((c == 1 or c == 2) and cplxMod.d1_VVC[v1, v2, c] <=
                             cplxMod.thresholds[0])
                        or (c == 3 or c == 4 and
-                           cplxMod.VVC[v1, v2, c] > cplxMod.thresholds[0] and
-                           cplxMod.VVC[v1, v2, c] <= cplxMod.thresholds[1]))
+                           cplxMod.d1_VVC[v1, v2, c] > cplxMod.thresholds[0] and
+                           cplxMod.d1_VVC[v1, v2, c] <= cplxMod.thresholds[1]))
                    else 0)
                 for v1 in cplxMod.V
                 for v2 in cplxMod.V
@@ -4209,7 +4232,7 @@ class Simulation():
         return expectedFFDI
 
     def expectedDamageExisting(self, fire, ffdiPath, configID, time, look,
-                               discount):
+                               discount, static=False):
         damage = 0
         fireTemp = copy.copy(fire)
         patch = fire.getPatchID()
@@ -4217,14 +4240,19 @@ class Simulation():
         size = fireTemp.getSize()
 
         for tt in range(look):
+            if tt > 0 and not static:
+                config = 1
+            else:
+                config = configID
+
             ffdi = ffdiPath[patch, tt]
 
             success = numpy.interp(ffdi,
                                    vegetation.getFFDIRange(),
-                                   vegetation.getExtendedSuccess()[configID])
+                                   vegetation.getExtendedSuccess()[config])
 
             sizeOld = size
-            fireTemp.growFire(self.model, ffdi, configID)
+            fireTemp.growFire(self.model, ffdi, config)
             size = fireTemp.getSize()
             growth = size - sizeOld
 
@@ -4233,12 +4261,17 @@ class Simulation():
         return damage
 
     def expectedDamagePotential(self, patchID, ffdiPath, configID, time, look,
-                                discount):
+                                discount, static=False):
         damage = 0
         patch = self.model.getRegion().getPatches()[patchID]
         vegetation = patch.getVegetation()
 
         for tt in range(look):
+            if tt > 0 and not static:
+                config = 1
+            else:
+                config = configID
+
             # Only look at the expected damage of fires started at this time
             # period to the end of the rolling horizon
             ffdi = ffdiPath[patchID, tt]
@@ -4249,15 +4282,15 @@ class Simulation():
 
             sizeM = numpy.interp(ffdi,
                                  vegetation.getFFDIRange(),
-                                 vegetation.getInitialSizeMean()[configID])
+                                 vegetation.getInitialSizeMean()[config])
 
             sizeSD = numpy.interp(ffdi,
                                   vegetation.getFFDIRange(),
-                                  vegetation.getInitialSizeSD()[configID])
+                                  vegetation.getInitialSizeSD()[config])
 
             success = numpy.interp(ffdi,
                                    vegetation.getFFDIRange(),
-                                   vegetation.getInitialSuccess()[configID])
+                                   vegetation.getInitialSuccess()[config])
 
             size = math.exp(sizeM + sizeSD ** 2 / 2)
 
@@ -4268,17 +4301,17 @@ class Simulation():
                 success2 = numpy.interp(ffdi,
                                         vegetation.getFFDIRange(),
                                         vegetation.getExtendedSuccess()[
-                                            configID])
+                                            config])
 
                 grMean = numpy.interp(
                         ffdi,
                         vegetation.getFFDIRange(),
-                        vegetation.getROCA2PerHourMean()[configID])
+                        vegetation.getROCA2PerHourMean()[config])
 
                 grSD = numpy.interp(
                         ffdi,
                         vegetation.getFFDIRange(),
-                        vegetation.getROCA2PerHourSD()[configID])
+                        vegetation.getROCA2PerHourSD()[config])
 
                 radCurr = (math.sqrt(size*10000/math.pi))
                 radNew = radCurr + math.exp(grMean + grSD ** 2 / 2)
