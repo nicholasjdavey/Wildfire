@@ -1094,12 +1094,9 @@ class Simulation():
             for ii in range(len(self.model.getControls()))],
             dtype=numpy.float32)
 
-        # Reconfigure network of bases
-        self.configureRegion()
-
         # If we are building a schedule, we need to make intermediate fixed
         # nodes for aircraft transitions.
-        if self.model.getAlgo() == 6:
+        if self.model.getNestedOptMethod() == 5:
             self.configureRegion()
 
         # We need to set up a number of input arrays if we are using GPU-based
@@ -1759,6 +1756,9 @@ class Simulation():
                                      ii, run)
 
         self.writeOutSummary()
+
+    def simulateStochasticMPC(self, static=False, rov=False):
+        pass
 
     def fixBaseAssignments(self, assignments):
         """ Non-assignments """

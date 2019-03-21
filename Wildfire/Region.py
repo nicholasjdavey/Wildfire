@@ -5,7 +5,10 @@ Created on Sun Dec 10 23:10:43 2017
 @author: davey
 """
 
+import sys
 import math
+from Tanker import Tanker
+from Heli import Heli
 from AirStrip import AirStrip
 import numpy
 import copy
@@ -293,10 +296,11 @@ class Region():
     def configureRegion(self, simulation):
         """ First, get the speed of the slowest aircraft type """
         resourceTypes = simulation.getModel().getResourceTypes()
-        bases = len(self.getStations()[0])
+        bases = self.getStations()[0]
 
-        speeds = [resourceTypes[ii].getSpeed()
-                  for ii in enumerate(resourceTypes)]
+        speeds = [resourceType.getSpeed()
+                  for resourceType in resourceTypes
+                  if isinstance(resourceType, (Tanker, Heli))]
 
         speedMin = min(speeds)
 
@@ -305,7 +309,7 @@ class Region():
 
         while True:
             """ Get connectivity of airbases alone """
-            connectivity = [[0]*len(bases)]*len(bases)
+            connectivity = numpy.array([[0]*len(bases)]*len(bases))
 
             for ii in range(len(bases)):
                 for jj in range(ii, len(bases)):
@@ -322,9 +326,8 @@ class Region():
 
             [connectivity, order] = Region.buildAdjacencyMatrix(connectivity)
 
-            connected = (True if sum(connectivity) == connectivity.size
+            connected = (True if connectivity.sum() == connectivity.size
                          else False)
-
             if connected:
                 break
 
@@ -480,18 +483,18 @@ class Region():
         return [interFires, interFiresR0, interFiresR0ACs]
 
     @staticmethod
-    def buildIntermediateBases(self, connectivity, order, bases, speedMin):
+    def buildIntermediateBases(connectivity, order, bases, speedMin):
         """ At the moment, we only have a very rudimentary, inefficient method
         to connect nodes. A more advanced technique can be introduced later for
         more strategic new nodes. For now, just introduce good bases when
         creating the input data. """
-        intermediateNew = Region.buildIntermeidateBase(connectivity,
+        intermediateNew = Region.buildIntermediateBase(connectivity,
                                                        order, bases, speedMin)
 
         return intermediateNew
 
     @staticmethod
-    def buildIntermediateBase(self, connectivity, order, bases, speedMin):
+    def buildIntermediateBase(connectivity, order, bases, speedMin):
         """ In the interests of time, all we want to do here is to connect the
         nearby clusters of points to other clusters by only one intermediate
         path. Better networks can be built via better designs at a later
@@ -509,20 +512,20 @@ class Region():
             else:
                 clusterPoints[-1].append(order[ii])
 
-        clusterMinDists = [[math.inf]*clusters]*clusters
-        clusterMinPairs = [[None]*clusters]*clusters
+        clusterMinDists = numpy.array([[math.inf]*clusters]*clusters)
+        clusterMinPairs = numpy.array([[None]*clusters]*clusters)
 
         minOverall = math.inf
         minPair = []
 
-        for ii in range(1, clusters):
-            for jj in range(ii, clusters):
+        for ii in range(0, clusters):
+            for jj in range(ii+1, clusters):
                 minDist = math.inf
 
                 for b1 in clusterPoints[ii]:
                     for b2 in clusterPoints[jj]:
-                        dist = Region.geoDist(bases[ii].getLocation(),
-                                              bases[jj].getLocation())
+                        dist = Region.geoDist(bases[b1].getLocation(),
+                                              bases[b2].getLocation())
 
                         if dist < minDist:
                             minDist = dist
@@ -530,14 +533,14 @@ class Region():
                             clusterMinPairs[jj, ii] = [b2, b1]
 
                             if dist < minOverall:
-                                minPair = [ii, jj]
+                                minPair = [b1, b2]
                                 minOverall = dist
 
                 clusterMinDists[ii, jj] = minDist
                 clusterMinDists[jj, ii] = minDist
 
         """ Use the new pair to build (an) intermediate node(s) """
-        newNodes =  math.ceil(minOverall / speedMin)
+        newNodes =  math.floor(minOverall / speedMin)
 
         for ii in range(newNodes):
             xNew = (bases[minPair[0]].getLocation()[0]
@@ -555,7 +558,10 @@ class Region():
             intermediateNode.setMaxTankers(math.inf)
             intermediateNode.setMaxHelicopters(math.inf)
 
-        return [intermediateNode]
+        try:
+            return [intermediateNode]
+        except:
+            return []
 
     @staticmethod
     def buildAdjacencyMatrix(closeness):
