@@ -339,7 +339,7 @@ class Simulation():
                 for ii in range(len(self.model.getControls()))}
 
         cplxMod.thresholds = [
-                self.model.getBaseThreshold(), self.model.getFireThreshold()]
+                self.model.getFireThreshold(), self.model.getBaseThreshold()]
 
         """ Cumulative flying hours """
         cplxMod.G_R = {
@@ -410,13 +410,30 @@ class Simulation():
                 (1
                     if (((c == 1 or c == 2) and (cplxMod.d3_BCNT[b, c, n] <=
                             cplxMod.thresholds[0]))
-                        or (c == 3 or c == 4 and
+                        or ((c == 3 or c == 4) and
                             (cplxMod.d3_BCNT[b, c, n] > cplxMod.thresholds[0] and
                              cplxMod.d3_BCNT[b, c, n] <= cplxMod.thresholds[1])))
                     else 0)
                 for b in cplxMod.B
                 for c in cplxMod.C
                 for n in cplxMod.N}
+
+#        m1 = (numpy.array([[cplxMod.d3_BCN[b, 1, n]
+#                            for b in cplxMod.B]
+#                           for n in cplxMod.N]))
+#        m2 = (numpy.array([[cplxMod.d3_BCN[b, 2, n]
+#                            for b in cplxMod.B]
+#                           for n in cplxMod.N]))
+#        m3 = (numpy.array([[cplxMod.d3_BCN[b, 3, n]
+#                            for b in cplxMod.B]
+#                           for n in cplxMod.N]))
+#        m4 = (numpy.array([[cplxMod.d3_BCN[b, 4, n]
+#                            for b in cplxMod.B]
+#                           for n in cplxMod.N]))
+#
+#        print(m1 + m3)
+#        print(m2 + m4)
+#        sys.exit()
 
         """ Expected number of fires visible by base B for component C """
         cplxMod.no_CB = {
@@ -1862,7 +1879,7 @@ class Simulation():
 
         lpModel = self.model.getNestedOptMethod()
 
-        if lpModel not in [0, 5]:
+        if lpModel in [0, 5]:
             """ We cannot use a schedule here. We must change to an assignment
             problem. """
             lpModel = 3
@@ -2520,6 +2537,11 @@ class Simulation():
         look = (self.model.getLookahead() + self.model.getTotalSteps()
                 if static
                 else self.model.getLookahead())
+
+        """ Expected number of fires for patch N over horizon """
+        look = (self.model.getLookahead() + self.model.getTotalSteps()
+                if static and timeStep == 0
+                else 1)
 
         tempModel.no_N = {
                 n:
@@ -3270,6 +3292,12 @@ class Simulation():
         print(assignments)
         print(configsM)
         print(configsN)
+        print([numpy.array(configsN)[:, 2].sum(),
+               numpy.array(configsN)[:, 5].sum(),
+               numpy.array(configsN)[:, 8].sum(),
+               numpy.array(configsN)[:, 20].sum(),
+               numpy.array(configsN)[:, 23].sum(),
+               numpy.array(configsN)[:, 26].sum()])
 
         return [configsN, fireConfigs]
 
@@ -3403,7 +3431,7 @@ class Simulation():
                 for ii in range(len(self.model.getControls()))}
 
         cplxMod.thresholds = [
-                self.model.getBaseThreshold(), self.model.getFireThreshold()]
+                self.model.getFireThreshold(), self.model.getBaseThreshold()]
 
         """ Cumulative flying hours at start """
         cplxMod.G_R = {
@@ -4155,7 +4183,7 @@ class Simulation():
                 damage += fire.getSize()
                 accumulatedDamage[tt + 1, patch] += fire.getSize()
 
-                if not(fire.getInitialSuccess()):
+                if not(fire.getExtinguished()):
                     activeFires.append(fire)
 
         """ Save the fires encountered this period to the path history """
