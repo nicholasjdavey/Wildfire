@@ -78,7 +78,7 @@ Aircraft Speed (Keep at 1. No need to vary)                                 : 1
 Occurrence Probability (Sensitivity 1)                                      : 1
 Damage Intensity (Keep at 1. No need to vary)                               : 1
 Weather Uncertainty                                                         : 1
-Time Steps                                                                  : 15
+Time Steps                                                                  : 5
 Step Size (Hours)                                                           : 1
 Daylight Hours Per Day                                                      : 15
 ROV Paths                                                                   : 100000
@@ -99,4 +99,6 @@ Plot Maps                                                                   : 0
 ROV Resolution (1 -> Polynomial Reg.  >1 -> Kernel Reg)                     : 1
 FFDI Mean Reversion                                                         : 0.3
 FFDI Standard Deviation (for lognormal dist.)                               : 0.3
-Expected Damage Method (1=Fixed Config, 2=Config in 1st Period Only)        : 1
+Expected Damage Method (1=Fixed Config, 2=Config in 1st Period Only)        : 2
+Time out for LP solves (seconds)                                            : 300
+Save schedule history                                                       : 1

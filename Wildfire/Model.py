@@ -76,6 +76,7 @@ class Model():
         self.plot = False
         self.resolution = 1
         self.expDMethod = 1
+        self.saveSchedule = 0
 
     def getShape(self):
         return self.shape
@@ -100,6 +101,12 @@ class Model():
 
     def setExpDMethod(self, m):
         self.expDMethod = m
+
+    def getSaveSchedule(self):
+        return self.saveSchedule
+
+    def setSaveSchedule(self, s):
+        self.saveSchedule = s
 
     def getFFDIMR(self):
         return self.ffdiMR
@@ -536,6 +543,11 @@ class Model():
         self.expDMethod = int(contents[92 + noAircraft + noLandcraft
                                        + noVegetations + noControls]
                                        .split(":")[1].strip())
+        self.saveSchedule = (
+                True
+                if int(contents[93 + noAircraft + noLandcraft + noVegetations
+                                + noControls].split(":")[1].strip()) == 1
+                else False)
 
         self.variableParameters = varParams
 

@@ -41,6 +41,7 @@ class Simulation():
         self.model = None
         self.expectedDamages = []
         self.finalDamageMaps = []
+        self.scheduleHistories = []
         self.assignmentModel = None
         self.relocationModel = None
         self.realisedAssignments = []
@@ -50,6 +51,11 @@ class Simulation():
         self.initialExtinguished = []
         self.realisedFFDIs = []
         self.aircraftHours = []
+        self.objectiveVals = []
+        self.opGaps = []
+        self.runTimes = []
+        self.setupTimes = []
+        self.savedSchedules = []
         self.id = Simulation.simulations
         self.statePaths = None
         self.mapStates = None
@@ -131,6 +137,12 @@ class Simulation():
     def setFinalDamageMaps(self, m):
         self.finalDamageMaps = m
 
+    def getScheduleHistories(self):
+        return self.scheduleHistories
+
+    def setScheduleHistories(self, h):
+        self.scheduleHistories = h
+
     def getRealisedAssignments(self):
         return self.realisedAssignments
 
@@ -172,6 +184,30 @@ class Simulation():
 
     def setAircraftHours(self, ah):
         self.aircraftHours = ah
+
+    def getRunTimes(self):
+        return self.runTimes
+
+    def setRunTimes(self, r):
+        self.runTimes = r
+
+    def getObjectiveVals(self):
+        return self.objectiveVals
+
+    def setObjectiveVals(self, v):
+        self.objectiveVals = v
+
+    def getOptimalityGaps(self):
+        return self.opGaps
+
+    def setOptimalityGaps(self, g):
+        self.opGaps = g
+
+    def getSetupTimes(self):
+        return self.setupTimes
+
+    def setSetupTimes(self, t):
+        self.setupTimes = t
 
     def getStatePaths(self):
         return self.statePaths
@@ -398,8 +434,8 @@ class Simulation():
         """ 1 if resource R can satisfy component C of configurations """
         cplxMod.type_RC = {
                 (r, c):
-                    (1 if resources[r].getType() == "A" and c in [1, 3]
-                       or resources[r].getType() == "H" and c in [2, 4]
+                    (1 if ((resources[r].getType() == "A" and c in [1, 3])
+                           or (resources[r].getType() == "H" and c in [2, 4]))
                     else 0)
                 for r in cplxMod.R
                 for c in cplxMod.C}
@@ -1263,6 +1299,14 @@ class Simulation():
         self.aircraftHours = [None]*samplePaths
         self.realisedStarts = [None]*samplePaths
         self.initialExtinguished = [None]*samplePaths
+        self.opGaps = [None]*samplePaths
+        self.runTimes = [None]*samplePaths
+        self.setupTimes = [None]*samplePaths
+        self.objectiveVals = [None]*samplePaths
+
+        if (self.model.getSaveSchedule()
+            and self.model.getNestedOptMethod() == 5):
+            self.savedSchedules = [None]*samplePaths
 
         if self.model.getAlgo() in [4, 5]:
             self.dynamicC2G = [None]*samplePaths
@@ -1279,6 +1323,13 @@ class Simulation():
             self.aircraftHours[ii] = [None]*runs
             self.realisedStarts[ii] = [None]*runs
             self.initialExtinguished[ii] = [None]*runs
+            self.opGaps[ii] = [None]*runs
+            self.runTimes[ii] = [None]*runs
+            self.setupTimes[ii] = [None]*runs
+            self.objectiveVals[ii] = [None]*runs
+
+            if self.model.getSaveSchedule():
+                self.savedSchedules[ii] = [None]*runs
 
             if self.model.getAlgo() in [4, 5]:
                 self.dynamicC2G[ii] = [None]*runs
@@ -1414,6 +1465,10 @@ class Simulation():
                     [timeSteps + 1, len(resources), 2])
                 self.aircraftPositions[ii][run][0, :, :] = numpy.array(
                     [aircraft.getLocation() for aircraft in resources])
+                self.opGaps[ii][run] = [None]*timeSteps
+                self.runTimes[ii][run] = [None]*timeSteps
+                self.setupTimes[ii][run] = [None]*timeSteps
+                self.objectiveVals[ii][run] = [None]*timeSteps
 
                 rain = numpy.zeros([timeSteps+1+lookahead, regionSize])
                 rain[0] = region.getRain()
@@ -1597,9 +1652,9 @@ class Simulation():
                                         self.assignAircraft(
                                                 assignmentsPath, expDamageExist,
                                                 expDamagePoten, activeFires,
-                                                resourcesPath, expectedFFDI, tt
-                                                + 1, bestControl, method,
-                                                staticAfter=static))
+                                                resourcesPath, expectedFFDI,
+                                                ii, run, tt + 1, bestControl,
+                                                method, staticAfter=static))
 
                                         [s1, s2, s3, s4] = self.computeState(
                                             assignmentsPath, resourcesPath,
@@ -1698,20 +1753,26 @@ class Simulation():
 #                    print(self.relocationModel.decisionVarsIdxStarts)
 #                    print(self.relocationModel.constraintIdxStarts)
                     if bestControl < noControls:
-                        if self.model.getNestedOptMethod() == 6:
+                        if self.model.getNestedOptMethod() == 5:
+                            # This method starts at 0 as it is easier.
                             [patchConfigs, fireConfigs, nodeLocs] = (
                                 self.solveModelSchedule(
-                                        assignmentsPath, expDamageExist,
-                                        expDamagePoten, activeFires,
-                                        resourcesPath, expectedFFDI, tt + 1))
+                                        assignmentsPath, activeFires,
+                                        resourcesPath, expectedFFDI, ii, run,
+                                        tt))
 
                         else:
+                            # This is a little confusing but we use time + 1
+                            # because we need to check if the base assignments
+                            # have been fixed, in which case the assignments
+                            # at the NEXT time step (i.e. time + 1) will not be
+                            # 0.
                             [patchConfigs, fireConfigs] = (
                                     self.assignAircraft(
                                             assignmentsPath, expDamageExist,
                                             expDamagePoten, activeFires,
-                                            resourcesPath, expectedFFDI,
-                                            tt + 1, bestControl, method,
+                                            resourcesPath, expectedFFDI, ii,
+                                            run, tt + 1, bestControl, method,
                                             staticAfter=static))
 #                        self.relocationModel.write('LP.lp')
 #                        sys.exit()
@@ -1796,6 +1857,10 @@ class Simulation():
                 self.writeOutResults(maxFFDI, minFFDI, maxDamage, minDamage,
                                      ii, run)
 
+                if (self.model.getSaveSchedule()
+                    and self.model.getNestedOptMethod() == 5):
+                    self.writeOutSchedule()
+
         self.writeOutSummary()
 
     def simulateStochasticMPC(self, static=False, rov=False):
@@ -1820,8 +1885,8 @@ class Simulation():
 
     def assignAircraft(self, assignmentsPath, expDamageExist,
                        expDamagePoten, activeFires, resourcesPath, ffdiPath,
-                       timeStep, control=0, method=1, static=False, dummy=0,
-                       staticAfter=False):
+                       sample, run, timeStep, control=0, method=1,
+                       static=False, dummy=0, staticAfter=False):
 
         """First compute the parts common to all relocation programs"""
         """ First copy the relocation model """
@@ -1886,12 +1951,13 @@ class Simulation():
 
         prog = switch.get(lpModel)
         return prog(assignmentsPath, expDamageExist, expDamagePoten,
-                    activeFires, resourcesPath, ffdiPath, timeStep, control,
-                    static, tempModel, method, dummy, staticAfter)
+                    activeFires, resourcesPath, ffdiPath, sample, run,
+                    timeStep, control, static, tempModel, method, dummy,
+                    staticAfter)
 
     def assignMaxCover(self, assignmentsPath, expDamageExist, expDamagePoten,
-                       activeFires, resourcesPath, ffdiPath, timeStep, control,
-                       static, tempModel, method, dummy=0):
+                       activeFires, resourcesPath, ffdiPath, sample, run,
+                       timeStep, control, static, tempModel, method, dummy=0):
 
         """ First copy the relocation model """
         bases = self.model.getRegion().getStations()[0]
@@ -2203,8 +2269,8 @@ class Simulation():
         return [configsN, fireConfigs]
 
     def assignPMedian(self, assignmentsPath, expDamageExist, expDamagePoten,
-                      activeFires, resourcesPath, ffdiPath, timeStep, control,
-                      static, tempModel, method, dummy=0):
+                      activeFires, resourcesPath, ffdiPath, sample, run,
+                      timeStep, control, static, tempModel, method, dummy=0):
 
         """////////////////////////////////////////////////////////////////////
         /////////////////////////// DECISION VARIABLES ////////////////////////
@@ -2455,8 +2521,8 @@ class Simulation():
 
     def assignAssignment1(self, assignmentsPath, expDamageExist,
                           expDamagePoten, activeFires, resourcesPath, ffdiPath,
-                          timeStep, control, static, tempModel, method,
-                          dummy=0, staticAfter=False):
+                          sample, run, timeStep, control, static, tempModel,
+                          method, dummy=0, staticAfter=False):
         """ Assigns aircraft by weighting:
         1. Preference for EXISTING and POTENTIAL fires
         2. Fire DAMAGE and RELOCATION COST """
@@ -2558,8 +2624,8 @@ class Simulation():
         """ 1 if resource R can satisfy component C of configurations """
         tempModel.type_RC = {
                 (r, c):
-                    (1 if resourcesPath[r].getType() == "A" and c in [1, 3]
-                       or resourcesPath[r].getType() == "H" and c in [2, 4]
+                    (1 if ((resourcesPath[r].getType() == "A" and c in [1, 3])
+                           or (resourcesPath[r].getType() == "H" and c in [2, 4]))
                     else 0)
                 for r in tempModel.R
                 for c in tempModel.C}
@@ -2813,8 +2879,10 @@ class Simulation():
 
     def assignAssignment2(self, assignmentsPath, expDamageExist,
                           expDamagePoten, activeFires, resourcesPath, ffdiPath,
-                          timeStep, control, static, tempModel, method,
-                          dummy=0, staticAfter=False):
+                          sample, run, timeStep, control, static, tempModel,
+                          method, dummy=0, staticAfter=False):
+
+        t0 = time.time()
 
         """ Main assignment method with thresholds or thresholds and weight """
 
@@ -2966,6 +3034,8 @@ class Simulation():
                 if static and timeStep == 0
                 else 1)
 
+        tStart = (timeStep - 1 if timeStep > 0 else 0)
+
         tempModel.no_N = {
                 n:
                 sum([numpy.interp(ffdiPath[n, t],
@@ -2973,7 +3043,7 @@ class Simulation():
                                   getVegetation().getFFDIRange(),
                                   self.model.getRegion().getPatches()[n].
                                   getVegetation().getOccurrence()[
-                                          timeStep + t]) *
+                                          tStart + t]) *
                      self.model.getRegion().getPatches()[n].getArea()
                      for t in range(look)])
                 for n in tempModel.N}
@@ -3243,11 +3313,21 @@ class Simulation():
                 for r in tempModel.R
                 for b in tempModel.B])
 
-#        self.relocationModel.write('LP.lp')
+        t1 = time.time()
+        self.setupTimes[sample][run][start] = t1 - t0
+
         """ SOLVE THE MODEL """
+        t0 = time.time()
+        tempModel.solve()
+        t1 = time.time()
+
+        self.opGaps[sample][run][start] = tempModel.solution.MIP.get_mip_relative_gap()
+        self.objectiveVals[sample][run][start] = tempModel.solution.get_objective_value()
+        self.runTimes[sample][run][start] = t1 - t0
+
+#        self.relocationModel.write('LP.lp')
 #        print(tempModel.constraintIdxStarts)
 #        print(tempModel.decisionVarsIdxStarts)
-        tempModel.solve()
 
         """ UPDATE THE RESOURCE ASSIGNMENTS IN THE SYSTEM """
         assignments = numpy.zeros([len(tempModel.R), 2])
@@ -3302,10 +3382,12 @@ class Simulation():
         return [configsN, fireConfigs]
 
     def solveModelSchedule(self, assignmentsPath, activeFires, resourcesPath,
-                           ffdiPath, start):
+                           ffdiPath, sample, run, start):
         """ Builds a schedule-based assignment model to reuse for computing
         relocations. As the schedule must be updated at each time step, this
         has to be rebuilt at every time step. """
+
+        t0 = time.time()
 
         """ First copy important parameters """
         resources = self.model.getRegion().getResources()
@@ -3318,33 +3400,6 @@ class Simulation():
         configsP = self.model.getUsefulConfigurationsPotential()
         lookahead = self.model.getLookahead()
         discount = self.model.getDiscountFactor()
-
-        """ Compute the expected damage parameters for all configs at all
-        nodes for all future time steps. The config is only applied for the
-        respective time step for which the damage is being computed. We do this
-        as we only care about the effect of doing something at THAT period
-        alone."""
-        expDamageExist = {
-                (jj, configsE[kk] - 1, t2):
-                self.expectedDamageExisting(
-                        activeFires[jj], ffdiPath,
-                        configsE[kk], t2, self.model.getTotalSteps()
-                        + lookahead - t2, discount, False) / (
-                        (1 + discount) ** (t2 - start))
-                for jj in range(len(activeFires))
-                for kk in range(len(configsE))
-                for t2 in range(start, self.model.getTotalSteps())}
-
-        expDamagePoten = {
-                (jj, configsP[kk] - 1, t2):
-                self.expectedDamagePotential(
-                        jj, ffdiPath, configsP[kk], t2,
-                        self.model.getTotalSteps() + lookahead - t2,
-                        discount, False) / (
-                        (1 + discount) ** (t2 - start))
-                for jj in range(patches)
-                for kk in range(len(configsP))
-                for t2 in range(start, self.model.getTotalSteps())}
 
         """ Node positions """
         # Bases (Fixed)
@@ -3383,24 +3438,31 @@ class Simulation():
         """ INDEXED SETS AND LIST LENGTHS """
         # We progressively append the different classes of nodes
         noNodes = 0
+        nodeStarts = {}
+
         cplxMod.C = [1, 2, 3, 4]
         cplxMod.R = [ii for ii in range(len(resources))]
 
+        nodeStarts["bases"] = noNodes
         cplxMod.B = [ii for ii in
                      range(noNodes, len(bases) + len(interBases)
                      + len(interFires))]
         noNodes = len(bases)
 
+        nodeStarts["intermediate_bases"] = noNodes
         cplxMod.BB = [ii for ii in range(noNodes, noNodes + len(interBases)
                       + len(interFires))]
         noNodes += len(interBases) + len(interFires)
 
+        nodeStarts["fires"] = noNodes
         cplxMod.M = [ii for ii in range(noNodes, noNodes + len(activeFires))]
         noNodes += len(activeFires)
 
+        nodeStarts["temporary_intermediate"] = noNodes
         cplxMod.I = [ii for ii in range(noNodes, noNodes + len(interFiresR0))]
         noNodes += len(interFiresR0)
 
+        nodeStarts["aircraft_initial"] = noNodes
         cplxMod.R0 = [ii for ii in
                       range(noNodes, noNodes + len(resources))]
         noNodes += len(resources)
@@ -3420,6 +3482,36 @@ class Simulation():
         cplxMod.KP = [cplxMod.K[ii-1] for ii in configsP]
         cplxMod.KE = [cplxMod.K[ii-1] for ii in configsE]
         cplxMod.C = [1, 2, 3, 4]
+
+        """ OBJECTIVE FUNCTION COEFFICIENTS PREPARATION """
+
+        """ Compute the expected damage parameters for all configs at all
+        nodes for all future time steps. The config is only applied for the
+        respective time step for which the damage is being computed. We do this
+        as we only care about the effect of doing something at THAT period
+        alone."""
+        expDamageExist = {
+                (jj, kk, t2):
+                self.expectedDamageExisting(
+                        activeFires[jj], ffdiPath,
+                        configsE[kk], t2, self.model.getTotalSteps()
+                        + lookahead - t2, discount, False) / (
+                        (1 + discount) ** (t2 - start))
+                for jj in range(len(activeFires))
+                for kk in range(len(configsE))
+                for t2 in range(start, self.model.getTotalSteps())}
+
+        expDamagePoten = {
+                (jj, kk, t2):
+                self.expectedDamagePotential(
+                        jj, ffdiPath, configsP[kk], t2,
+                        self.model.getTotalSteps() + lookahead - t2,
+                        discount, False) / (
+                        (1 + discount) ** (t2 - start))
+                for jj in range(len(patches))
+                for kk in range(len(configsP))
+                for t2 in range(start, self.model.getTotalSteps())}
+
 
         """ PARAMETERS """
 
@@ -3452,8 +3544,8 @@ class Simulation():
         """ 1 if resource R can satisfy component C of configurations """
         cplxMod.type_RC = {
                 (r, c):
-                    (1 if resourcesPath[r].getType() == "A" and c in [1, 3]
-                       or resourcesPath[r].getType() == "H" and c in [2, 4]
+                    (1 if ((resourcesPath[r].getType() == "A" and c in [1, 3])
+                           or (resourcesPath[r].getType() == "H" and c in [2, 4]))
                     else 0)
                 for r in cplxMod.R
                 for c in cplxMod.C}
@@ -3472,8 +3564,7 @@ class Simulation():
         component C """
         cplxMod.d2_VNC = {
                 (v, n, c):
-                 (self.geoDist(patches[n].getCentroid(),
-                               nodeLocs[v].getLocation()) /
+                 (self.geoDist(patches[n].getCentroid(), nodeLocs[v]) /
                   (self.model.getResourceTypes()[0].getSpeed() if c in [1, 3]
                    else self.model.getResourceTypes()[1].getSpeed()))
                 for v in cplxMod.B
@@ -3508,8 +3599,8 @@ class Simulation():
                  (1 if (((c == 1 or c == 2) and cplxMod.d2_VNC[v, n, c] <=
                             cplxMod.thresholds[0])
                        or (c == 3 or c == 4 and
-                           cplxMod.VNC[v, n, c] > cplxMod.thresholds[0] and
-                           cplxMod.VNC[v, n, c] <= cplxMod.thresholds[1]))
+                           cplxMod.d2_VNC[v, n, c] > cplxMod.thresholds[0] and
+                           cplxMod.d2_VNC[v, n, c] <= cplxMod.thresholds[1]))
                    else 0)
                 for v in cplxMod.B
                 for n in cplxMod.N
@@ -3527,9 +3618,10 @@ class Simulation():
                 for n in cplxMod.N
                 for t in cplxMod.Ts}
 
-        """ Expected number of fires visible by base B for component C """
-        cplxMod.no_CB = {
-                (c, v):
+        """ Expected number of fires visible by base B for component C at time
+        t """
+        cplxMod.no_CBT = {
+                (c, v, t):
                     max(1,
                         sum([cplxMod.no_NT[n, t]
                              if (((c == 1 or c == 2)
@@ -3560,11 +3652,11 @@ class Simulation():
                 for k in cplxMod.KP
                 for t in cplxMod.Ts]
         cplxMod.decisionVarsIdxStarts["Delta_NKT"] = totalVars
-        totalVars += len(cplxMod.decisionVarsIdxStarts["Delta_NKT"])
+        totalVars += len(cplxMod.decisionVars["Delta_NKT"])
 
         cplxMod.variables.add(
-                ub=[1]*len(cplxMod.decisionVarsIdxStarts["Delta_NKT"]),
-                lb=[0]*len(cplxMod.decisionVarsIdxStarts["Delta_NKT"]))
+                ub=[1]*len(cplxMod.decisionVars["Delta_NKT"]),
+                lb=[0]*len(cplxMod.decisionVars["Delta_NKT"]))
 
         """ Fire configuration covers """
         cplxMod.decisionVars["Delta_MKT"] = [
@@ -3573,7 +3665,7 @@ class Simulation():
                 for k in cplxMod.K
                 for t in cplxMod.Ts]
         cplxMod.decisionVarsIdxStarts["Delta_MKT"] = totalVars
-        totalVars += len(cplxMod.decisionVarsIdxStarts["Delta_MKT"])
+        totalVars += len(cplxMod.decisionVars["Delta_MKT"])
 
         cplxMod.variables.add(
                 types=([cplxMod.variables.type.binary] *
@@ -3588,7 +3680,7 @@ class Simulation():
                 for v2 in cplxMod.V
                 for t in cplxMod.T]
         cplxMod.decisionVarsIdxStarts["A_RVVT"] = totalVars
-        totalVars += len(cplxMod.decisionVarsIdxStarts["A_RVVT"])
+        totalVars += len(cplxMod.decisionVars["A_RVVT"])
 
         cplxMod.variables.add(
                 types=([cplxMod.variables.type.binary] *
@@ -3603,7 +3695,7 @@ class Simulation():
 
         startDeltaMKT = cplxMod.decisionVarsIdxStarts["Delta_MKT"]
         startDeltaNKT = cplxMod.decisionVarsIdxStarts["Delta_NKT"]
-        startARVVT = cplxMod.decisioNVarsIdxStarts["A_RVVT"]
+        startARVVT = cplxMod.decisionVarsIdxStarts["A_RVVT"]
 
         """////////////////////////////////////////////////////////////////////
         ////////////////// OBJECTIVE FUNCTION COEFFICIENTS ////////////////////
@@ -3617,23 +3709,23 @@ class Simulation():
         if len(cplxMod.M) > 0:
             cplxMod.objective.set_linear(list(zip(
                     [startDeltaMKT + m*lenKE*lenTs + k*lenTs + t
-                     for m in cplxMod.M
+                     for m in range(len(cplxMod.M))
                      for k in range(len(cplxMod.KE))
-                     for t in cplxMod.Ts],
-                    [cplxMod.DE_MKT[m, k, t]
-                     for m in cplxMod.M
+                     for t in range(len(cplxMod.Ts))],
+                    [cplxMod.DE_MKT[m, k, t + start]
+                     for m in range(len(cplxMod.M))
                      for k in range(len(cplxMod.KE))
-                     for t in cplxMod.Ts])))
+                     for t in range(len(cplxMod.Ts))])))
 
         cplxMod.objective.set_linear(list(zip(
                 [startDeltaNKT + n*lenKP*lenTs + k*lenTs + t
-                 for n in cplxMod.N
+                 for n in range(len(cplxMod.N))
                  for k in range(len(cplxMod.KP))
-                 for t in cplxMod.Ts],
-                [cplxMod.DP_NKT[n, k, t]
-                 for n in cplxMod.N
+                 for t in range(len(cplxMod.Ts))],
+                [cplxMod.DP_NKT[n, k, t + start]
+                 for n in range(len(cplxMod.N))
                  for k in range(len(cplxMod.KP))
-                 for t in cplxMod.Ts])))
+                 for t in range(len(cplxMod.Ts))])))
 
         """////////////////////////////////////////////////////////////////////
         //////////////////////////// CONSTRAINTS //////////////////////////////
@@ -3665,19 +3757,19 @@ class Simulation():
                    for v in cplxMod.V]
                 for k in range(len(cplxMod.KE))
                 for c in cplxMod.C
-                for m in cplxMod.M
-                for t in cplxMod.Ts}
+                for m in range(len(cplxMod.M))
+                for t in range(len(cplxMod.Ts))}
 
         varCoeffs = {
                 (k, c, m, t):
-                [cplxMod.Q_KC[cplxMod.K[k], c]]
+                [cplxMod.Q_KC[cplxMod.KE[k], c]]
                 + [-cplxMod.d1_VVCS[v, m, c]
                    for r in cplxMod.R
                    for v in cplxMod.V]
                 for k in range(len(cplxMod.KE))
                 for c in cplxMod.C
-                for m in cplxMod.M
-                for t in cplxMod.Ts}
+                for m in range(len(cplxMod.M))
+                for t in range(len(cplxMod.Ts))}
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
@@ -3686,8 +3778,8 @@ class Simulation():
                                 val=varCoeffs[k, c, m, t])
                         for k in range(len(cplxMod.KE))
                         for c in cplxMod.C
-                        for m in cplxMod.M
-                        for t in cplxMod.Ts],
+                        for m in range(len(cplxMod.M))
+                        for t in range(len(cplxMod.Ts))],
                 senses=["L"]*len(varIdxs),
                 rhs=[0]*len(varIdxs))
 
@@ -3711,24 +3803,24 @@ class Simulation():
                 + [startARVVT + r*lenV*lenV*lenTs + v*lenV*lenTs
                    + b*lenTs + t
                    for r in cplxMod.R
-                   for v in cplxMod.V
-                   for b in cplxMod.B]
+                   for v in cplxMod.B
+                   for b in range(len(cplxMod.B))]
                 for k in range(len(cplxMod.KP))
                 for c in cplxMod.C
                 for n in cplxMod.N
-                for t in cplxMod.Ts}
+                for t in range(len(cplxMod.Ts))}
 
         varCoeffs = {
                 (k, c, n, t):
-                [cplxMod.Q_KC[cplxMod.K[k], c]]
-                + [-cplxMod.d2_VNCT[v, n, c] / cplxMod.no_CB[c, b]
+                [cplxMod.Q_KC[cplxMod.KP[k], c]]
+                + [-cplxMod.d2_VNCT[v, n, c] / cplxMod.no_CBT[c, b, t + start]
                    for r in cplxMod.R
-                   for v in cplxMod.V
-                   for b in cplxMod.B]
+                   for v in cplxMod.B
+                   for b in range(len(cplxMod.B))]
                 for k in range(len(cplxMod.KP))
                 for c in cplxMod.C
                 for n in cplxMod.N
-                for t in cplxMod.Ts}
+                for t in range(len(cplxMod.Ts))}
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
@@ -3738,18 +3830,18 @@ class Simulation():
                         for k in range(len(cplxMod.KP))
                         for c in cplxMod.C
                         for n in cplxMod.N
-                        for t in cplxMod.Ts],
+                        for t in range(len(cplxMod.Ts))],
                 senses=["L"]*len(varIdxs),
                 rhs=[0]*len(varIdxs))
 
-        """ Ensures that an aircraft can only traverse a single arc at each
+        """ Ensures that an aircraft traverse one and only one arc at each
         time step """
         cplxMod.constraintNames["C_3"] = [
                 "C_3_R" + str(r) + "_T" + str(t)
                 for r in cplxMod.R
                 for t in cplxMod.Ts]
         cplxMod.constraintIdxStarts["C_3"] = totalConstraints
-        totalConstraints += len(cplxMod.constraintIdxStarts["C_3"])
+        totalConstraints += len(cplxMod.constraintNames["C_3"])
 
         varIdxs = {
                 (r, t):
@@ -3757,13 +3849,13 @@ class Simulation():
                  for v1 in cplxMod.V
                  for v2 in cplxMod.V]
                 for r in cplxMod.R
-                for t in cplxMod.Ts}
+                for t in range(len(cplxMod.Ts))}
 
         varCoeffs = {
                 (r, t):
                 [1 for v1 in cplxMod.V for v2 in cplxMod.V]
                 for r in cplxMod.R
-                for t in cplxMod.Ts}
+                for t in range(len(cplxMod.Ts))}
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
@@ -3771,9 +3863,9 @@ class Simulation():
                                 ind=varIdxs[r, t],
                                 val=varCoeffs[r, t])
                         for r in cplxMod.R
-                        for t in cplxMod.Ts],
-                senses=["L"]*len(varIdxs),
-                rhs=[0]*len(varIdxs))
+                        for t in range(len(cplxMod.Ts))],
+                senses=["E"]*len(varIdxs),
+                rhs=[1]*len(varIdxs))
 
         """ Ensures that each fire at each time step can only be assigned a
         single configuration """
@@ -3788,22 +3880,22 @@ class Simulation():
                 (m, t):
                 [startDeltaMKT + m*lenKE*lenTs + k*lenTs + t
                  for k in range(len(cplxMod.KE))]
-                for m in cplxMod.M
-                for t in cplxMod.Ts}
+                for m in range(len(cplxMod.M))
+                for t in range(len(cplxMod.Ts))}
 
         varCoeffs = {
                 (m, t):
                 [1 for k in range(len(cplxMod.KE))]
-                for m in cplxMod.M
-                for t in cplxMod.Ts}
+                for m in range(len(cplxMod.M))
+                for t in range(len(cplxMod.Ts))}
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
                         cplex.SparsePair(
                                 ind=varIdxs[m, t],
                                 val=varCoeffs[m, t])
-                        for m in cplxMod.M
-                        for t in cplxMod.Ts],
+                        for m in range(len(cplxMod.M))
+                        for t in range(len(cplxMod.Ts))],
                 senses=["E"]*len(varIdxs),
                 rhs=[1]*len(varIdxs))
 
@@ -3821,13 +3913,13 @@ class Simulation():
                 [startDeltaNKT + n*lenKP*lenTs + k*lenTs + t
                  for k in range(len(cplxMod.KP))]
                 for n in cplxMod.N
-                for t in cplxMod.Ts}
+                for t in range(len(cplxMod.Ts))}
 
         varCoeffs = {
                 (n, t):
                 [1 for k in range(len(cplxMod.KP))]
                 for n in cplxMod.N
-                for t in cplxMod.Ts}
+                for t in range(len(cplxMod.Ts))}
 
         cplxMod.linear_constraints.add(
                 lin_expr=[
@@ -3835,7 +3927,7 @@ class Simulation():
                                 ind=varIdxs[n, t],
                                 val=varCoeffs[n, t])
                         for n in cplxMod.N
-                        for t in cplxMod.Ts],
+                        for t in range(len(cplxMod.Ts))],
                 senses=["E"]*len(varIdxs),
                 rhs=[1]*len(varIdxs))
 
@@ -3844,7 +3936,7 @@ class Simulation():
         cplxMod.variables.set_upper_bounds([
                 (cplxMod.decisionVarsIdxStarts["A_RVVT"]
                  + r*lenV*lenV*lenTs + v1*lenV*lenTs + v2*lenTs,
-                 1 if v1 == (noNodes - len(resources) + r) else 0)
+                 1 if v1 == (nodeStarts["aircraft_initial"] + r) else 0)
                 for r in cplxMod.R
                 for v1 in cplxMod.V
                 for v2 in cplxMod.V])
@@ -3861,10 +3953,10 @@ class Simulation():
         varIdxs = {
                 (r, v, t):
                 [startARVVT + r*lenV*lenV*lenTs + v1*lenV*lenTs
-                 + v*lenTs + t-1
+                 + v*lenTs + t - 1 - start
                  for v1 in cplxMod.V]
                 + [startARVVT + r*lenV*lenV*lenTs + v*lenV*lenTs
-                 + v1*lenTs + t
+                 + v1*lenTs + t - start
                  for v1 in cplxMod.V]
                 for r in cplxMod.R
                 for v in cplxMod.V
@@ -3872,10 +3964,10 @@ class Simulation():
 
         varCoeffs = {
                 (r, v, t):
-                [cplxMod.d1_VVC1H[v1, v, 1] if cplxMod.type_RC[r]
+                [cplxMod.d1_VVC1H[v1, v, 1] if cplxMod.type_RC[r, 1]
                  else cplxMod.d1_VVC1H[v1, v, 2]
                  for v1 in cplxMod.V]
-                + [-cplxMod.d1_VVC1H[v, v1, 1] if cplxMod.type_RC[r]
+                + [-cplxMod.d1_VVC1H[v, v1, 1] if cplxMod.type_RC[r, 1]
                    else -cplxMod.d1_VVC1H[v, v1, 2]
                    for v1 in cplxMod.V]
                 for r in cplxMod.R
@@ -3896,7 +3988,7 @@ class Simulation():
         """ Constraint 8 - Intermediate nodes only for transit """
         """ This is simply an upper bound setting on variables """
         cplxMod.variables.set_upper_bounds([
-                (cplxMod.decisionVarsIdxsStarts["A_RVVT"]
+                (cplxMod.decisionVarsIdxStarts["A_RVVT"]
                  + r*lenV*lenV*lenTs + b*lenV*lenTs + b*lenTs + t, 0)
                 for r in cplxMod.R
                 for b in cplxMod.BB
@@ -3923,25 +4015,26 @@ class Simulation():
                 for t in cplxMod.Ts])
 
         """ Ensure that temporary intermediate nodes are only traversed at
-        most once during the horizon """
+        most once during the horizon and only by appropriate aircraft. """
         cplxMod.constraintNames["C_11"] = [
                 "C_11_R" + str(r) + "_V" + str(v)
                 for r in cplxMod.R
                 for v in cplxMod.I]
-        cplxMod.constraintIdxsStarts["C_11"] = totalConstraints
+        cplxMod.constraintIdxStarts["C_11"] = totalConstraints
         totalConstraints += len(cplxMod.constraintNames["C_11"])
 
         varIdxs = {
                 (r, v):
                 [startARVVT + r*lenV*lenV*lenTs + v1*lenV*lenTs + v*lenTs + t
                  for v1 in cplxMod.V
-                 for t in cplxMod.Ts]
+                 for t in range(len(cplxMod.Ts))]
                 for r in cplxMod.R
                 for v in cplxMod.I}
 
         varCoeffs = {
                 (r, v): [1 if interFiresR0ACs[v] == r else 0
-                         for v1 in cplxMod.V for t in cplxMod.Ts]
+                         for v1 in cplxMod.V
+                         for t in range(len(cplxMod.Ts))]
                 for r in cplxMod.R
                 for v in cplxMod.I}
 
@@ -3951,7 +4044,7 @@ class Simulation():
                                 ind=varIdxs[r, v],
                                 val=varCoeffs[r, v])
                         for r in cplxMod.R
-                        for v in cplxMod.V],
+                        for v in cplxMod.I],
                 senses=["L"]*len(varIdxs),
                 rhs=[1]*len(varIdxs))
 
@@ -3967,11 +4060,11 @@ class Simulation():
                 [startARVVT + r*lenV*lenV*lenTs + v1*lenV*lenTs + v2*lenTs + t
                  for v1 in cplxMod.V
                  for v2 in cplxMod.M
-                 for t in cplxMod.Ts]
+                 for t in range(len(cplxMod.Ts))]
                 + [startARVVT + r*lenV*lenV*lenTs + v1*lenV*lenTs + v2*lenTs + t
                    for v1 in cplxMod.V
                    for v2 in cplxMod.B + cplxMod.I
-                   for t in cplxMod.Ts]
+                   for t in range(len(cplxMod.Ts))]
                 for r in cplxMod.R}
 
         varCoeffs = {
@@ -3989,7 +4082,7 @@ class Simulation():
                 for r in cplxMod.R}
 
         cplxMod.linear_constraints.add(
-                lin_exp=[
+                lin_expr=[
                         cplex.SparsePair(
                                 ind=varIdxs[r],
                                 val=varCoeffs[r])
@@ -3998,11 +4091,27 @@ class Simulation():
                 rhs=[cplxMod.Gmax_R[r] - cplxMod.G_R[r]
                      for r in cplxMod.R])
 
-        """ Save the relocation model to the instance """
-        self.relocationModel = cplxMod
+        t1 = time.time()
+        self.setupTimes[sample][run][start] = t1 - t0
+
+        t0 = time.time()
+        cplxMod.solve()
+        t1 = time.time()
+
+        self.opGaps[sample][run][start] = cplxMod.solution.MIP.get_mip_relative_gap()
+        self.objectiveVals[sample][run][start] = cplxMod.solution.get_objective_value()
+        self.runTimes[sample][run][start] = t1 - t0
+
+        print("got here")
+        sys.exit()
+
+#        """ Save the relocation model to the instance """
+#        self.relocationModel = cplxMod
 
         """ UPDATE THE RESOURCE ASSIGNMENTS IN THE SYSTEM """
         assignments = numpy.zeros([len(cplxMod.R), 2])
+        schedule = numpy.zeros([len(cplxMod.R), 2,
+                                self.model.getTotalSteps() - start])
 
         v_RVVs = [[[round(cplxMod.solution.get_values(
                           cplxMod.decisionVarsIdxStarts["A_RVVT"]
@@ -4022,7 +4131,7 @@ class Simulation():
                 except:
                     continue
 
-        assignmentsPath[start] = assignments.astype(int)
+        assignmentsPath[start + 1] = assignments.astype(int)
 
         """ Update the attack configurations for each patch and active fire """
         patchConfigs = [[(cplxMod.solution.get_values(
@@ -4036,6 +4145,41 @@ class Simulation():
                               + m*(lenR + lenKE) + lenR + k))
                         for k in range(len(cplxMod.KE))]
                        for m in cplxMod.M]
+
+        """ Save the schedule history if requested """
+        if self.model.getSaveSchedule():
+            schedule = numpy.zeros([
+                    self.model.getTotalSteps() - start, len(cplxMod.R), 2])
+
+            v_RVVTs = [[[[round(cplxMod.solution.get_values(
+                                cplxMod.decisionVarsIdxStarts["A_RVVT"]
+                                + r*lenV*lenV*lenTs + v1*lenV*lenTs + v2*lenTs
+                                + t))
+                          for v1 in cplxMod.V]
+                         for v2 in cplxMod.V]
+                        for r in cplxMod.R]
+                       for t in range(len(cplxMod.Ts))]
+
+            for t in range(len(cplxMod.Ts)):
+                for r in cplxMod.R:
+                    for v2 in cplxMod.V:
+                        try:
+                            schedule[t, r, 0] = v_RVVTs[t][r][v2].index(1) + 1
+                            if v2 in cplxMod.BB:
+                                schedule[t, r, 1] = 2
+                            elif v2 in cplxMod.B:
+                                schedule[t, r, 1] = 1
+                            elif v2 in cplxMod.M:
+                                schedule[t, r, 1] = 3
+                            elif v2 in cplxMod.I:
+                                schedule[t, r, 1] = 4
+                            elif v2 in cplxMod.R0:
+                                schedule[t, r, 1] = 5
+                            break
+                        except:
+                            continue
+
+            self.savedSchedules[sample][run][start] = schedule
 
         return [patchConfigs, fireConfigs, nodeLocs]
 
@@ -4341,10 +4485,8 @@ class Simulation():
                         vegetation.getFFDIRange(),
                         vegetation.getROCA2PerHourSD()[config])
 
-                radCurr = (math.sqrt(size*10000/math.pi))
-                radNew = radCurr + math.exp(grMean + grSD ** 2 / 2)
                 sizeOld = size
-                size = (math.pi * radNew**2)/10000
+                size += math.exp(grMean + grSD ** 2 / 2)
                 growth = size - sizeOld
 
                 damage += ((occ * growth * (1 - success2) ** (t2 - tt)) *
@@ -5304,6 +5446,49 @@ class Simulation():
 
                 outputGraphs.close()
 
+    def writeOutSchedule(self, sample, run):
+        """ Writes the schedule history for the MIP solves """
+
+        root = ("../Experiments/Experiments/" +
+                self.model.getInputFile().split(
+                        "../Experiments/Experiments/")[1].split("/")[0])
+
+        """ Output folder """
+        outfolder = (root + "/Outputs/Scenario_" + str(self.id) + "/Sample_" +
+                     str(sample))
+
+        subOutfolder = outfolder + "/Run_" + str(run) + "/"
+
+        if not os.path.exists(os.path.dirname(subOutfolder)):
+            try:
+                os.makedirs(os.path.dirname(subOutfolder))
+            except OSError as exc:  # Guard against race condition
+                if exc.errno != errno.EEXIST:
+                    raise
+
+        """ Write Schedule """
+        outputfile = subOutfolder + "Schedules.csv"
+        with open(outputfile, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile, delimiter=',')
+
+            writer.writerow(
+                ['TAIL_NO'] + ['TIME_' + str(tt)
+                    for tt in range(self.model.getTotalSteps())])
+
+            for tt in range(self.model.getTotalSteps()):
+                for ac in range(self.savedSchedules[sample][run][0].shape[1]):
+                    """ Location """
+                    writer.writerow(
+                        ['']*tt
+                        + [str(self.savedSchedules[sample][run][tt][0][t2, ac, 0])
+                           for t2 in range(tt, self.model.getTotalSteps())])
+
+                    """ Node Type """
+                    writer.writerow(
+                        ['']*tt
+                        + [str(self.savedSchedules[sample][run][tt][0][t2, ac, 1])
+                           for t2 in range(tt, self.model.getTotalSteps())])
+
     def writeOutSummary(self):
         root = ("../Experiments/Experiments/" +
                 self.model.getInputFile().split(
@@ -5341,6 +5526,44 @@ class Simulation():
                        for run in range(self.model.getRuns())]
                     for path in range(len(
                             self.model.getSamplePaths()))])
+
+        """ MIP Performances """
+        for path in range(len(self.model.getSamplePaths())):
+            """ Output folder """
+            outfolder = (root + "/Outputs/Scenario_" + str(self.id) +
+                         "/Sample_" + str(path))
+            outputfile = outfolder + "/MIP_Performance.csv"
+            with open(outputfile, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile, delimiter=',')
+
+                columnElements = [
+                        ['TIME_' + str(tt) + '_Obj_Val',
+                         'TIME_' + str(tt) + '_Op_Gap',
+                         'TIME_' + str(tt) + '_Setup_T',
+                         'TIME_' + str(tt) + '_Solve_T']
+                        for tt in range(self.model.getTotalSteps())]
+
+                row = ['Run']
+
+                for tt in range(self.model.getTotalSteps()):
+                    row.extend(columnElements[tt])
+
+                writer.writerow(row)
+
+                for run in range(self.model.getRuns()):
+                    columnElements = [
+                        [self.objectiveVals[path][run][tt],
+                         self.opGaps[path][run][tt],
+                         self.setupTimes[path][run][tt],
+                         self.runTimes[path][run][tt]]
+                        for tt in range(self.model.getTotalSteps())]
+
+                    row = [str(run + 1)]
+
+                    for tt in range(self.model.getTotalSteps()):
+                        row.extend(columnElements[tt])
+
+                    writer.writerow(row)
 
     def writeOutROV(self, sample):
         res = self.model.getROVResolution()

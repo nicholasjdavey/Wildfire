@@ -53,7 +53,7 @@ class Region():
         self.airTankers = []
         self.helicopters = []
         self.firetrucks = []
-        self.intermediateBases = []
+        self.intermediateBases = [[],[]]
         self.assignments_0 = numpy.empty([0, 0])
         self.name = ""
         self.expectedDamagePotential = numpy.empty([0, 0])
@@ -335,9 +335,8 @@ class Region():
             intermediateNew = Region.buildIntermediateBases(connectivity,
                                                             order, bases,
                                                             speedMin)
-
             bases.extend(intermediateNew)
-            self.intermediateBases.extend(intermediateNew)
+            self.intermediateBases[0].extend(intermediateNew)
 
     def configureIntermediateFires(self, simulation, activeFires, resources):
         """ We only connect to bases within a 1 hr travel distance or the
@@ -349,12 +348,12 @@ class Region():
         interFiresR0ACs = []
 
         resourceTypes = simulation.getModel().getResourceTypes()
-        speeds = [resourceTypes[ii].getSpeed()
-                  for ii in enumerate(resourceTypes)]
+        speeds = [resourceType.getSpeed()
+                  for resourceType in resourceTypes]
 
         speedMin = min(speeds)
 
-        bases = self.stations[0] + self.intermediateBases
+        bases = self.stations[0] + self.intermediateBases[0]
 
         covers = numpy.zeros([len(activeFires), len(bases)])
         distances = numpy.zeros([len(activeFires), len(bases)])
@@ -366,11 +365,9 @@ class Region():
                 distances[ii, jj] = (
                         Region.geoDist(activeFires[ii].getLocation(),
                         bases[jj].getLocation()) / speedMin)
-                distances[jj, ii] = distances[ii, jj]
 
                 if (distances[ii, jj] <= 1):
                     covers[ii, jj] = 1
-                    covers[jj, ii] = 1
 
             if sum(covers[ii, :]) == 0:
                 """ Need to create intermediate nodes """
@@ -405,11 +402,9 @@ class Region():
                 distances[ii, jj] = (
                         Region.geoDist(activeFires[ii].getLocation(),
                         resources[jj].getLocation()) / speedMin)
-                distances[jj, ii] = distances[ii, jj]
 
                 if (distances[ii, jj] <= 1):
                     covers[ii, jj] = 1
-                    covers[jj, ii] = 1
 
             if sum(covers[ii, :]) == 0:
                 """ Need to create intermediate nodes """
@@ -447,11 +442,9 @@ class Region():
                 distances[ii, jj] = (
                         Region.geoDist(bases[jj].getLocation(),
                         resources[ii].getLocation()) / speedMin)
-                distances[jj, ii] = distances[ii, jj]
 
                 if (distances[ii, jj] <= 1):
                     covers[ii, jj] = 1
-                    covers[jj, ii] = 1
 
             if sum(covers[ii, :]) == 0:
                 """ Need to create intermediate nodes """
