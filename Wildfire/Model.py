@@ -76,6 +76,8 @@ class Model():
         self.plot = False
         self.resolution = 1
         self.expDMethod = 1
+        self.lpTimeout = 300
+        self.mipGap = 0
         self.saveSchedule = 0
 
     def getShape(self):
@@ -101,6 +103,18 @@ class Model():
 
     def setExpDMethod(self, m):
         self.expDMethod = m
+
+    def getLPTimeout(self):
+        return self.lpTimeout
+
+    def setLPTimeout(self, t):
+        self.lpTimeout = t
+
+    def getMIPGap(self):
+        return self.mipGap
+
+    def setMIPGap(self, g):
+        self.mipGap = g
 
     def getSaveSchedule(self):
         return self.saveSchedule
@@ -543,9 +557,15 @@ class Model():
         self.expDMethod = int(contents[92 + noAircraft + noLandcraft
                                        + noVegetations + noControls]
                                        .split(":")[1].strip())
+        self.lpTimeout = int(contents[93 + noAircraft + noLandcraft
+                                       + noVegetations + noControls]
+                                       .split(":")[1].strip())
+        self.mipGap = int(contents[94 + noAircraft + noLandcraft
+                                   + noVegetations + noControls]
+                                   .split(":")[1].strip())
         self.saveSchedule = (
                 True
-                if int(contents[93 + noAircraft + noLandcraft + noVegetations
+                if int(contents[95 + noAircraft + noLandcraft + noVegetations
                                 + noControls].split(":")[1].strip()) == 1
                 else False)
 

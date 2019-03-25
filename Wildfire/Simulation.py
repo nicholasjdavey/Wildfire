@@ -1789,7 +1789,10 @@ class Simulation():
 
                     # Simulate the fire growth, firefighting success and the
                     # new positions of each resource
-                    if self.model.getNestedOptMethod() == 6:
+#                    print("got here")
+#                    print(patchConfigs)
+#                    print(fireConfigs)
+                    if self.model.getNestedOptMethod() == 5:
                         damage += self.simulateSinglePeriodSchedule(
                                 nodeLocs, assignmentsPath, resourcesPath,
                                 firesPath, activeFires, accumulatedDamage,
@@ -3314,16 +3317,16 @@ class Simulation():
                 for b in tempModel.B])
 
         t1 = time.time()
-        self.setupTimes[sample][run][start] = t1 - t0
+        self.setupTimes[sample][run][timeStep] = t1 - t0
 
         """ SOLVE THE MODEL """
         t0 = time.time()
         tempModel.solve()
         t1 = time.time()
 
-        self.opGaps[sample][run][start] = tempModel.solution.MIP.get_mip_relative_gap()
-        self.objectiveVals[sample][run][start] = tempModel.solution.get_objective_value()
-        self.runTimes[sample][run][start] = t1 - t0
+        self.opGaps[sample][run][timeStep] = tempModel.solution.MIP.get_mip_relative_gap()
+        self.objectiveVals[sample][run][timeStep] = tempModel.solution.get_objective_value()
+        self.runTimes[sample][run][timeStep] = t1 - t0
 
 #        self.relocationModel.write('LP.lp')
 #        print(tempModel.constraintIdxStarts)
@@ -3426,6 +3429,9 @@ class Simulation():
                      for r in range(len(resources))]
 
         cplxMod = cplex.Cplex()
+        cplxMod.parameters.timelimit.set(self.model.getLPTimeout())
+        cplxMod.parameters.mip.tolerances.mipgap.set(self.model.getMIPGap()/100)
+
         cplxMod.objective.set_sense(cplxMod.objective.sense.minimize)
 
         configsP = (self.model.getUsefulConfigurationsPotential()
@@ -3482,36 +3488,6 @@ class Simulation():
         cplxMod.KP = [cplxMod.K[ii-1] for ii in configsP]
         cplxMod.KE = [cplxMod.K[ii-1] for ii in configsE]
         cplxMod.C = [1, 2, 3, 4]
-
-        """ OBJECTIVE FUNCTION COEFFICIENTS PREPARATION """
-
-        """ Compute the expected damage parameters for all configs at all
-        nodes for all future time steps. The config is only applied for the
-        respective time step for which the damage is being computed. We do this
-        as we only care about the effect of doing something at THAT period
-        alone."""
-        expDamageExist = {
-                (jj, kk, t2):
-                self.expectedDamageExisting(
-                        activeFires[jj], ffdiPath,
-                        configsE[kk], t2, self.model.getTotalSteps()
-                        + lookahead - t2, discount, False) / (
-                        (1 + discount) ** (t2 - start))
-                for jj in range(len(activeFires))
-                for kk in range(len(configsE))
-                for t2 in range(start, self.model.getTotalSteps())}
-
-        expDamagePoten = {
-                (jj, kk, t2):
-                self.expectedDamagePotential(
-                        jj, ffdiPath, configsP[kk], t2,
-                        self.model.getTotalSteps() + lookahead - t2,
-                        discount, False) / (
-                        (1 + discount) ** (t2 - start))
-                for jj in range(len(patches))
-                for kk in range(len(configsP))
-                for t2 in range(start, self.model.getTotalSteps())}
-
 
         """ PARAMETERS """
 
@@ -3638,6 +3614,37 @@ class Simulation():
                 for v in cplxMod.B
                 for t in cplxMod.Ts}
 
+        """ OBJECTIVE FUNCTION COEFFICIENTS PREPARATION """
+
+        """ Compute the expected damage parameters for all configs at all
+        nodes for all future time steps. The config is only applied for the
+        respective time step for which the damage is being computed. We do this
+        as we only care about the effect of doing something at THAT period
+        alone."""
+        expDamageExist = {
+                (jj, kk, t2):
+                ((1 - cplxMod.lambdas[1][0]) * (
+                 self.expectedDamageExisting(
+                         activeFires[jj], ffdiPath,
+                         configsE[kk], t2, self.model.getTotalSteps()
+                         + lookahead - t2, discount, False) / (
+                         (1 + discount) ** (t2 - start))))
+                for jj in range(len(activeFires))
+                for kk in range(len(configsE))
+                for t2 in range(start, self.model.getTotalSteps())}
+
+        expDamagePoten = {
+                (jj, kk, t2):
+                ((cplxMod.lambdas[1][0]) * (
+                 self.expectedDamagePotential(
+                         jj, ffdiPath, configsP[kk], t2,
+                         self.model.getTotalSteps() + lookahead - t2,
+                         discount, False) / (
+                         (1 + discount) ** (t2 - start))))
+                for jj in range(len(patches))
+                for kk in range(len(configsP))
+                for t2 in range(start, self.model.getTotalSteps())}
+
         """////////////////////////////////////////////////////////////////////
         /////////////////////////// DECISION VARIABLES ////////////////////////
         ////////////////////////////////////////////////////////////////////"""
@@ -3662,7 +3669,7 @@ class Simulation():
         cplxMod.decisionVars["Delta_MKT"] = [
                 "Delta_MKT_M" + str(m) + "_K" + str(k) + "_T" + str(t)
                 for m in cplxMod.M
-                for k in cplxMod.K
+                for k in cplxMod.KE
                 for t in cplxMod.Ts]
         cplxMod.decisionVarsIdxStarts["Delta_MKT"] = totalVars
         totalVars += len(cplxMod.decisionVars["Delta_MKT"])
@@ -3678,7 +3685,7 @@ class Simulation():
                 for r in cplxMod.R
                 for v1 in cplxMod.V
                 for v2 in cplxMod.V
-                for t in cplxMod.T]
+                for t in cplxMod.Ts]
         cplxMod.decisionVarsIdxStarts["A_RVVT"] = totalVars
         totalVars += len(cplxMod.decisionVars["A_RVVT"])
 
@@ -3687,7 +3694,6 @@ class Simulation():
                        len(cplxMod.decisionVars["A_RVVT"])))
 
         """ Set lengths """
-        lenR = len(cplxMod.R)
         lenV = len(cplxMod.V)
         lenTs = len(cplxMod.Ts)
         lenKP = len(cplxMod.KP)
@@ -3752,7 +3758,7 @@ class Simulation():
                 (k, c, m, t):
                 [startDeltaMKT + m*lenKE*lenTs + k*lenTs + t]
                 + [startARVVT + r*lenV*lenV*lenTs + v*lenV*lenTs
-                   + m*lenTs + t
+                   + cplxMod.M[m]*lenTs + t
                    for r in cplxMod.R
                    for v in cplxMod.V]
                 for k in range(len(cplxMod.KE))
@@ -3763,7 +3769,7 @@ class Simulation():
         varCoeffs = {
                 (k, c, m, t):
                 [cplxMod.Q_KC[cplxMod.KE[k], c]]
-                + [-cplxMod.d1_VVCS[v, m, c]
+                + [-cplxMod.d1_VVCS[v, cplxMod.M[m], c]
                    for r in cplxMod.R
                    for v in cplxMod.V]
                 for k in range(len(cplxMod.KE))
@@ -3786,7 +3792,9 @@ class Simulation():
         """ Makes sure that a particular aircraft configuration at patch n at
         time t can only be satisfied if the correct number of aircraft to
         satisfy each component c in configuration k are coming into each
-        relevant base, b from all other nodes, v """
+        relevant base, b from all other nodes, v. For this constraint,
+        temporary transit nodes between aircraft and fires/bases are not used
+        to cover patches. """
         cplxMod.constraintNames["C_2"] = [
                 "C_2_K" + str(k+1) + "_C" + str(c) + "_N" + str(n) + "_T"
                 + str(t)
@@ -3803,7 +3811,7 @@ class Simulation():
                 + [startARVVT + r*lenV*lenV*lenTs + v*lenV*lenTs
                    + b*lenTs + t
                    for r in cplxMod.R
-                   for v in cplxMod.B
+                   for v in cplxMod.V
                    for b in range(len(cplxMod.B))]
                 for k in range(len(cplxMod.KP))
                 for c in cplxMod.C
@@ -3813,9 +3821,9 @@ class Simulation():
         varCoeffs = {
                 (k, c, n, t):
                 [cplxMod.Q_KC[cplxMod.KP[k], c]]
-                + [-cplxMod.d2_VNCT[v, n, c] / cplxMod.no_CBT[c, b, t + start]
+                + [-cplxMod.d2_VNCT[b, n, c] / cplxMod.no_CBT[c, b, t + start]
                    for r in cplxMod.R
-                   for v in cplxMod.B
+                   for v in cplxMod.V
                    for b in range(len(cplxMod.B))]
                 for k in range(len(cplxMod.KP))
                 for c in cplxMod.C
@@ -3845,7 +3853,7 @@ class Simulation():
 
         varIdxs = {
                 (r, t):
-                [startARVVT + r*lenV*lenV*lenTs + v1*lenV*lenTs + v2*lenTs
+                [startARVVT + r*lenV*lenV*lenTs + v1*lenV*lenTs + v2*lenTs + t
                  for v1 in cplxMod.V
                  for v2 in cplxMod.V]
                 for r in cplxMod.R
@@ -4094,6 +4102,11 @@ class Simulation():
         t1 = time.time()
         self.setupTimes[sample][run][start] = t1 - t0
 
+        cplxMod.write("lpmod.lp")
+        print(cplxMod.decisionVarsIdxStarts)
+        print(cplxMod.constraintIdxStarts)
+        sys.exit()
+
         t0 = time.time()
         cplxMod.solve()
         t1 = time.time()
@@ -4102,13 +4115,11 @@ class Simulation():
         self.objectiveVals[sample][run][start] = cplxMod.solution.get_objective_value()
         self.runTimes[sample][run][start] = t1 - t0
 
-        print("got here")
-        sys.exit()
-
 #        """ Save the relocation model to the instance """
 #        self.relocationModel = cplxMod
 
         """ UPDATE THE RESOURCE ASSIGNMENTS IN THE SYSTEM """
+        """ At each time step we take the DESTINATION node ID """
         assignments = numpy.zeros([len(cplxMod.R), 2])
         schedule = numpy.zeros([len(cplxMod.R), 2,
                                 self.model.getTotalSteps() - start])
@@ -4116,17 +4127,17 @@ class Simulation():
         v_RVVs = [[[round(cplxMod.solution.get_values(
                           cplxMod.decisionVarsIdxStarts["A_RVVT"]
                           + r*lenV*lenV*lenTs + v1*lenV*lenTs + v2*lenTs))
-                    for v1 in cplxMod.V]
-                   for v2 in cplxMod.V]
+                    for v2 in cplxMod.V]
+                   for v1 in cplxMod.V]
                   for r in cplxMod.R]
 
         for r in cplxMod.R:
-            for v2 in cplxMod.V:
+            for v1 in cplxMod.V:
                 try:
-                    assignments[r, 0] = v_RVVs[r][v2].index(1) + 1
-                    if v2 in cplxMod.M:
+                    assignments[r, 0] = v_RVVs[r][v1].index(1) + 1
+                    if (assignments[r, 0] - 1) in cplxMod.M:
                         assignments[r, 1] = (
-                                assignments[r, 0] - len(cplxMod.B) + 1)
+                                assignments[r, 0] - len(cplxMod.B))
                     break
                 except:
                     continue
@@ -4135,16 +4146,21 @@ class Simulation():
 
         """ Update the attack configurations for each patch and active fire """
         patchConfigs = [[(cplxMod.solution.get_values(
-                         cplxMod.decisionVarsIdxStarts["Delta_NK"]
-                         + n*lenKP + k))
+                         cplxMod.decisionVarsIdxStarts["Delta_NKT"]
+                         + n*lenKP*lenTs + k*lenTs))
                         for k in range(len(cplxMod.KP))]
                        for n in cplxMod.N]
 
         fireConfigs = [[round(cplxMod.solution.get_values(
-                              cplxMod.decisionVarsIdxStarts["Y_MR_Delta_MK"]
-                              + m*(lenR + lenKE) + lenR + k))
+                              cplxMod.decisionVarsIdxStarts["Delta_MKT"]
+                              + m*lenKE*lenTs + k*lenTs))
                         for k in range(len(cplxMod.KE))]
-                       for m in cplxMod.M]
+                       for m in range(len(cplxMod.M))]
+
+#        print(assignments)
+#        print(patchConfigs)
+#        print(fireConfigs)
+        sys.exit()
 
         """ Save the schedule history if requested """
         if self.model.getSaveSchedule():
@@ -4227,6 +4243,8 @@ class Simulation():
         """ Fight existing fires """
         for fire in range(len(activeFires)):
             sizeOld = activeFires[fire].getSize()
+
+            print(fireConfigs[fire])
 
             activeFires[fire].growFire(self.model,
                     ffdi[activeFires[fire].getPatchID()],

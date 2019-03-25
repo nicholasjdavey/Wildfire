@@ -296,7 +296,7 @@ class Region():
     def configureRegion(self, simulation):
         """ First, get the speed of the slowest aircraft type """
         resourceTypes = simulation.getModel().getResourceTypes()
-        bases = self.getStations()[0]
+        bases = copy.copy(self.getStations()[0])
 
         speeds = [resourceType.getSpeed()
                   for resourceType in resourceTypes
