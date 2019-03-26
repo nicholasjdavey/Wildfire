@@ -4102,10 +4102,10 @@ class Simulation():
         t1 = time.time()
         self.setupTimes[sample][run][start] = t1 - t0
 
-        cplxMod.write("lpmod.lp")
-        print(cplxMod.decisionVarsIdxStarts)
-        print(cplxMod.constraintIdxStarts)
-        sys.exit()
+#        cplxMod.write("lpmod.lp")
+#        print(cplxMod.decisionVarsIdxStarts)
+#        print(cplxMod.constraintIdxStarts)
+#        sys.exit()
 
         t0 = time.time()
         cplxMod.solve()
@@ -4151,15 +4151,21 @@ class Simulation():
                         for k in range(len(cplxMod.KP))]
                        for n in cplxMod.N]
 
-        fireConfigs = [[round(cplxMod.solution.get_values(
-                              cplxMod.decisionVarsIdxStarts["Delta_MKT"]
-                              + m*lenKE*lenTs + k*lenTs))
-                        for k in range(len(cplxMod.KE))]
-                       for m in range(len(cplxMod.M))]
+        configsM = [[round(cplxMod.solution.get_values(
+                           cplxMod.decisionVarsIdxStarts["Delta_MKT"]
+                           + m*lenKE*lenTs + k*lenTs))
+                     for k in range(len(cplxMod.KE))]
+                    for m in range(len(cplxMod.M))]
 
-#        print(assignments)
-#        print(patchConfigs)
-#        print(fireConfigs)
+        fireConfigs = [configsM[m].index(1) for m in range(len(cplxMod.M))]
+        print(cplxMod.KE[fireConfigs[0]])
+        print(self.model.getConfigurations()[cplxMod.KE[fireConfigs[0]]+1])
+        print(cplxMod.KE[fireConfigs[1]])
+        print(self.model.getConfigurations()[cplxMod.KE[fireConfigs[1]]+1])
+
+        print(assignments)
+        print(patchConfigs)
+        print(fireConfigs)
         sys.exit()
 
         """ Save the schedule history if requested """
