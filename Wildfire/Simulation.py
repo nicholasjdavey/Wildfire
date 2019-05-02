@@ -1470,6 +1470,9 @@ class Simulation():
                 self.setupTimes[ii][run] = [None]*timeSteps
                 self.objectiveVals[ii][run] = [None]*timeSteps
 
+                if self.model.getSaveSchedule():
+                    self.savedSchedules[ii][run] = [None]*timeSteps
+
                 rain = numpy.zeros([timeSteps+1+lookahead, regionSize])
                 rain[0] = region.getRain()
                 precipitation = numpy.zeros([timeSteps+1+lookahead,
@@ -1862,7 +1865,7 @@ class Simulation():
 
                 if (self.model.getSaveSchedule()
                     and self.model.getNestedOptMethod() == 5):
-                    self.writeOutSchedule()
+                    self.writeOutSchedule(ii, run)
 
         self.writeOutSummary()
 
@@ -3317,70 +3320,97 @@ class Simulation():
                 for b in tempModel.B])
 
         t1 = time.time()
-        self.setupTimes[sample][run][timeStep] = t1 - t0
+        self.setupTimes[sample][run][timeStep-1] = t1 - t0
 
         """ SOLVE THE MODEL """
         t0 = time.time()
         tempModel.solve()
         t1 = time.time()
 
-        self.opGaps[sample][run][timeStep] = tempModel.solution.MIP.get_mip_relative_gap()
-        self.objectiveVals[sample][run][timeStep] = tempModel.solution.get_objective_value()
-        self.runTimes[sample][run][timeStep] = t1 - t0
+        self.runTimes[sample][run][timeStep-1] = t1 - t0
+
+        try:
+            self.opGaps[sample][run][timeStep-1] = tempModel.solution.MIP.get_mip_relative_gap()
+            self.objectiveVals[sample][run][timeStep-1] = tempModel.solution.get_objective_value()
+
+            """ UPDATE THE RESOURCE ASSIGNMENTS IN THE SYSTEM """
+            assignments = numpy.zeros([len(tempModel.R), 2])
+
+            x_RB = [[round(tempModel.solution.get_values(
+                           tempModel.decisionVarsIdxStarts["X_RB"]
+                           + r*lenB + b))
+                     for b in tempModel.B]
+                    for r in tempModel.R]
+
+            for r in tempModel.R:
+                assignments[r, 0] = x_RB[r].index(1) + 1
+
+            y_RM = [[round(tempModel.solution.get_values(
+                             tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
+                             + m*(lenR + lenKE) + r))
+                     for m in tempModel.M]
+                    for r in tempModel.R]
+
+            for r in tempModel.R:
+                for m in tempModel.M:
+                    if y_RM[r][m] == 1:
+                        assignments[r, 1] = m + 1
+                        break
+
+            """ Update the attack configurations for each patch and active fire """
+            configsN = [[(tempModel.solution.get_values(
+                          tempModel.decisionVarsIdxStarts["Delta_NK"]
+                          + n*lenKP + k))
+                         for k in range(len(tempModel.KP))]
+                        for n in tempModel.N]
+
+            configsM = [[round(tempModel.solution.get_values(
+                               tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
+                               + m*(lenR + lenKE) + lenR + k))
+                         for k in range(len(tempModel.KE))]
+                        for m in tempModel.M]
+
+            fireConfigs = [configsM[m].index(1) for m in tempModel.M]
+
+            assignmentsPath[timeStep] = assignments.astype(int)
+
+        except:
+            self.opGaps[sample][run][timeStep-1] = 10
+            self.objectiveVals[sample][run][timeStep-1] = 100000000
+
+            """ UPDATE THE RESOURCE ASSIGNMENTS IN THE SYSTEM """
+            """ Update the attack configurations for each patch and active fire """
+            configsN = [[1 if k == 0 else 0
+                         for k in range(len(tempModel.KP))]
+                        for n in tempModel.N]
+
+            configsM = [[1 if k == 0 else 0
+                         for k in range(len(tempModel.KE))]
+                        for m in tempModel.M]
+
+            fireConfigs = [configsM[m].index(1) for m in tempModel.M]
+            assignments = copy.copy(assignmentsPath[timeStep - 1])
+            print(run)
+            print(timeStep)
+            print(assignments)
+
+            for r in tempModel.R:
+                assignments[r, 1] = 0
+
+            assignmentsPath[timeStep] = assignments
 
 #        self.relocationModel.write('LP.lp')
 #        print(tempModel.constraintIdxStarts)
 #        print(tempModel.decisionVarsIdxStarts)
-
-        """ UPDATE THE RESOURCE ASSIGNMENTS IN THE SYSTEM """
-        assignments = numpy.zeros([len(tempModel.R), 2])
-
-        x_RB = [[round(tempModel.solution.get_values(
-                       tempModel.decisionVarsIdxStarts["X_RB"]
-                       + r*lenB + b))
-                 for b in tempModel.B]
-                for r in tempModel.R]
-
-        for r in tempModel.R:
-            assignments[r, 0] = x_RB[r].index(1) + 1
-
-        y_RM = [[round(tempModel.solution.get_values(
-                         tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
-                         + m*(lenR + lenKE) + r))
-                 for m in tempModel.M]
-                for r in tempModel.R]
-
-        for r in tempModel.R:
-            for m in tempModel.M:
-                if y_RM[r][m] == 1:
-                    assignments[r, 1] = m + 1
-                    break
-
-        """ Update the attack configurations for each patch and active fire """
-        configsN = [[(tempModel.solution.get_values(
-                      tempModel.decisionVarsIdxStarts["Delta_NK"]
-                      + n*lenKP + k))
-                     for k in range(len(tempModel.KP))]
-                    for n in tempModel.N]
-
-        configsM = [[round(tempModel.solution.get_values(
-                           tempModel.decisionVarsIdxStarts["Y_MR_Delta_MK"]
-                           + m*(lenR + lenKE) + lenR + k))
-                     for k in range(len(tempModel.KE))]
-                    for m in tempModel.M]
-
-        fireConfigs = [configsM[m].index(1) for m in tempModel.M]
-
-        assignmentsPath[timeStep] = assignments.astype(int)
-        print(assignments)
-        print(configsM)
-        print(configsN)
-        print([numpy.array(configsN)[:, 2].sum(),
-               numpy.array(configsN)[:, 5].sum(),
-               numpy.array(configsN)[:, 8].sum(),
-               numpy.array(configsN)[:, 20].sum(),
-               numpy.array(configsN)[:, 23].sum(),
-               numpy.array(configsN)[:, 26].sum()])
+#        print(assignments)
+#        print(configsM)
+#        print(configsN)
+#        print([numpy.array(configsN)[:, 2].sum(),
+#               numpy.array(configsN)[:, 5].sum(),
+#               numpy.array(configsN)[:, 8].sum(),
+#               numpy.array(configsN)[:, 20].sum(),
+#               numpy.array(configsN)[:, 23].sum(),
+#               numpy.array(configsN)[:, 26].sum()])
 
         return [configsN, fireConfigs]
 
@@ -3389,6 +3419,7 @@ class Simulation():
         """ Builds a schedule-based assignment model to reuse for computing
         relocations. As the schedule must be updated at each time step, this
         has to be rebuilt at every time step. """
+        print("got here blin")
 
         t0 = time.time()
 
@@ -3427,6 +3458,8 @@ class Simulation():
         # Initial Aircraft Locations (Temporary)
         nodeLocs += [resourcesPath[r].getLocation()
                      for r in range(len(resources))]
+
+        print("got here blyat")
 
         cplxMod = cplex.Cplex()
         cplxMod.parameters.timelimit.set(self.model.getLPTimeout())
@@ -4000,7 +4033,7 @@ class Simulation():
                  + r*lenV*lenV*lenTs + b*lenV*lenTs + b*lenTs + t, 0)
                 for r in cplxMod.R
                 for b in cplxMod.BB
-                for t in cplxMod.Ts])
+                for t in range(len(cplxMod.Ts))])
 
         """ Constraint 9 - No backtracking to temporary nodes """
         """ This is simply an upper bound setting on variables """
@@ -4010,7 +4043,7 @@ class Simulation():
                 for r in cplxMod.R
                 for v1 in cplxMod.B + cplxMod.M
                 for v2 in cplxMod.I + cplxMod.R0
-                for t in cplxMod.Ts])
+                for t in range(len(cplxMod.Ts))])
 
         """ Constraint 10 - No relocation to initial aircraft positions """
         """ This is simply an upper bound on variables """
@@ -4020,7 +4053,7 @@ class Simulation():
                 for r in cplxMod.R
                 for v1 in cplxMod.V
                 for v2 in cplxMod.R0
-                for t in cplxMod.Ts])
+                for t in range(len(cplxMod.Ts))])
 
         """ Ensure that temporary intermediate nodes are only traversed at
         most once during the horizon and only by appropriate aircraft. """
@@ -4158,15 +4191,15 @@ class Simulation():
                     for m in range(len(cplxMod.M))]
 
         fireConfigs = [configsM[m].index(1) for m in range(len(cplxMod.M))]
-        print(cplxMod.KE[fireConfigs[0]])
-        print(self.model.getConfigurations()[cplxMod.KE[fireConfigs[0]]+1])
-        print(cplxMod.KE[fireConfigs[1]])
-        print(self.model.getConfigurations()[cplxMod.KE[fireConfigs[1]]+1])
-
-        print(assignments)
-        print(patchConfigs)
-        print(fireConfigs)
-        sys.exit()
+#        print(cplxMod.KE[fireConfigs[0]])
+#        print(self.model.getConfigurations()[cplxMod.KE[fireConfigs[0]]+1])
+#        print(cplxMod.KE[fireConfigs[1]])
+#        print(self.model.getConfigurations()[cplxMod.KE[fireConfigs[1]]+1])
+#
+#        print(assignments)
+#        print(patchConfigs)
+#        print(fireConfigs)
+#        sys.exit()
 
         """ Save the schedule history if requested """
         if self.model.getSaveSchedule():
@@ -4232,12 +4265,14 @@ class Simulation():
             oldLoc = resource.getLocation()
             newLoc = nodeLocs[assignment]
 
+#            print(oldLoc)
+#            print(newLoc)
+
             """ With this method, all nodes can be covered within an hour so
             the aircraft location is simply updated to the next assignment
             location """
-            travTime = min(
-                    numpy.linalg.norm(newLoc - oldLoc)/resource.getSpeed(),
-                    self.model.getStepSize())
+            travTime = min(self.geoDist(newLoc, oldLoc) / resource.getSpeed(),
+                           self.model.getStepSize())
 
             resource.setLocation(nodeLocs[assignment])
             accumulatedHours[tt+1, r] = accumulatedHours[tt, r] + travTime
@@ -4272,7 +4307,7 @@ class Simulation():
                 damage += fire.getSize()
                 accumulatedDamage[tt + 1, patch] += fire.getSize()
 
-                if not(fire.getInitialSuccess()):
+                if not(fire.getExtinguished()):
                     activeFires.append(fire)
 
         """ Save the fires encountered this period to the path history """
@@ -5247,12 +5282,19 @@ class Simulation():
                         'Fixed' if resources[ii] in tankers else 'Heli']
                     row.extend(self.aircraftHours[sample][run][:, ii])
 
-                    row.extend([
-                            (self.model.getRegion().getStations()[0][
-                             self.realisedAssignments[sample][run][tt][ii][0]
-                             - 1].getLocation()[pp])
-                            for tt in range(self.model.getTotalSteps() + 1)
-                            for pp in [0, 1]])
+
+                    print(self.model.getTotalSteps())
+                    print(len(self.realisedAssignments[sample][run]))
+                    print(self.realisedAssignments[sample][run])
+                    row.extend([self.aircraftPositions[sample][run][tt][ii][pp]
+                                for tt in range(self.model.getTotalSteps() + 1)
+                                for pp in [0, 1]])
+#                    row.extend([
+#                            (self.model.getRegion().getStations()[0][
+#                             self.realisedAssignments[sample][run][tt][ii][0]
+#                             - 1].getLocation()[pp])
+#                            for tt in range(self.model.getTotalSteps() + 1)
+#                            for pp in [0, 1]])
                     row.extend([
                             self.realisedAssignments[sample][run][tt][ii][0]
                             for tt in range(self.model.getTotalSteps() + 1)])
@@ -5290,30 +5332,31 @@ class Simulation():
                             ['Time_Step', str(tt)]
                             + ['']*3)
 
-                    writer.writerow(
-                            ['Fires',
-                             str(len(self.realisedFires[sample][run][tt]))]
-                            + ['']*3)
-
-                    writer.writerow(
-                            ['Fire_ID', 'Start_Size', 'End_Size',
-                             'X_Pos', 'Y_Pos'])
-
-                    for fire in range(len(
-                            self.realisedFires[sample][run][tt])):
+                    if self.realisedFires[sample][run][tt]:
                         writer.writerow(
-                                [self.realisedFires[sample][run][tt][fire]
-                                 .getID(),
-                                 self.realisedFires[sample][run][tt][fire]
-                                 .getInitialSize(),
-                                 self.realisedFires[sample][run][tt][fire]
-                                 .getFinalSize(),
-                                 self.realisedFires[sample][run][tt][fire]
-                                 .getLocation()[0],
-                                 self.realisedFires[sample][run][tt][fire]
-                                 .getLocation()[1]])
+                                ['Fires',
+                                 str(len(self.realisedFires[sample][run][tt]))]
+                                + ['']*3)
 
-                    writer.writerow(['']*5)
+                        writer.writerow(
+                                ['Fire_ID', 'Start_Size', 'End_Size',
+                                 'X_Pos', 'Y_Pos'])
+
+                        for fire in range(len(
+                                self.realisedFires[sample][run][tt])):
+                            writer.writerow(
+                                    [self.realisedFires[sample][run][tt][fire]
+                                     .getID(),
+                                     self.realisedFires[sample][run][tt][fire]
+                                     .getInitialSize(),
+                                     self.realisedFires[sample][run][tt][fire]
+                                     .getFinalSize(),
+                                     self.realisedFires[sample][run][tt][fire]
+                                     .getLocation()[0],
+                                     self.realisedFires[sample][run][tt][fire]
+                                     .getLocation()[1]])
+
+                        writer.writerow(['']*5)
 
             if self.model.getAlgo() in [4, 5]:
                 """ Monte Carlo path values for dynamic MPC """
@@ -5504,14 +5547,14 @@ class Simulation():
                     """ Location """
                     writer.writerow(
                         ['']*tt
-                        + [str(self.savedSchedules[sample][run][tt][0][t2, ac, 0])
-                           for t2 in range(tt, self.model.getTotalSteps())])
+                        + [str(self.savedSchedules[sample][run][tt][t2, ac, 0])
+                           for t2 in range(self.model.getTotalSteps() - tt)])
 
                     """ Node Type """
                     writer.writerow(
                         ['']*tt
-                        + [str(self.savedSchedules[sample][run][tt][0][t2, ac, 1])
-                           for t2 in range(tt, self.model.getTotalSteps())])
+                        + [str(self.savedSchedules[sample][run][tt][t2, ac, 1])
+                           for t2 in range(self.model.getTotalSteps() - tt)])
 
     def writeOutSummary(self):
         root = ("../Experiments/Experiments/" +
